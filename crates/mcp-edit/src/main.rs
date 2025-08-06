@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mcp_edit::EditServer;
+use mcp_edit::FsServer;
 use rmcp::{ServiceExt, transport::stdio};
 use std::{env, path::PathBuf};
 use tracing_subscriber::{self, EnvFilter};
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| env::current_dir().expect("failed to get current dir"));
 
-    let service = EditServer::new(workspace_root)
+    let service = FsServer::new(workspace_root)
         .serve(stdio())
         .await
         .map_err(|e| {
