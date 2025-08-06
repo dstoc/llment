@@ -5,10 +5,13 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies]
-rmcp = "0.4"
+rmcp = { version = "0.4", features = ["transport-io"] }
 serde = { version = "1", features = ["derive"] }
 schemars = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
 tempfile = "3"
