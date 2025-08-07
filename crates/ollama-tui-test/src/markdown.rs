@@ -3,7 +3,9 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
-use termimad::{CompoundStyle, FmtComposite, FmtLine, FmtText, MadSkin, Spacing};
+use termimad::{
+    CompoundStyle, FmtComposite, FmtLine, FmtTableRow, FmtText, MadSkin, RelativePosition, Spacing,
+};
 
 fn map_color(color: CtColor) -> Color {
     match color {
@@ -76,19 +78,87 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>) -> Vec<Span<'static>
     spans
 }
 
+fn render_table_rule(
+    skin: &MadSkin,
+    widths: &[usize],
+    pos: RelativePosition,
+    width: usize,
+) -> Line<'static> {
+    let tbc = skin.table_border_chars;
+    let border_style = style_from_compound(&skin.table.compound_style);
+    let tbl_width = 1 + widths.iter().fold(0, |sum, w| sum + w + 1);
+    let (lpo, rpo) = Spacing::optional_completions(skin.table.align, tbl_width, Some(width));
+    let mut spans = Vec::new();
+    if lpo > 0 {
+        spans.push(Span::raw(" ".repeat(lpo)));
+    }
+    let left = match pos {
+        RelativePosition::Top => tbc.top_left_corner,
+        RelativePosition::Other => tbc.left_junction,
+        RelativePosition::Bottom => tbc.bottom_left_corner,
+    };
+    let junction = match pos {
+        RelativePosition::Top => tbc.top_junction,
+        RelativePosition::Other => tbc.cross,
+        RelativePosition::Bottom => tbc.bottom_junction,
+    };
+    let right = match pos {
+        RelativePosition::Top => tbc.top_right_corner,
+        RelativePosition::Other => tbc.right_junction,
+        RelativePosition::Bottom => tbc.bottom_right_corner,
+    };
+    spans.push(Span::styled(left.to_string(), border_style));
+    for (idx, w) in widths.iter().enumerate() {
+        spans.push(Span::styled(
+            tbc.horizontal.to_string().repeat(*w),
+            border_style,
+        ));
+        if idx + 1 < widths.len() {
+            spans.push(Span::styled(junction.to_string(), border_style));
+        }
+    }
+    spans.push(Span::styled(right.to_string(), border_style));
+    if rpo > 0 {
+        spans.push(Span::raw(" ".repeat(rpo)));
+    }
+    Line::from(spans)
+}
+
 pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
     let skin = MadSkin::default();
     let fmt = FmtText::from(&skin, md, Some(width));
-    fmt.lines
-        .into_iter()
-        .map(|line| match line {
-            FmtLine::Normal(fc) => Line::from(composite_to_spans(&skin, fc)),
-            FmtLine::TableRow(row) => {
+    let mut out: Vec<Line> = Vec::new();
+    let mut current_table: Option<Vec<usize>> = None;
+    for line in fmt.lines {
+        match line {
+            FmtLine::Normal(fc) => {
+                if let Some(widths) = current_table.take() {
+                    out.push(render_table_rule(
+                        &skin,
+                        &widths,
+                        RelativePosition::Bottom,
+                        width,
+                    ));
+                }
+                out.push(Line::from(composite_to_spans(&skin, fc)));
+            }
+            FmtLine::TableRow(FmtTableRow { cells }) => {
+                let widths: Vec<usize> = cells
+                    .iter()
+                    .map(|c| c.spacing.map(|s| s.width).unwrap_or(c.visible_length))
+                    .collect();
+                if current_table.is_none() {
+                    out.push(render_table_rule(
+                        &skin,
+                        &widths,
+                        RelativePosition::Top,
+                        width,
+                    ));
+                }
+                current_table = Some(widths.clone());
                 let tbc = skin.table_border_chars;
                 let border_style = style_from_compound(&skin.table.compound_style);
-                let tbl_width = 1 + row.cells.iter().fold(0, |sum, cell| {
-                    sum + cell.spacing.map(|s| s.width).unwrap_or(cell.visible_length) + 1
-                });
+                let tbl_width = 1 + widths.iter().fold(0, |sum, w| sum + w + 1);
                 let (lpo, rpo) =
                     Spacing::optional_completions(skin.table.align, tbl_width, Some(width));
                 let mut spans = Vec::new();
@@ -96,63 +166,50 @@ pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
                     spans.push(Span::raw(" ".repeat(lpo)));
                 }
                 spans.push(Span::styled(tbc.vertical.to_string(), border_style));
-                for cell in row.cells {
+                for cell in cells {
                     spans.extend(composite_to_spans(&skin, cell));
                     spans.push(Span::styled(tbc.vertical.to_string(), border_style));
                 }
                 if rpo > 0 {
                     spans.push(Span::raw(" ".repeat(rpo)));
                 }
-                Line::from(spans)
+                out.push(Line::from(spans));
             }
             FmtLine::TableRule(rule) => {
-                let tbc = skin.table_border_chars;
-                let border_style = style_from_compound(&skin.table.compound_style);
-                let tbl_width = 1 + rule.widths.iter().fold(0, |sum, w| sum + w + 1);
-                let (lpo, rpo) =
-                    Spacing::optional_completions(skin.table.align, tbl_width, Some(width));
-                let mut spans = Vec::new();
-                if lpo > 0 {
-                    spans.push(Span::raw(" ".repeat(lpo)));
-                }
-                let left = match rule.position {
-                    termimad::RelativePosition::Top => tbc.top_left_corner,
-                    termimad::RelativePosition::Other => tbc.left_junction,
-                    termimad::RelativePosition::Bottom => tbc.bottom_left_corner,
-                };
-                let junction = match rule.position {
-                    termimad::RelativePosition::Top => tbc.top_junction,
-                    termimad::RelativePosition::Other => tbc.cross,
-                    termimad::RelativePosition::Bottom => tbc.bottom_junction,
-                };
-                let right = match rule.position {
-                    termimad::RelativePosition::Top => tbc.top_right_corner,
-                    termimad::RelativePosition::Other => tbc.right_junction,
-                    termimad::RelativePosition::Bottom => tbc.bottom_right_corner,
-                };
-                spans.push(Span::styled(left.to_string(), border_style));
-                for (idx, w) in rule.widths.iter().enumerate() {
-                    spans.push(Span::styled(
-                        tbc.horizontal.to_string().repeat(*w),
-                        border_style,
-                    ));
-                    if idx + 1 < rule.widths.len() {
-                        spans.push(Span::styled(junction.to_string(), border_style));
-                    }
-                }
-                spans.push(Span::styled(right.to_string(), border_style));
-                if rpo > 0 {
-                    spans.push(Span::raw(" ".repeat(rpo)));
-                }
-                Line::from(spans)
+                out.push(render_table_rule(
+                    &skin,
+                    &rule.widths,
+                    RelativePosition::Other,
+                    width,
+                ));
             }
             FmtLine::HorizontalRule => {
+                if let Some(widths) = current_table.take() {
+                    out.push(render_table_rule(
+                        &skin,
+                        &widths,
+                        RelativePosition::Bottom,
+                        width,
+                    ));
+                }
                 let hr_style = style_from_compound(skin.horizontal_rule.compound_style());
                 let ch = skin.horizontal_rule.get_char();
-                Line::from(vec![Span::styled(ch.to_string().repeat(width), hr_style)])
+                out.push(Line::from(vec![Span::styled(
+                    ch.to_string().repeat(width),
+                    hr_style,
+                )]));
             }
-        })
-        .collect()
+        }
+    }
+    if let Some(widths) = current_table.take() {
+        out.push(render_table_rule(
+            &skin,
+            &widths,
+            RelativePosition::Bottom,
+            width,
+        ));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -160,30 +217,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_code_block() {
-        let md = "```\nfn main() {}\n```";
+    fn preserves_code_block_indentation() {
+        let md = "```
+func foo() {
+   thing
+}
+```";
         let text = markdown_to_lines(md, 80);
         assert!(
             text.iter()
-                .any(|l| l.spans.iter().any(|s| s.content.contains("fn main()")))
+                .any(|l| l.spans.iter().any(|s| s.content.contains("   thing")))
         );
     }
 
     #[test]
-    fn renders_table() {
+    fn renders_table_with_borders() {
         let md = "|a|b|\n|-|-|\n|1|2|";
         let text = markdown_to_lines(md, 80);
+        let top = text.first().unwrap();
+        let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(top_str.contains("┌"));
         let row = text
             .iter()
             .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
             .unwrap();
         let row_str: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(row_str.contains("│ a │ b │"));
-        let rule = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("┼")))
-            .unwrap();
-        let rule_str: String = rule.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(rule_str.contains("├───┼───┤"));
+        let bottom = text.last().unwrap();
+        let bottom_str: String = bottom.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(bottom_str.contains("└"));
     }
 }
