@@ -18,3 +18,4 @@ Terminal chat interface to Ollama with MCP tool integration.
 - Thinking traces, tool calls, and tool results are collapsible.
 - Allows specifying the Ollama host via CLI option.
 - User, assistant, and thinking entries render Markdown via `tui-markdown`.
+- Tool call arguments and results render as plain text (no Markdown).
