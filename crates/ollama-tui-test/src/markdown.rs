@@ -4,7 +4,8 @@ use ratatui::{
     text::{Line, Span},
 };
 use termimad::{
-    CompoundStyle, FmtComposite, FmtLine, FmtTableRow, FmtText, MadSkin, RelativePosition, Spacing,
+    Alignment, CompositeKind, CompoundStyle, FmtComposite, FmtLine, FmtTableRow, FmtText, MadSkin,
+    RelativePosition, Spacing,
 };
 
 fn map_color(color: CtColor) -> Color {
@@ -61,21 +62,77 @@ fn style_from_compound(cs: &CompoundStyle) -> Style {
     style
 }
 
-fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>) -> Vec<Span<'static>> {
-    let ls = skin.line_style(fc.kind);
-    let (left, right) = fc.completions();
-    let mut spans: Vec<Span> = Vec::new();
-    if left > 0 {
-        spans.push(Span::raw(" ".repeat(left)));
+fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec<Span<'static>> {
+    match fc.kind {
+        CompositeKind::Code => {
+            let ls = skin.line_style(fc.kind);
+            let base_style = style_from_compound(&ls.compound_style);
+            let (left_inner, right_inner) = fc.completions();
+            let code_width = left_inner + fc.visible_length + right_inner;
+            let (outer_left, outer_right) = if width > 0 {
+                Spacing::optional_completions(Alignment::Center, code_width, Some(width))
+            } else {
+                (0, 0)
+            };
+            let mut spans: Vec<Span> = Vec::new();
+            if outer_left > 0 {
+                spans.push(Span::raw(" ".repeat(outer_left)));
+            }
+            if left_inner > 0 {
+                spans.push(Span::styled(" ".repeat(left_inner), base_style));
+            }
+            spans.extend(fc.compounds.into_iter().map(|c| {
+                let cs = skin.compound_style(ls, &c);
+                Span::styled(c.as_str().to_owned(), style_from_compound(&cs))
+            }));
+            if right_inner > 0 {
+                spans.push(Span::styled(" ".repeat(right_inner), base_style));
+            }
+            if outer_right > 0 {
+                spans.push(Span::raw(" ".repeat(outer_right)));
+            }
+            spans
+        }
+        CompositeKind::Quote => {
+            let ls = skin.line_style(fc.kind);
+            let base_style = style_from_compound(&ls.compound_style);
+            let (left, right) = fc.completions();
+            let mut spans: Vec<Span> = Vec::new();
+            let quote_style = style_from_compound(skin.quote_mark.compound_style());
+            spans.push(Span::styled(
+                format!("{} ", skin.quote_mark.get_char()),
+                quote_style,
+            ));
+            if left > 0 {
+                spans.push(Span::styled(" ".repeat(left), base_style));
+            }
+            spans.extend(fc.compounds.into_iter().map(|c| {
+                let mut style = style_from_compound(&skin.compound_style(ls, &c));
+                style = style.add_modifier(Modifier::ITALIC).fg(Color::Gray);
+                Span::styled(c.as_str().to_owned(), style)
+            }));
+            if right > 0 {
+                spans.push(Span::styled(" ".repeat(right), base_style));
+            }
+            spans
+        }
+        _ => {
+            let ls = skin.line_style(fc.kind);
+            let (left, right) = fc.completions();
+            let mut spans: Vec<Span> = Vec::new();
+            if left > 0 {
+                spans.push(Span::raw(" ".repeat(left)));
+            }
+            spans.extend(fc.compounds.into_iter().map(|c| {
+                let cs = skin.compound_style(ls, &c);
+                Span::styled(c.as_str().to_owned(), style_from_compound(&cs))
+            }));
+            if right > 0 {
+                spans.push(Span::raw(" ".repeat(right)));
+            }
+            spans
+        }
     }
-    spans.extend(fc.compounds.into_iter().map(|c| {
-        let cs = skin.compound_style(ls, &c);
-        Span::styled(c.as_str().to_owned(), style_from_compound(&cs))
-    }));
-    if right > 0 {
-        spans.push(Span::raw(" ".repeat(right)));
-    }
-    spans
 }
 
 fn render_table_rule(
@@ -125,7 +182,8 @@ fn render_table_rule(
 }
 
 pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
-    let skin = MadSkin::default();
+    let mut skin = MadSkin::default();
+    skin.table.align = Alignment::Center;
     let fmt = FmtText::from(&skin, md, Some(width));
     let mut out: Vec<Line> = Vec::new();
     let mut current_table: Option<Vec<usize>> = None;
@@ -140,7 +198,7 @@ pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
                         width,
                     ));
                 }
-                out.push(Line::from(composite_to_spans(&skin, fc)));
+                out.push(Line::from(composite_to_spans(&skin, fc, width)));
             }
             FmtLine::TableRow(FmtTableRow { cells }) => {
                 let widths: Vec<usize> = cells
@@ -167,7 +225,7 @@ pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
                 }
                 spans.push(Span::styled(tbc.vertical.to_string(), border_style));
                 for cell in cells {
-                    spans.extend(composite_to_spans(&skin, cell));
+                    spans.extend(composite_to_spans(&skin, cell, 0));
                     spans.push(Span::styled(tbc.vertical.to_string(), border_style));
                 }
                 if rpo > 0 {
@@ -246,5 +304,37 @@ func foo() {
         let bottom = text.last().unwrap();
         let bottom_str: String = bottom.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(bottom_str.contains("└"));
+    }
+
+    #[test]
+    fn styles_block_quotes() {
+        let md = "> quote";
+        let text = markdown_to_lines(md, 40);
+        let line_str: String = text[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(line_str.starts_with("▐ "));
+    }
+
+    #[test]
+    fn centers_code_block_and_table() {
+        let md = "```\na\nbbbb\n```";
+        let text = markdown_to_lines(md, 10);
+        let first = text
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
+            .unwrap();
+        let second = text
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("bbbb")))
+            .unwrap();
+        let first_str: String = first.spans.iter().map(|s| s.content.as_ref()).collect();
+        let second_str: String = second.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(first_str.chars().count(), second_str.chars().count());
+        assert!(first_str.starts_with(" "));
+
+        let table_md = "|a|b|\n|-|-|\n|1|2|";
+        let table = markdown_to_lines(table_md, 20);
+        let top = table.first().unwrap();
+        let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(top_str.starts_with(" "));
     }
 }

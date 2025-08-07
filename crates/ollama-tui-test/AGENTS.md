@@ -21,3 +21,5 @@ Terminal chat interface to Ollama with MCP tool integration.
 - User prompts render inside a boxed region with a 5-character left margin followed by a blank line; thinking blocks are flush left with wrapped lines indented by two spaces and end with a blank line.
 - Thinking steps start with a bullet; tool names are italicized while tool arguments and results render as plain text.
 - Markdown rendering via termimad preserves code block indentation and tables with padding and complete Unicode borders and is covered by tests.
+- Block quotes render with a styled quote mark and italic text.
+- Code blocks and tables are centered, with code blocks showing rectangular backgrounds.
