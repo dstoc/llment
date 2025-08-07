@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 ollama-rs = { git = "https://github.com/RobJellinghaus/ollama-rs", branch = "RobJellinghaus/streaming-tools", features = ["macros", "stream"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
