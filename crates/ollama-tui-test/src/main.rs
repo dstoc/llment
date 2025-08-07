@@ -4,37 +4,36 @@ use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ollama_rs::re_exports::schemars::Schema;
+use ollama_rs::{
+    Ollama,
+    generation::chat::{ChatMessage, request::ChatMessageRequest},
+    generation::tools::{ToolCall, ToolFunctionInfo, ToolInfo, ToolType},
 };
 use once_cell::sync::Lazy;
-use ollama_rs::{
-    generation::chat::{request::ChatMessageRequest, ChatMessage},
-    generation::tools::{ToolCall, ToolFunctionInfo, ToolInfo, ToolType},
-    Ollama,
-};
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     widgets::Paragraph,
-    Terminal,
-};
-use rmcp::{
-    model::{CallToolRequestParam, RawContent},
-    service::{RunningService, RoleClient, ServiceExt},
-    transport::TokioChildProcess,
 };
 use rmcp::service::ServerSink;
-use ollama_rs::re_exports::schemars::Schema;
+use rmcp::{
+    model::{CallToolRequestParam, RawContent},
+    service::{RoleClient, RunningService, ServiceExt},
+    transport::TokioChildProcess,
+};
 use serde::Deserialize;
+use serde_json::Value;
 use tokio::{process::Command, sync::Mutex};
 use tokio_stream::StreamExt;
-use serde_json::Value;
 
 static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
+static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 #[derive(Deserialize)]
 struct McpConfig {
@@ -122,7 +121,6 @@ async fn call_mcp_tool(
     }
 }
 
-
 #[derive(Parser, Debug)]
 struct Args {
     /// Ollama host URL, e.g. http://localhost:11434
@@ -204,30 +202,42 @@ async fn run_app<B: ratatui::backend::Backend>(
                         }
                         lines.push(format!("📝 User: {}", query));
                         lines.push("🤖 Assistant: ".to_string());
+                        let assistant_index = lines.len() - 1;
                         input.clear();
 
                         history.push(ChatMessage::user(query.clone()));
                         let mut current_line = String::new();
+                        let mut thinking_index: Option<usize> = None;
                         let mut tool_calls: Vec<ToolCall> = Vec::new();
                         {
-                            let request = ChatMessageRequest::new(
-                                "gpt-oss:20b".to_string(),
-                                history.clone(),
-                            )
-                            .tools(tool_infos.clone())
-                            .think(true);
-                            let mut stream =
-                                ollama.send_chat_messages_stream(request).await?;
+                            let request =
+                                ChatMessageRequest::new("gpt-oss:20b".to_string(), history.clone())
+                                    .tools(tool_infos.clone())
+                                    .think(true);
+                            let mut stream = ollama.send_chat_messages_stream(request).await?;
                             while let Some(chunk) = stream.next().await {
                                 let chunk = match chunk {
                                     Ok(c) => c,
                                     Err(_) => break,
                                 };
+                                if let Some(thinking) = chunk.message.thinking.as_ref() {
+                                    let idx = thinking_index.unwrap_or_else(|| {
+                                        lines.push("🤔 ".to_string());
+                                        lines.len() - 1
+                                    });
+                                    thinking_index = Some(idx);
+                                    lines[idx] = format!("🤔 {}", thinking);
+                                }
                                 if !chunk.message.content.is_empty() {
                                     current_line.push_str(&chunk.message.content);
+                                    lines[assistant_index] =
+                                        format!("🤖 Assistant: {}", current_line);
                                 }
                                 if chunk.done {
                                     tool_calls = chunk.message.tool_calls.clone();
+                                    if let Some(idx) = thinking_index {
+                                        lines.remove(idx);
+                                    }
                                     break;
                                 }
                                 terminal.draw(|f| {
@@ -240,17 +250,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         .split(area);
                                     let paragraph = Paragraph::new(lines.join("\n"));
                                     f.render_widget(paragraph, chunks[0]);
-                                    let input_widget =
-                                        Paragraph::new(format!("> {}", input));
+                                    let input_widget = Paragraph::new(format!("> {}", input));
                                     f.render_widget(input_widget, chunks[1]);
                                 })?;
                             }
                         }
-                        lines.push(current_line.clone());
                         if !current_line.is_empty() {
                             history.push(ChatMessage::assistant(current_line.clone()));
                         }
-                        current_line.clear();
 
                         if tool_calls.is_empty() {
                             lines.push("─".repeat(80));
@@ -275,24 +282,36 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 ));
                             }
                             lines.push("🤖 Assistant: ".to_string());
+                            let assistant_index = lines.len() - 1;
                             let mut final_line = String::new();
-                            let request = ChatMessageRequest::new(
-                                "gpt-oss:20b".to_string(),
-                                history.clone(),
-                            )
-                            .tools(tool_infos.clone())
-                            .think(true);
-                            let mut stream =
-                                ollama.send_chat_messages_stream(request).await?;
+                            let mut thinking_index: Option<usize> = None;
+                            let request =
+                                ChatMessageRequest::new("gpt-oss:20b".to_string(), history.clone())
+                                    .tools(tool_infos.clone())
+                                    .think(true);
+                            let mut stream = ollama.send_chat_messages_stream(request).await?;
                             while let Some(chunk) = stream.next().await {
                                 let chunk = match chunk {
                                     Ok(c) => c,
                                     Err(_) => break,
                                 };
+                                if let Some(thinking) = chunk.message.thinking.as_ref() {
+                                    let idx = thinking_index.unwrap_or_else(|| {
+                                        lines.push("🤔 ".to_string());
+                                        lines.len() - 1
+                                    });
+                                    thinking_index = Some(idx);
+                                    lines[idx] = format!("🤔 {}", thinking);
+                                }
                                 if !chunk.message.content.is_empty() {
                                     final_line.push_str(&chunk.message.content);
+                                    lines[assistant_index] =
+                                        format!("🤖 Assistant: {}", final_line);
                                 }
                                 if chunk.done {
+                                    if let Some(idx) = thinking_index {
+                                        lines.remove(idx);
+                                    }
                                     break;
                                 }
                                 terminal.draw(|f| {
@@ -305,15 +324,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         .split(area);
                                     let paragraph = Paragraph::new(lines.join("\n"));
                                     f.render_widget(paragraph, chunks[0]);
-                                    let input_widget =
-                                        Paragraph::new(format!("> {}", input));
+                                    let input_widget = Paragraph::new(format!("> {}", input));
                                     f.render_widget(input_widget, chunks[1]);
                                 })?;
                             }
-                            lines.push(final_line.clone());
                             if !final_line.is_empty() {
-                                history
-                                    .push(ChatMessage::assistant(final_line.clone()));
+                                history.push(ChatMessage::assistant(final_line.clone()));
                             }
                             lines.push("─".repeat(80));
                         }
