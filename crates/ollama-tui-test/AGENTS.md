@@ -10,6 +10,7 @@ Terminal chat interface to Ollama with MCP tool integration.
 - serde and serde_json: load MCP server configuration.
 - once_cell: shared state for loaded tools.
 - textwrap: wrap chat history.
+- termimad: render markdown.
 
 ## Features, Requirements and Constraints
 - Streams assistant responses and displays incremental "thinking" tokens before assistant messages.

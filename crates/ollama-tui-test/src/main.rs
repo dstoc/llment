@@ -10,6 +10,7 @@ use crossterm::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
     },
     execute,
+    style::{Attribute, Color as CtColor},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ollama_rs::re_exports::schemars::Schema;
@@ -23,7 +24,8 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    text::Line,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 use rmcp::service::ServerSink;
@@ -34,10 +36,10 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use termimad::{FmtText, MadSkin};
 use textwrap::wrap;
 use tokio::{process::Command, sync::Mutex};
 use tokio_stream::StreamExt;
-use tui_markdown::from_str;
 
 static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -71,6 +73,70 @@ enum ThinkingStep {
 enum LineMapping {
     Item(usize),
     Step { item: usize, step: usize },
+}
+
+fn markdown_to_lines(md: &str, width: usize) -> Vec<Line> {
+    let skin = MadSkin::default();
+    let fmt = FmtText::from(&skin, md, Some(width));
+    fmt.lines
+        .into_iter()
+        .map(|line| match line {
+            termimad::FmtLine::Normal(fc) => {
+                let ls = skin.line_style(fc.kind);
+                let spans = fc
+                    .compounds
+                    .into_iter()
+                    .map(|c| {
+                        let cs = skin.compound_style(ls, &c);
+                        let mut style = Style::default();
+                        if let Some(fg) = cs.object_style.foreground_color {
+                            style = style.fg(map_color(fg));
+                        }
+                        let attrs = cs.object_style.attributes;
+                        if attrs.has(Attribute::Bold) {
+                            style = style.add_modifier(Modifier::BOLD);
+                        }
+                        if attrs.has(Attribute::Italic) {
+                            style = style.add_modifier(Modifier::ITALIC);
+                        }
+                        if attrs.has(Attribute::Underlined) {
+                            style = style.add_modifier(Modifier::UNDERLINED);
+                        }
+                        if attrs.has(Attribute::CrossedOut) {
+                            style = style.add_modifier(Modifier::CROSSED_OUT);
+                        }
+                        Span::styled(c.as_str().to_owned(), style)
+                    })
+                    .collect::<Vec<Span>>();
+                Line::from(spans)
+            }
+            _ => Line::raw(String::new()),
+        })
+        .collect()
+}
+
+fn map_color(color: CtColor) -> Color {
+    match color {
+        CtColor::Black => Color::Black,
+        CtColor::DarkGrey => Color::DarkGray,
+        CtColor::Red => Color::LightRed,
+        CtColor::DarkRed => Color::Red,
+        CtColor::Green => Color::LightGreen,
+        CtColor::DarkGreen => Color::Green,
+        CtColor::Yellow => Color::LightYellow,
+        CtColor::DarkYellow => Color::Yellow,
+        CtColor::Blue => Color::LightBlue,
+        CtColor::DarkBlue => Color::Blue,
+        CtColor::Magenta => Color::LightMagenta,
+        CtColor::DarkMagenta => Color::Magenta,
+        CtColor::Cyan => Color::LightCyan,
+        CtColor::DarkCyan => Color::Cyan,
+        CtColor::White => Color::White,
+        CtColor::Grey => Color::Gray,
+        CtColor::Rgb { r, g, b } => Color::Rgb(r, g, b),
+        CtColor::AnsiValue(v) => Color::Indexed(v),
+        CtColor::Reset => Color::Reset,
+    }
 }
 
 #[derive(Deserialize)]
@@ -373,7 +439,7 @@ fn draw_ui(
         .zip(markdown_flags.iter())
         .flat_map(|(line, &md)| {
             if md {
-                from_str(line).lines
+                markdown_to_lines(line, width)
             } else {
                 vec![Line::raw(line.clone())]
             }
