@@ -1,10 +1,16 @@
-use std::io::stdout;
+use std::{io::stdout, time::Duration};
 
 use crossterm::{
+    event::{self, Event, KeyCode},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend, widgets::Paragraph};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    widgets::Paragraph,
+};
 use tokio_stream::StreamExt;
 
 use ollama_rs::{
@@ -61,75 +67,108 @@ async fn run_app<B: ratatui::backend::Backend>(
         .add_tool(calculate_distance)
         .debug(false);
 
-    let test_queries = vec![
-        "What's the weather like in Portland, Oregon?",
-        "How far is it from San Francisco to Los Angeles?",
-        "What's a good place to visit in Seattle?",
-    ];
-
     let mut lines: Vec<String> = Vec::new();
+    let mut input = String::new();
 
-    for (i, query) in test_queries.iter().enumerate() {
-        lines.push(format!("📝 Query {}: {}", i + 1, query));
-        lines.push("🤖 Assistant: ".to_string());
+    loop {
         terminal.draw(|f| {
             let size = f.size();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
+                .split(size);
+
             let paragraph = Paragraph::new(lines.join("\n"));
-            f.render_widget(paragraph, size);
+            f.render_widget(paragraph, chunks[0]);
+
+            let input_widget = Paragraph::new(format!("> {}", input));
+            f.render_widget(input_widget, chunks[1]);
         })?;
 
-        let stream = coordinator
-            .chat_stream(vec![ChatMessage::user(query.to_string())])
-            .await?;
-        let mut stream = Box::pin(stream);
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char(c) => input.push(c),
+                    KeyCode::Backspace => {
+                        input.pop();
+                    }
+                    KeyCode::Enter => {
+                        let query = input.trim().to_string();
+                        if query.is_empty() {
+                            input.clear();
+                            continue;
+                        }
+                        if query == "/quit" {
+                            break;
+                        }
+                        lines.push(format!("📝 User: {}", query));
+                        lines.push("🤖 Assistant: ".to_string());
+                        input.clear();
 
-        let mut current_line = String::new();
-        while let Some(event) = stream.next().await {
-            match event {
-                CoordinatorStreamEvent::ContentChunk(content) => {
-                    current_line.push_str(&content);
-                }
-                CoordinatorStreamEvent::ToolCallStarted { name, args } => {
-                    lines.push(current_line.clone());
-                    lines.push(format!("🔧 [Calling tool: {} with args: {}]", name, args));
-                    lines.push("🤖 Assistant: ".to_string());
-                    current_line.clear();
-                }
-                CoordinatorStreamEvent::ToolCallCompleted { name, result } => {
-                    lines.push(format!("✅ [Tool {} completed: {}]", name, result));
-                    lines.push("🤖 Assistant: ".to_string());
-                    current_line.clear();
-                }
-                CoordinatorStreamEvent::FinalContentChunk(content) => {
-                    current_line.push_str(&content);
-                }
-                CoordinatorStreamEvent::Done => {
-                    lines.push(current_line.clone());
-                    lines.push("✨ [Conversation complete]".to_string());
-                    current_line.clear();
-                    break;
-                }
-                CoordinatorStreamEvent::Error(err) => {
-                    lines.push(current_line.clone());
-                    lines.push(format!("❌ [Error: {}]", err));
-                    current_line.clear();
-                    break;
+                        let stream = coordinator
+                            .chat_stream(vec![ChatMessage::user(query)])
+                            .await?;
+                        let mut stream = Box::pin(stream);
+                        let mut current_line = String::new();
+
+                        while let Some(event) = stream.next().await {
+                            match event {
+                                CoordinatorStreamEvent::ContentChunk(content) => {
+                                    current_line.push_str(&content);
+                                }
+                                CoordinatorStreamEvent::ToolCallStarted { name, args } => {
+                                    lines.push(current_line.clone());
+                                    lines.push(format!(
+                                        "🔧 [Calling tool: {} with args: {}]",
+                                        name, args
+                                    ));
+                                    lines.push("🤖 Assistant: ".to_string());
+                                    current_line.clear();
+                                }
+                                CoordinatorStreamEvent::ToolCallCompleted { name, result } => {
+                                    lines.push(format!("✅ [Tool {} completed: {}]", name, result));
+                                    lines.push("🤖 Assistant: ".to_string());
+                                    current_line.clear();
+                                }
+                                CoordinatorStreamEvent::FinalContentChunk(content) => {
+                                    current_line.push_str(&content);
+                                }
+                                CoordinatorStreamEvent::Done => {
+                                    lines.push(current_line.clone());
+                                    lines.push("─".repeat(80));
+                                    current_line.clear();
+                                    break;
+                                }
+                                CoordinatorStreamEvent::Error(err) => {
+                                    lines.push(current_line.clone());
+                                    lines.push(format!("❌ [Error: {}]", err));
+                                    lines.push("─".repeat(80));
+                                    current_line.clear();
+                                    break;
+                                }
+                            }
+
+                            terminal.draw(|f| {
+                                let size = f.size();
+                                let chunks = Layout::default()
+                                    .direction(Direction::Vertical)
+                                    .constraints(
+                                        [Constraint::Min(1), Constraint::Length(3)].as_ref(),
+                                    )
+                                    .split(size);
+                                let paragraph = Paragraph::new(lines.join("\n"));
+                                f.render_widget(paragraph, chunks[0]);
+                                let input_widget = Paragraph::new(format!("> {}", input));
+                                f.render_widget(input_widget, chunks[1]);
+                            })?;
+                        }
+                    }
+                    KeyCode::Esc => break,
+                    _ => {}
                 }
             }
-            terminal.draw(|f| {
-                let size = f.size();
-                let paragraph = Paragraph::new(lines.join("\n"));
-                f.render_widget(paragraph, size);
-            })?;
         }
-        lines.push("─".repeat(80));
     }
-
-    terminal.draw(|f| {
-        let size = f.size();
-        let paragraph = Paragraph::new(lines.join("\n"));
-        f.render_widget(paragraph, size);
-    })?;
 
     Ok(())
 }
