@@ -32,6 +32,7 @@ use serde_json::Value;
 use textwrap::wrap;
 use tokio::{process::Command, sync::Mutex};
 use tokio_stream::StreamExt;
+use tui_markdown::from_str;
 
 static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -271,7 +272,8 @@ fn draw_ui(
     let top_line = (max_scroll - *scroll_offset) as usize;
 
     let content = lines.join("\n");
-    let paragraph = Paragraph::new(content)
+    let markdown = from_str(&content);
+    let paragraph = Paragraph::new(markdown)
         .wrap(Wrap { trim: false })
         .scroll((top_line as u16, 0));
     f.render_widget(paragraph, history_chunks[0]);
@@ -329,13 +331,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                         input.clear();
                         chat_history.push(ChatMessage::user(query.clone()));
 
-                                loop {
-                                items.push(HistoryItem::Text("🤖 Assistant: ".to_string()));
-                                let mut assistant_index = items.len() - 1;
-                                let mut current_line = String::new();
-                                let mut current_thinking = String::new();
-                                let mut thinking_index: Option<usize> = None;
-                                let mut tool_calls: Vec<ToolCall> = Vec::new();
+                        loop {
+                            items.push(HistoryItem::Text("🤖 Assistant: ".to_string()));
+                            let mut assistant_index = items.len() - 1;
+                            let mut current_line = String::new();
+                            let mut current_thinking = String::new();
+                            let mut thinking_index: Option<usize> = None;
+                            let mut tool_calls: Vec<ToolCall> = Vec::new();
 
                             let request = ChatMessageRequest::new(
                                 "gpt-oss:20b".to_string(),
