@@ -329,13 +329,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                         input.clear();
                         chat_history.push(ChatMessage::user(query.clone()));
 
-                        loop {
-                            items.push(HistoryItem::Text("🤖 Assistant: ".to_string()));
-                            let assistant_index = items.len() - 1;
-                            let mut current_line = String::new();
-                            let mut current_thinking = String::new();
-                            let mut thinking_index: Option<usize> = None;
-                            let mut tool_calls: Vec<ToolCall> = Vec::new();
+                                loop {
+                                items.push(HistoryItem::Text("🤖 Assistant: ".to_string()));
+                                let mut assistant_index = items.len() - 1;
+                                let mut current_line = String::new();
+                                let mut current_thinking = String::new();
+                                let mut thinking_index: Option<usize> = None;
+                                let mut tool_calls: Vec<ToolCall> = Vec::new();
 
                             let request = ChatMessageRequest::new(
                                 "gpt-oss:20b".to_string(),
@@ -351,11 +351,16 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 };
                                 if let Some(thinking) = chunk.message.thinking.as_ref() {
                                     let idx = thinking_index.unwrap_or_else(|| {
-                                        items.push(HistoryItem::Thinking {
-                                            text: String::new(),
-                                            collapsed: false,
-                                        });
-                                        items.len() - 1
+                                        items.insert(
+                                            assistant_index,
+                                            HistoryItem::Thinking {
+                                                text: String::new(),
+                                                collapsed: false,
+                                            },
+                                        );
+                                        let idx = assistant_index;
+                                        assistant_index += 1;
+                                        idx
                                     });
                                     thinking_index = Some(idx);
                                     current_thinking.push_str(thinking);
