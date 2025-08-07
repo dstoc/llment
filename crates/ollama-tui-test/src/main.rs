@@ -52,6 +52,7 @@ enum HistoryItem {
         collapsed: bool,
         start: Instant,
         duration: Duration,
+        done: bool,
     },
     Separator,
 }
@@ -227,8 +228,8 @@ fn wrap_history_lines(
                 markdown.push(false);
             }
             HistoryItem::Assistant(text) => {
-                for w in wrap(text, width.saturating_sub(5).max(1)) {
-                    lines.push(format!("     {}", w));
+                for w in wrap(text, width.max(1)) {
+                    lines.push(w.into_owned());
                     mapping.push(LineMapping::Item(idx));
                     markdown.push(true);
                 }
@@ -237,30 +238,37 @@ fn wrap_history_lines(
                 steps,
                 collapsed,
                 duration,
+                done,
                 ..
             } => {
-                if *collapsed {
-                    let calls = steps
-                        .iter()
-                        .filter(|s| matches!(s, ThinkingStep::ToolCall { .. }))
-                        .count();
+                let calls = steps
+                    .iter()
+                    .filter(|s| matches!(s, ThinkingStep::ToolCall { .. }))
+                    .count();
+                if *done {
                     let summary = format!(
-                        "Thought for {} seconds, {calls} tool call{} ›",
+                        "Thought for {} seconds, {calls} tool call{}",
                         duration.as_secs(),
-                        if calls == 1 { "" } else { "s" }
+                        if calls == 1 { "" } else { "s" },
                     );
-                    lines.push(format!("     {summary}"));
-                    mapping.push(LineMapping::Item(idx));
-                    markdown.push(false);
+                    let arrow = if *collapsed { "›" } else { "⌄" };
+                    lines.push(format!("{summary} {arrow}"));
                 } else {
-                    lines.push("     Thinking ⌄".to_string());
-                    mapping.push(LineMapping::Item(idx));
-                    markdown.push(false);
+                    lines.push("Thinking ⌄".to_string());
+                }
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
+                if !*collapsed || !*done {
                     for (s_idx, step) in steps.iter().enumerate() {
                         match step {
                             ThinkingStep::Thought(t) => {
-                                for w in wrap(&format!("· {t}"), width.saturating_sub(5).max(1)) {
-                                    lines.push(format!("     {}", w));
+                                let wrapped = wrap(t, width.saturating_sub(2).max(1));
+                                for (i, w) in wrapped.into_iter().enumerate() {
+                                    if i == 0 {
+                                        lines.push(format!("· {}", w));
+                                    } else {
+                                        lines.push(format!("  {}", w));
+                                    }
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
@@ -273,17 +281,17 @@ fn wrap_history_lines(
                                 args,
                                 result,
                                 success,
-                                collapsed,
+                                collapsed: tc_collapsed,
                             } => {
-                                if *collapsed {
-                                    lines.push(format!("     {name} ›"));
+                                if *tc_collapsed {
+                                    lines.push(format!("{name} ›"));
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
                                     markdown.push(false);
                                 } else {
-                                    lines.push(format!("     {name} ⌄"));
+                                    lines.push(format!("{name} ⌄"));
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
@@ -291,9 +299,9 @@ fn wrap_history_lines(
                                     markdown.push(false);
                                     for w in wrap(
                                         &format!("args: {args}"),
-                                        width.saturating_sub(7).max(1),
+                                        width.saturating_sub(2).max(1),
                                     ) {
-                                        lines.push(format!("       {}", w));
+                                        lines.push(format!("  {}", w));
                                         mapping.push(LineMapping::Step {
                                             item: idx,
                                             step: s_idx,
@@ -303,9 +311,9 @@ fn wrap_history_lines(
                                     let prefix = if *success { "result:" } else { "error:" };
                                     for w in wrap(
                                         &format!("{prefix} {result}"),
-                                        width.saturating_sub(7).max(1),
+                                        width.saturating_sub(2).max(1),
                                     ) {
-                                        lines.push(format!("       {}", w));
+                                        lines.push(format!("  {}", w));
                                         mapping.push(LineMapping::Step {
                                             item: idx,
                                             step: s_idx,
@@ -319,7 +327,7 @@ fn wrap_history_lines(
                 }
             }
             HistoryItem::Separator => {
-                lines.push(format!("     {}", "─".repeat(width.saturating_sub(5))));
+                lines.push("─".repeat(width));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
             }
@@ -428,12 +436,11 @@ async fn run_app<B: ratatui::backend::Backend>(
                         items.push(HistoryItem::User(query.clone()));
                         input.clear();
                         chat_history.push(ChatMessage::user(query.clone()));
-
+                        let mut thinking_index: Option<usize> = None;
                         loop {
                             items.push(HistoryItem::Assistant(String::new()));
                             let mut assistant_index = items.len() - 1;
                             let mut current_line = String::new();
-                            let mut thinking_index: Option<usize> = None;
                             let mut tool_calls: Vec<ToolCall> = Vec::new();
 
                             let request = ChatMessageRequest::new(
@@ -457,6 +464,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                                 collapsed: false,
                                                 start: Instant::now(),
                                                 duration: Duration::default(),
+                                                done: false,
                                             },
                                         );
                                         let idx = assistant_index;
@@ -489,19 +497,6 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 })?;
                             }
 
-                            if let Some(idx) = thinking_index {
-                                if let HistoryItem::Thinking {
-                                    steps: _,
-                                    collapsed,
-                                    start,
-                                    duration,
-                                } = &mut items[idx]
-                                {
-                                    *collapsed = true;
-                                    *duration = start.elapsed();
-                                }
-                            }
-
                             if !current_line.is_empty() {
                                 chat_history.push(ChatMessage::assistant(current_line.clone()));
                             } else {
@@ -509,6 +504,20 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
 
                             if tool_calls.is_empty() {
+                                if let Some(idx) = thinking_index {
+                                    if let HistoryItem::Thinking {
+                                        collapsed,
+                                        start,
+                                        duration,
+                                        done,
+                                        ..
+                                    } = &mut items[idx]
+                                    {
+                                        *collapsed = true;
+                                        *duration = start.elapsed();
+                                        *done = true;
+                                    }
+                                }
                                 items.push(HistoryItem::Separator);
                                 break;
                             }
@@ -577,10 +586,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                             if let Some(map) = draw_state.line_map.get(idx) {
                                 match *map {
                                     LineMapping::Item(item_idx) => {
-                                        if let Some(HistoryItem::Thinking { collapsed, .. }) =
-                                            items.get_mut(item_idx)
+                                        if let Some(HistoryItem::Thinking {
+                                            collapsed, done, ..
+                                        }) = items.get_mut(item_idx)
                                         {
-                                            *collapsed = !*collapsed;
+                                            if *done {
+                                                *collapsed = !*collapsed;
+                                            }
                                         }
                                     }
                                     LineMapping::Step { item, step } => {
