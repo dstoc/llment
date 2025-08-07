@@ -2,7 +2,7 @@ use std::{collections::HashMap, io::stdout, time::Duration};
 
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -143,14 +143,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     enable_raw_mode()?;
     let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let res = run_app(&mut terminal, &args.host).await;
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
 
     if let Err(err) = res {
         eprintln!("{}", err);
@@ -158,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn draw_ui(f: &mut Frame, lines: &[String], input: &str) {
+fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -168,7 +172,9 @@ fn draw_ui(f: &mut Frame, lines: &[String], input: &str) {
     let content = lines.join("\n");
     let history_height = chunks[0].height as usize;
     let line_count = content.lines().count();
-    let scroll = line_count.saturating_sub(history_height) as u16;
+    let max_scroll = line_count.saturating_sub(history_height) as i32;
+    *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
+    let scroll = (max_scroll - *scroll_offset) as u16;
 
     let paragraph = Paragraph::new(content)
         .wrap(Wrap { trim: false })
@@ -189,13 +195,14 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut lines: Vec<String> = Vec::new();
     let mut input = String::new();
     let mut history: Vec<ChatMessage> = Vec::new();
+    let mut scroll_offset: i32 = 0;
 
     loop {
-        terminal.draw(|f| draw_ui(f, &lines, &input))?;
+        terminal.draw(|f| draw_ui(f, &lines, &input, &mut scroll_offset))?;
 
         if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
+            match event::read()? {
+                Event::Key(key) => match key.code {
                     KeyCode::Char(c) => input.push(c),
                     KeyCode::Backspace => {
                         input.pop();
@@ -249,7 +256,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     tool_calls = chunk.message.tool_calls.clone();
                                     break;
                                 }
-                                terminal.draw(|f| draw_ui(f, &lines, &input))?;
+                                terminal
+                                    .draw(|f| draw_ui(f, &lines, &input, &mut scroll_offset))?;
                             }
 
                             if !current_line.is_empty() {
@@ -298,7 +306,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                     KeyCode::Esc => break,
                     _ => {}
-                }
+                },
+                Event::Mouse(m) => match m.kind {
+                    MouseEventKind::ScrollUp => scroll_offset += 1,
+                    MouseEventKind::ScrollDown => scroll_offset -= 1,
+                    _ => {}
+                },
+                _ => {}
             }
         }
     }
