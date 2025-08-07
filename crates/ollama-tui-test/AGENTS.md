@@ -25,4 +25,4 @@ Terminal chat interface to Ollama with MCP tool integration.
 - Block quotes render with a styled quote mark and italic text.
 - Code blocks and tables are centered, with code blocks showing rectangular backgrounds.
 - Markdown skin colors headings with ANSI 178, bold text yellow, and italic text magenta.
-- Blank lines within code blocks retain their background shading without introducing extra unstyled lines.
+- Blank lines within code blocks retain their background shading without introducing extra unstyled lines, even when a code block contains only blank lines.

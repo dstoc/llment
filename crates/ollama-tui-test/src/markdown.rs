@@ -72,6 +72,13 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
             let base_style = style_from_compound(&ls.compound_style);
             let (left_inner, right_inner) = fc.completions();
             let mut inner_width = left_inner + fc.visible_length + right_inner;
+            if inner_width == 0 {
+                inner_width = fc
+                    .spacing
+                    .map(|s| s.width)
+                    .filter(|w| *w > 0)
+                    .unwrap_or(width);
+            }
             let (outer_left, outer_right) = if width > 0 {
                 Spacing::optional_completions(skin.code_block.align, inner_width, Some(width))
             } else {
@@ -82,14 +89,7 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
                 spans.push(Span::raw(" ".repeat(outer_left)));
             }
             if fc.visible_length == 0 && left_inner + right_inner == 0 {
-                if inner_width == 0 {
-                    if let Some(spacing) = fc.spacing {
-                        inner_width = spacing.width;
-                    }
-                }
-                if inner_width > 0 {
-                    spans.push(Span::styled(" ".repeat(inner_width), base_style));
-                }
+                spans.push(Span::styled(" ".repeat(inner_width), base_style));
             } else {
                 if left_inner > 0 {
                     spans.push(Span::styled(" ".repeat(left_inner), base_style));
@@ -403,6 +403,15 @@ func foo() {
         assert_eq!(first_len, third_len);
         assert!(blank.spans.iter().any(|s| s.style.bg.is_some()));
         assert!(blank.spans.iter().all(|s| !s.content.is_empty()));
+    }
+
+    #[test]
+    fn styles_blank_only_code_block() {
+        let md = "```\n\n```";
+        let text = markdown_to_lines(md, 10);
+        assert_eq!(text.len(), 1);
+        let line = &text[0];
+        assert!(line.spans.iter().all(|s| s.style.bg.is_some()));
     }
 
     #[test]
