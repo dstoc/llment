@@ -40,6 +40,9 @@ fn style_from_compound(cs: &CompoundStyle) -> Style {
     if let Some(bg) = cs.object_style.background_color {
         style = style.bg(map_color(bg));
     }
+    if let Some(uc) = cs.object_style.underline_color {
+        style = style.underline_color(map_color(uc));
+    }
     let attrs = cs.object_style.attributes;
     if attrs.has(Attribute::Bold) {
         style = style.add_modifier(Modifier::BOLD);
@@ -336,5 +339,18 @@ func foo() {
         let top = table.first().unwrap();
         let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(top_str.starts_with(" "));
+    }
+
+    #[test]
+    fn maps_inline_code_colors() {
+        let md = "`code`";
+        let text = markdown_to_lines(md, 40);
+        assert_eq!(text.len(), 1);
+        let spans = &text[0].spans;
+        assert_eq!(spans.len(), 1);
+        let span = &spans[0];
+        assert_eq!(span.content.as_ref(), "code");
+        assert_eq!(span.style.fg, Some(Color::Indexed(249)));
+        assert_eq!(span.style.bg, Some(Color::Indexed(235)));
     }
 }
