@@ -73,7 +73,7 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
             let (left_inner, right_inner) = fc.completions();
             let code_width = left_inner + fc.visible_length + right_inner;
             let (outer_left, outer_right) = if width > 0 {
-                Spacing::optional_completions(Alignment::Center, code_width, Some(width))
+                Spacing::optional_completions(skin.code_block.align, code_width, Some(width))
             } else {
                 (0, 0)
             };
@@ -187,6 +187,10 @@ fn render_table_rule(
 pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
     let mut skin = MadSkin::default();
     skin.table.align = Alignment::Center;
+    skin.set_headers_fg(CtColor::AnsiValue(178));
+    skin.bold.set_fg(CtColor::Yellow);
+    skin.italic.set_fg(CtColor::Magenta);
+    skin.code_block.align = Alignment::Center;
     let fmt = FmtText::from(&skin, md, Some(width));
     let mut out: Vec<Line> = Vec::new();
     let mut current_table: Option<Vec<usize>> = None;
@@ -352,5 +356,31 @@ func foo() {
         assert_eq!(span.content.as_ref(), "code");
         assert_eq!(span.style.fg, Some(Color::Indexed(249)));
         assert_eq!(span.style.bg, Some(Color::Indexed(235)));
+    }
+
+    #[test]
+    fn uses_custom_skin_colors() {
+        let md = "# Head\n\n**bold** *italic*";
+        let text = markdown_to_lines(md, 80);
+        let head_span = text
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.as_ref().contains("Head"))
+            .unwrap();
+        assert_eq!(head_span.style.fg, Some(Color::Indexed(178)));
+
+        let bold_span = text
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.as_ref().contains("bold"))
+            .unwrap();
+        assert_eq!(bold_span.style.fg, Some(Color::LightYellow));
+
+        let italic_span = text
+            .iter()
+            .flat_map(|l| &l.spans)
+            .find(|s| s.content.as_ref().contains("italic"))
+            .unwrap();
+        assert_eq!(italic_span.style.fg, Some(Color::LightMagenta));
     }
 }
