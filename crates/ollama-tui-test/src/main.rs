@@ -271,15 +271,27 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     "🔧 [Calling tool: {} with args: {}]",
                                     call.function.name, call.function.arguments
                                 ));
-                                let result = call_mcp_tool(
+                                let result = match call_mcp_tool(
                                     &call.function.name,
                                     call.function.arguments.clone(),
                                 )
-                                .await?;
-                                lines.push(format!(
-                                    "✅ [Tool {} completed: {}]",
-                                    call.function.name, result
-                                ));
+                                .await
+                                {
+                                    Ok(res) => {
+                                        lines.push(format!(
+                                            "✅ [Tool {} completed: {}]",
+                                            call.function.name, res
+                                        ));
+                                        res
+                                    }
+                                    Err(err) => {
+                                        lines.push(format!(
+                                            "❌ [Tool {} failed: {}]",
+                                            call.function.name, err
+                                        ));
+                                        format!("Tool Failed: {}", err)
+                                    }
+                                };
                                 history.push(ChatMessage::tool(
                                     result.clone(),
                                     call.function.name.clone(),
