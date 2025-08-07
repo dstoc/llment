@@ -17,7 +17,7 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Paragraph, Wrap},
+    widgets::{Paragraph, Wrap, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use rmcp::service::ServerSink;
 use rmcp::{
@@ -169,8 +169,13 @@ fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32
         .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
         .split(area);
 
+    let history_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(1)].as_ref())
+        .split(chunks[0]);
+
     let content = lines.join("\n");
-    let history_height = chunks[0].height as usize;
+    let history_height = history_chunks[0].height as usize;
     let line_count = content.lines().count();
     let max_scroll = line_count.saturating_sub(history_height) as i32;
     *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
@@ -179,7 +184,13 @@ fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32
     let paragraph = Paragraph::new(content)
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
-    f.render_widget(paragraph, chunks[0]);
+    f.render_widget(paragraph, history_chunks[0]);
+
+    let mut scrollbar_state = ScrollbarState::new(line_count)
+        .position(scroll as usize)
+        .viewport_content_length(history_height);
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+    f.render_stateful_widget(scrollbar, history_chunks[1], &mut scrollbar_state);
 
     let input_widget = Paragraph::new(format!("> {}", input));
     f.render_widget(input_widget, chunks[1]);
