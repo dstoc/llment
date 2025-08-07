@@ -7,7 +7,10 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ollama_rs::{
-    CoordinatorStreamEvent, Ollama, coordinator::Coordinator, generation::chat::ChatMessage,
+    CoordinatorStreamEvent, Ollama,
+    coordinator::Coordinator,
+    generation::chat::ChatMessage,
+    generation::tools::{ToolCall, ToolCallFunction},
 };
 use ratatui::{
     Terminal,
@@ -71,14 +74,14 @@ async fn run_app<B: ratatui::backend::Backend>(
     host: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let ollama = Ollama::try_new(host)?;
-    let history = vec![];
-    let mut coordinator = Coordinator::new(ollama, "gpt-oss:20b".to_string(), history)
+    let mut coordinator = Coordinator::new(ollama, "gpt-oss:20b".to_string(), vec![])
         .add_tool(get_weather)
         .add_tool(calculate_distance)
         .debug(false);
 
     let mut lines: Vec<String> = Vec::new();
     let mut input = String::new();
+    let mut history: Vec<ChatMessage> = Vec::new();
 
     loop {
         terminal.draw(|f| {
@@ -115,9 +118,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                         lines.push("🤖 Assistant: ".to_string());
                         input.clear();
 
-                        let stream = coordinator
-                            .chat_stream(vec![ChatMessage::user(query)])
-                            .await?;
+                        history.push(ChatMessage::user(query.clone()));
+                        let stream = coordinator.chat_stream(history.clone()).await?;
                         let mut stream = Box::pin(stream);
                         let mut current_line = String::new();
 
@@ -128,6 +130,17 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 }
                                 CoordinatorStreamEvent::ToolCallStarted { name, args } => {
                                     lines.push(current_line.clone());
+                                    if !current_line.is_empty() {
+                                        history.push(ChatMessage::assistant(current_line.clone()));
+                                    }
+                                    let mut call_msg = ChatMessage::assistant(String::new());
+                                    call_msg.tool_calls.push(ToolCall {
+                                        function: ToolCallFunction {
+                                            name: name.clone(),
+                                            arguments: args.clone(),
+                                        },
+                                    });
+                                    history.push(call_msg);
                                     lines.push(format!(
                                         "🔧 [Calling tool: {} with args: {}]",
                                         name, args
@@ -138,6 +151,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 CoordinatorStreamEvent::ToolCallCompleted { name, result } => {
                                     lines.push(format!("✅ [Tool {} completed: {}]", name, result));
                                     lines.push("🤖 Assistant: ".to_string());
+                                    history.push(ChatMessage::tool(result.clone(), name.clone()));
                                     current_line.clear();
                                 }
                                 CoordinatorStreamEvent::FinalContentChunk(content) => {
@@ -146,6 +160,9 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 CoordinatorStreamEvent::Done => {
                                     lines.push(current_line.clone());
                                     lines.push("─".repeat(80));
+                                    if !current_line.is_empty() {
+                                        history.push(ChatMessage::assistant(current_line.clone()));
+                                    }
                                     current_line.clear();
                                     break;
                                 }
