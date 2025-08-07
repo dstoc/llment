@@ -15,7 +15,7 @@ Terminal chat interface to Ollama with MCP tool integration.
 - Streams assistant responses and displays incremental "thinking" tokens before assistant messages.
 - Loads MCP servers from configuration, exposes their tools, and executes tool calls with error handling.
 - Chat history is wrapped and scrollable with scrollbar and mouse support.
-- Thinking traces, tool calls, and tool results are collapsible.
+- Groups all reasoning and tool steps into a single collapsible "Thinking" block summarizing duration and tool call count.
 - Allows specifying the Ollama host via CLI option.
-- User, assistant, and thinking entries render Markdown via `tui-markdown`.
+- User prompts render inside a boxed region with a 5-character left margin, and entries render Markdown via `tui-markdown`.
 - Tool call arguments and results render as plain text (no Markdown).

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, io::stdout, time::Duration};
+use std::{
+    collections::HashMap,
+    io::stdout,
+    time::{Duration, Instant},
+};
 
 use clap::Parser;
 use crossterm::{
@@ -41,23 +45,31 @@ static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
 static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 enum HistoryItem {
-    Text(String),
+    User(String),
+    Assistant(String),
     Thinking {
-        text: String,
+        steps: Vec<ThinkingStep>,
         collapsed: bool,
+        start: Instant,
+        duration: Duration,
     },
+    Separator,
+}
+
+enum ThinkingStep {
+    Thought(String),
     ToolCall {
         name: String,
         args: String,
-        collapsed: bool,
-    },
-    ToolResult {
-        name: String,
         result: String,
         success: bool,
         collapsed: bool,
     },
-    Separator,
+}
+
+enum LineMapping {
+    Item(usize),
+    Step { item: usize, step: usize },
 }
 
 #[derive(Deserialize)]
@@ -187,56 +199,129 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<usize>, Vec<bool>) {
+fn wrap_history_lines(
+    items: &[HistoryItem],
+    width: usize,
+) -> (Vec<String>, Vec<LineMapping>, Vec<bool>) {
     let mut lines = Vec::new();
     let mut mapping = Vec::new();
     let mut markdown = Vec::new();
     for (idx, item) in items.iter().enumerate() {
-        let (text, is_markdown) = match item {
-            HistoryItem::Text(t) => (t.clone(), true),
-            HistoryItem::Thinking { text, collapsed } => {
-                if *collapsed {
-                    ("🤔 Thinking".to_string(), true)
-                } else {
-                    (format!("🤔 {}", text), true)
+        match item {
+            HistoryItem::User(text) => {
+                let inner_width = width.saturating_sub(7);
+                let wrapped = wrap(text, inner_width.max(1));
+                let box_width = wrapped.iter().map(|l| l.len()).max().unwrap_or(0);
+                lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
+                for w in wrapped {
+                    let mut line = w.into_owned();
+                    line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
+                    lines.push(format!("     │{}│", line));
+                    mapping.push(LineMapping::Item(idx));
+                    markdown.push(false);
+                }
+                lines.push(format!("     └{}┘", "─".repeat(box_width)));
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
+            }
+            HistoryItem::Assistant(text) => {
+                for w in wrap(text, width.saturating_sub(5).max(1)) {
+                    lines.push(format!("     {}", w));
+                    mapping.push(LineMapping::Item(idx));
+                    markdown.push(true);
                 }
             }
-            HistoryItem::ToolCall {
-                name,
-                args,
+            HistoryItem::Thinking {
+                steps,
                 collapsed,
+                duration,
+                ..
             } => {
                 if *collapsed {
-                    (format!("🔧 {name}"), false)
+                    let calls = steps
+                        .iter()
+                        .filter(|s| matches!(s, ThinkingStep::ToolCall { .. }))
+                        .count();
+                    let summary = format!(
+                        "Thought for {} seconds, {calls} tool call{} ›",
+                        duration.as_secs(),
+                        if calls == 1 { "" } else { "s" }
+                    );
+                    lines.push(format!("     {summary}"));
+                    mapping.push(LineMapping::Item(idx));
+                    markdown.push(false);
                 } else {
-                    (format!("🔧 Calling tool: {name} with args: {args}"), false)
+                    lines.push("     Thinking ⌄".to_string());
+                    mapping.push(LineMapping::Item(idx));
+                    markdown.push(false);
+                    for (s_idx, step) in steps.iter().enumerate() {
+                        match step {
+                            ThinkingStep::Thought(t) => {
+                                for w in wrap(&format!("· {t}"), width.saturating_sub(5).max(1)) {
+                                    lines.push(format!("     {}", w));
+                                    mapping.push(LineMapping::Step {
+                                        item: idx,
+                                        step: s_idx,
+                                    });
+                                    markdown.push(false);
+                                }
+                            }
+                            ThinkingStep::ToolCall {
+                                name,
+                                args,
+                                result,
+                                success,
+                                collapsed,
+                            } => {
+                                if *collapsed {
+                                    lines.push(format!("     {name} ›"));
+                                    mapping.push(LineMapping::Step {
+                                        item: idx,
+                                        step: s_idx,
+                                    });
+                                    markdown.push(false);
+                                } else {
+                                    lines.push(format!("     {name} ⌄"));
+                                    mapping.push(LineMapping::Step {
+                                        item: idx,
+                                        step: s_idx,
+                                    });
+                                    markdown.push(false);
+                                    for w in wrap(
+                                        &format!("args: {args}"),
+                                        width.saturating_sub(7).max(1),
+                                    ) {
+                                        lines.push(format!("       {}", w));
+                                        mapping.push(LineMapping::Step {
+                                            item: idx,
+                                            step: s_idx,
+                                        });
+                                        markdown.push(false);
+                                    }
+                                    let prefix = if *success { "result:" } else { "error:" };
+                                    for w in wrap(
+                                        &format!("{prefix} {result}"),
+                                        width.saturating_sub(7).max(1),
+                                    ) {
+                                        lines.push(format!("       {}", w));
+                                        mapping.push(LineMapping::Step {
+                                            item: idx,
+                                            step: s_idx,
+                                        });
+                                        markdown.push(false);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            HistoryItem::ToolResult {
-                name,
-                result,
-                success,
-                collapsed,
-            } => {
-                let prefix = if *success { "✅" } else { "❌" };
-                if *collapsed {
-                    (format!("{prefix} {name}"), false)
-                } else {
-                    (format!("{prefix} Tool {name} result: {result}"), false)
-                }
-            }
-            HistoryItem::Separator => ("─".repeat(width), false),
-        };
-        let wrapped = wrap(&text, width.max(1));
-        if wrapped.is_empty() {
-            lines.push(String::new());
-            mapping.push(idx);
-            markdown.push(is_markdown);
-        } else {
-            for w in wrapped {
-                lines.push(w.into_owned());
-                mapping.push(idx);
-                markdown.push(is_markdown);
+            HistoryItem::Separator => {
+                lines.push(format!("     {}", "─".repeat(width.saturating_sub(5))));
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
             }
         }
     }
@@ -246,7 +331,7 @@ fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<
 #[derive(Default)]
 struct DrawState {
     history_rect: Rect,
-    line_to_item: Vec<usize>,
+    line_map: Vec<LineMapping>,
     top_line: usize,
 }
 
@@ -302,7 +387,7 @@ fn draw_ui(
 
     DrawState {
         history_rect: history_chunks[0],
-        line_to_item: mapping,
+        line_map: mapping,
         top_line,
     }
 }
@@ -340,15 +425,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                         if query == "/quit" {
                             break;
                         }
-                        items.push(HistoryItem::Text(format!("📝 User: {}", query)));
+                        items.push(HistoryItem::User(query.clone()));
                         input.clear();
                         chat_history.push(ChatMessage::user(query.clone()));
 
                         loop {
-                            items.push(HistoryItem::Text("🤖 Assistant: ".to_string()));
+                            items.push(HistoryItem::Assistant(String::new()));
                             let mut assistant_index = items.len() - 1;
                             let mut current_line = String::new();
-                            let mut current_thinking = String::new();
                             let mut thinking_index: Option<usize> = None;
                             let mut tool_calls: Vec<ToolCall> = Vec::new();
 
@@ -369,8 +453,10 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         items.insert(
                                             assistant_index,
                                             HistoryItem::Thinking {
-                                                text: String::new(),
+                                                steps: Vec::new(),
                                                 collapsed: false,
+                                                start: Instant::now(),
+                                                duration: Duration::default(),
                                             },
                                         );
                                         let idx = assistant_index;
@@ -378,15 +464,20 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         idx
                                     });
                                     thinking_index = Some(idx);
-                                    current_thinking.push_str(thinking);
-                                    if let HistoryItem::Thinking { text, .. } = &mut items[idx] {
-                                        *text = current_thinking.clone();
+                                    if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                                        if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
+                                            t.push_str(thinking);
+                                        } else {
+                                            steps.push(ThinkingStep::Thought(thinking.clone()));
+                                        }
                                     }
                                 }
                                 if !chunk.message.content.is_empty() {
                                     current_line.push_str(&chunk.message.content);
-                                    if let HistoryItem::Text(line) = &mut items[assistant_index] {
-                                        *line = format!("🤖 Assistant: {}", current_line);
+                                    if let HistoryItem::Assistant(line) =
+                                        &mut items[assistant_index]
+                                    {
+                                        *line = current_line.clone();
                                     }
                                 }
                                 if chunk.done {
@@ -399,9 +490,15 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
 
                             if let Some(idx) = thinking_index {
-                                if let HistoryItem::Thinking { text, collapsed } = &mut items[idx] {
-                                    *text = current_thinking.clone();
+                                if let HistoryItem::Thinking {
+                                    steps: _,
+                                    collapsed,
+                                    start,
+                                    duration,
+                                } = &mut items[idx]
+                                {
                                     *collapsed = true;
+                                    *duration = start.elapsed();
                                 }
                             }
 
@@ -416,42 +513,50 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 break;
                             }
 
-                            for call in tool_calls {
-                                items.push(HistoryItem::ToolCall {
-                                    name: call.function.name.clone(),
-                                    args: call.function.arguments.to_string(),
-                                    collapsed: true,
-                                });
-                                let result = match call_mcp_tool(
-                                    &call.function.name,
-                                    call.function.arguments.clone(),
-                                )
-                                .await
-                                {
-                                    Ok(res) => {
-                                        items.push(HistoryItem::ToolResult {
+                            if let Some(t_idx) = thinking_index {
+                                if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
+                                    for call in tool_calls {
+                                        steps.push(ThinkingStep::ToolCall {
                                             name: call.function.name.clone(),
-                                            result: res.clone(),
+                                            args: call.function.arguments.to_string(),
+                                            result: String::new(),
                                             success: true,
                                             collapsed: true,
                                         });
-                                        res
+                                        let s_idx = steps.len() - 1;
+                                        let result = match call_mcp_tool(
+                                            &call.function.name,
+                                            call.function.arguments.clone(),
+                                        )
+                                        .await
+                                        {
+                                            Ok(res) => {
+                                                if let ThinkingStep::ToolCall { result, .. } =
+                                                    &mut steps[s_idx]
+                                                {
+                                                    *result = res.clone();
+                                                }
+                                                res
+                                            }
+                                            Err(err) => {
+                                                if let ThinkingStep::ToolCall {
+                                                    result,
+                                                    success,
+                                                    ..
+                                                } = &mut steps[s_idx]
+                                                {
+                                                    *result = format!("Tool Failed: {}", err);
+                                                    *success = false;
+                                                }
+                                                String::new()
+                                            }
+                                        };
+                                        chat_history.push(ChatMessage::tool(
+                                            result.clone(),
+                                            call.function.name.clone(),
+                                        ));
                                     }
-                                    Err(err) => {
-                                        let err_str = format!("Tool Failed: {}", err);
-                                        items.push(HistoryItem::ToolResult {
-                                            name: call.function.name.clone(),
-                                            result: err_str.clone(),
-                                            success: false,
-                                            collapsed: true,
-                                        });
-                                        err_str
-                                    }
-                                };
-                                chat_history.push(ChatMessage::tool(
-                                    result.clone(),
-                                    call.function.name.clone(),
-                                ));
+                                }
                             }
                         }
                     }
@@ -469,15 +574,26 @@ async fn run_app<B: ratatui::backend::Backend>(
                         {
                             let idx =
                                 draw_state.top_line + (m.row - draw_state.history_rect.y) as usize;
-                            if let Some(&item_idx) = draw_state.line_to_item.get(idx) {
-                                if let Some(item) = items.get_mut(item_idx) {
-                                    match item {
-                                        HistoryItem::Thinking { collapsed, .. }
-                                        | HistoryItem::ToolCall { collapsed, .. }
-                                        | HistoryItem::ToolResult { collapsed, .. } => {
+                            if let Some(map) = draw_state.line_map.get(idx) {
+                                match *map {
+                                    LineMapping::Item(item_idx) => {
+                                        if let Some(HistoryItem::Thinking { collapsed, .. }) =
+                                            items.get_mut(item_idx)
+                                        {
                                             *collapsed = !*collapsed;
                                         }
-                                        _ => {}
+                                    }
+                                    LineMapping::Step { item, step } => {
+                                        if let Some(HistoryItem::Thinking { steps, .. }) =
+                                            items.get_mut(item)
+                                        {
+                                            if let Some(ThinkingStep::ToolCall {
+                                                collapsed, ..
+                                            }) = steps.get_mut(step)
+                                            {
+                                                *collapsed = !*collapsed;
+                                            }
+                                        }
                                     }
                                 }
                             }
