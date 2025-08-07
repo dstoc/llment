@@ -10,7 +10,9 @@ pub enum ReplacementError {
 impl fmt::Display for ReplacementError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            ReplacementError::NotFound => write!(f, "no occurrences of the target string were found"),
+            ReplacementError::NotFound => {
+                write!(f, "no occurrences of the target string were found")
+            }
             ReplacementError::UnexpectedCount { expected, found } => write!(
                 f,
                 "expected to replace {} occurrence(s), but found {}",
@@ -72,7 +74,10 @@ mod tests {
         let text = "repeat repeat";
         assert!(matches!(
             replace_in_content(text, "repeat", "once", None),
-            Err(ReplacementError::UnexpectedCount { expected: 1, found: 2 })
+            Err(ReplacementError::UnexpectedCount {
+                expected: 1,
+                found: 2
+            })
         ));
     }
 
@@ -88,7 +93,10 @@ mod tests {
         let text = "x x";
         assert!(matches!(
             replace_in_content(text, "x", "y", Some(3)),
-            Err(ReplacementError::UnexpectedCount { expected: 3, found: 2 })
+            Err(ReplacementError::UnexpectedCount {
+                expected: 3,
+                found: 2
+            })
         ));
     }
 }

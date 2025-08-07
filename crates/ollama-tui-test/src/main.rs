@@ -72,11 +72,11 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     loop {
         terminal.draw(|f| {
-            let size = f.size();
+            let area = f.area();
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
-                .split(size);
+                .split(area);
 
             let paragraph = Paragraph::new(lines.join("\n"));
             f.render_widget(paragraph, chunks[0]);
@@ -149,13 +149,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
 
                             terminal.draw(|f| {
-                                let size = f.size();
+                                let area = f.area();
                                 let chunks = Layout::default()
                                     .direction(Direction::Vertical)
                                     .constraints(
                                         [Constraint::Min(1), Constraint::Length(3)].as_ref(),
                                     )
-                                    .split(size);
+                                    .split(area);
                                 let paragraph = Paragraph::new(lines.join("\n"));
                                 f.render_widget(paragraph, chunks[0]);
                                 let input_widget = Paragraph::new(format!("> {}", input));
