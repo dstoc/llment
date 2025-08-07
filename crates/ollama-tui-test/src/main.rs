@@ -430,7 +430,8 @@ fn draw_ui(
 
     let full_width = history_chunks[0].width as usize;
     let render_width = full_width.min(100);
-    let render_x = history_chunks[0].x + history_chunks[0].width - render_width as u16;
+    let render_x =
+        history_chunks[0].x + (history_chunks[0].width.saturating_sub(render_width as u16)) / 2;
     let render_rect = Rect {
         x: render_x,
         y: history_chunks[0].y,
