@@ -71,9 +71,9 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
             let ls = skin.line_style(fc.kind);
             let base_style = style_from_compound(&ls.compound_style);
             let (left_inner, right_inner) = fc.completions();
-            let code_width = left_inner + fc.visible_length + right_inner;
+            let mut inner_width = left_inner + fc.visible_length + right_inner;
             let (outer_left, outer_right) = if width > 0 {
-                Spacing::optional_completions(skin.code_block.align, code_width, Some(width))
+                Spacing::optional_completions(skin.code_block.align, inner_width, Some(width))
             } else {
                 (0, 0)
             };
@@ -81,15 +81,26 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
             if outer_left > 0 {
                 spans.push(Span::raw(" ".repeat(outer_left)));
             }
-            if left_inner > 0 {
-                spans.push(Span::styled(" ".repeat(left_inner), base_style));
-            }
-            spans.extend(fc.compounds.into_iter().map(|c| {
-                let cs = skin.compound_style(ls, &c);
-                Span::styled(c.as_str().to_owned(), style_from_compound(&cs))
-            }));
-            if right_inner > 0 {
-                spans.push(Span::styled(" ".repeat(right_inner), base_style));
+            if fc.visible_length == 0 && left_inner + right_inner == 0 {
+                if inner_width == 0 {
+                    if let Some(spacing) = fc.spacing {
+                        inner_width = spacing.width;
+                    }
+                }
+                if inner_width > 0 {
+                    spans.push(Span::styled(" ".repeat(inner_width), base_style));
+                }
+            } else {
+                if left_inner > 0 {
+                    spans.push(Span::styled(" ".repeat(left_inner), base_style));
+                }
+                spans.extend(fc.compounds.into_iter().map(|c| {
+                    let cs = skin.compound_style(ls, &c);
+                    Span::styled(c.as_str().to_owned(), style_from_compound(&cs))
+                }));
+                if right_inner > 0 {
+                    spans.push(Span::styled(" ".repeat(right_inner), base_style));
+                }
             }
             if outer_right > 0 {
                 spans.push(Span::raw(" ".repeat(outer_right)));
@@ -343,6 +354,51 @@ func foo() {
         let top = table.first().unwrap();
         let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(top_str.starts_with(" "));
+    }
+
+    #[test]
+    fn fills_blank_lines_in_code_block() {
+        let md = "```\na\n\nb\n```";
+        let text = markdown_to_lines(md, 10);
+        let first = text
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
+            .unwrap();
+        let blank = text
+            .iter()
+            .find(|l| {
+                let content: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+                content.trim().is_empty() && l.spans.iter().any(|s| s.style.bg.is_some())
+            })
+            .unwrap();
+        let third = text
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("b")))
+            .unwrap();
+        let first_len = first
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
+            .chars()
+            .count();
+        let blank_len = blank
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
+            .chars()
+            .count();
+        let third_len = third
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
+            .chars()
+            .count();
+        assert_eq!(first_len, blank_len);
+        assert_eq!(first_len, third_len);
+        assert!(blank.spans.iter().any(|s| s.style.bg.is_some()));
     }
 
     #[test]
