@@ -208,6 +208,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                             lines.push("🤖 Assistant: ".to_string());
                             let assistant_index = lines.len() - 1;
                             let mut current_line = String::new();
+                            let mut current_thinking = String::new();
                             let mut thinking_index: Option<usize> = None;
                             let mut tool_calls: Vec<ToolCall> = Vec::new();
 
@@ -227,7 +228,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         lines.len() - 1
                                     });
                                     thinking_index = Some(idx);
-                                    lines[idx] = format!("🤔 {}", thinking);
+                                    current_thinking.push_str(thinking);
+                                    lines[idx] = format!("🤔 {}", current_thinking);
                                 }
                                 if !chunk.message.content.is_empty() {
                                     current_line.push_str(&chunk.message.content);
