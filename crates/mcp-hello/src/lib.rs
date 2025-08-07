@@ -1,8 +1,8 @@
 use rmcp::{
+    ErrorData as McpError, ServerHandler,
     handler::server::tool::ToolRouter,
     model::{CallToolResult, Content},
     tool, tool_handler, tool_router,
-    ErrorData as McpError, ServerHandler,
 };
 use std::future::Future;
 
@@ -21,7 +21,9 @@ impl HelloServer {
 
     #[tool(description = "Return a friendly greeting")]
     pub async fn hello(&self) -> Result<CallToolResult, McpError> {
-        Ok(CallToolResult::success(vec![Content::text("Hello, world!")]))
+        Ok(CallToolResult::success(vec![Content::text(
+            "Hello, world!",
+        )]))
     }
 }
 
