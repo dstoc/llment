@@ -14,10 +14,10 @@ use ollama_rs::{
 };
 use once_cell::sync::Lazy;
 use ratatui::{
-    Terminal,
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::Paragraph,
+    widgets::{Paragraph, Wrap},
 };
 use rmcp::service::ServerSink;
 use rmcp::{
@@ -158,6 +158,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
+fn draw_ui(f: &mut Frame, lines: &[String], input: &str) {
+    let area = f.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
+        .split(area);
+
+    let content = lines.join("\n");
+    let history_height = chunks[0].height as usize;
+    let line_count = content.lines().count();
+    let scroll = line_count.saturating_sub(history_height) as u16;
+
+    let paragraph = Paragraph::new(content)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
+    f.render_widget(paragraph, chunks[0]);
+
+    let input_widget = Paragraph::new(format!("> {}", input));
+    f.render_widget(input_widget, chunks[1]);
+}
+
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     host: &str,
@@ -170,19 +191,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut history: Vec<ChatMessage> = Vec::new();
 
     loop {
-        terminal.draw(|f| {
-            let area = f.area();
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
-                .split(area);
-
-            let paragraph = Paragraph::new(lines.join("\n"));
-            f.render_widget(paragraph, chunks[0]);
-
-            let input_widget = Paragraph::new(format!("> {}", input));
-            f.render_widget(input_widget, chunks[1]);
-        })?;
+        terminal.draw(|f| draw_ui(f, &lines, &input))?;
 
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
@@ -240,19 +249,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     tool_calls = chunk.message.tool_calls.clone();
                                     break;
                                 }
-                                terminal.draw(|f| {
-                                    let area = f.area();
-                                    let chunks = Layout::default()
-                                        .direction(Direction::Vertical)
-                                        .constraints(
-                                            [Constraint::Min(1), Constraint::Length(3)].as_ref(),
-                                        )
-                                        .split(area);
-                                    let paragraph = Paragraph::new(lines.join("\n"));
-                                    f.render_widget(paragraph, chunks[0]);
-                                    let input_widget = Paragraph::new(format!("> {}", input));
-                                    f.render_widget(input_widget, chunks[1]);
-                                })?;
+                                terminal.draw(|f| draw_ui(f, &lines, &input))?;
                             }
 
                             if !current_line.is_empty() {
