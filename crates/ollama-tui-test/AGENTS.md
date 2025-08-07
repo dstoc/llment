@@ -12,7 +12,7 @@ Terminal chat interface to Ollama with MCP tool integration.
 - textwrap: wrap chat history.
 
 ## Features, Requirements and Constraints
-- Streams assistant responses and displays incremental "thinking" tokens.
+- Streams assistant responses and displays incremental "thinking" tokens before assistant messages.
 - Loads MCP servers from configuration, exposes their tools, and executes tool calls with error handling.
 - Chat history is wrapped and scrollable with scrollbar and mouse support.
 - Thinking traces, tool calls, and tool results are collapsible.
