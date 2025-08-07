@@ -69,6 +69,7 @@ enum ThinkingStep {
     },
 }
 
+#[derive(Clone, Copy)]
 enum LineMapping {
     Item(usize),
     Step { item: usize, step: usize },
@@ -232,11 +233,9 @@ fn wrap_history_lines(
                 markdown.push(false);
             }
             HistoryItem::Assistant(text) => {
-                for w in wrap(text, width.max(1)) {
-                    lines.push(w.into_owned());
-                    mapping.push(LineMapping::Item(idx));
-                    markdown.push(true);
-                }
+                lines.push(text.clone());
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(true);
             }
             HistoryItem::Thinking {
                 steps,
@@ -369,17 +368,22 @@ fn draw_ui(
 
     let width = history_chunks[0].width as usize;
     let (lines, mapping, markdown_flags) = wrap_history_lines(items, width);
-    let rendered_lines: Vec<Line> = lines
-        .iter()
+    let mut rendered_lines = Vec::new();
+    let mut rendered_map = Vec::new();
+    for ((line, map), &md) in lines
+        .into_iter()
+        .zip(mapping.into_iter())
         .zip(markdown_flags.iter())
-        .flat_map(|(line, &md)| {
-            if md {
-                markdown::markdown_to_lines(line, width)
-            } else {
-                vec![Line::raw(line.clone())]
-            }
-        })
-        .collect();
+    {
+        if md {
+            let converted = markdown::markdown_to_lines(&line, width);
+            rendered_map.extend(std::iter::repeat(map).take(converted.len()));
+            rendered_lines.extend(converted);
+        } else {
+            rendered_map.push(map);
+            rendered_lines.push(Line::raw(line));
+        }
+    }
     let history_height = history_chunks[0].height as usize;
     let line_count = rendered_lines.len();
     let max_scroll = line_count.saturating_sub(history_height) as i32;
@@ -402,7 +406,7 @@ fn draw_ui(
 
     DrawState {
         history_rect: history_chunks[0],
-        line_map: mapping,
+        line_map: rendered_map,
         top_line,
     }
 }
