@@ -66,7 +66,7 @@ fn style_from_compound(cs: &CompoundStyle) -> Style {
 }
 
 fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec<Span<'static>> {
-    match fc.kind {
+    let mut spans = match fc.kind {
         CompositeKind::Code => {
             let ls = skin.line_style(fc.kind);
             let base_style = style_from_compound(&ls.compound_style);
@@ -146,7 +146,9 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
             }
             spans
         }
-    }
+    };
+    spans.retain(|s| !s.content.is_empty());
+    spans
 }
 
 fn render_table_rule(
@@ -360,6 +362,7 @@ func foo() {
     fn fills_blank_lines_in_code_block() {
         let md = "```\na\n\nb\n```";
         let text = markdown_to_lines(md, 10);
+        assert_eq!(text.len(), 3);
         let first = text
             .iter()
             .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
@@ -399,6 +402,7 @@ func foo() {
         assert_eq!(first_len, blank_len);
         assert_eq!(first_len, third_len);
         assert!(blank.spans.iter().any(|s| s.style.bg.is_some()));
+        assert!(blank.spans.iter().all(|s| !s.content.is_empty()));
     }
 
     #[test]
