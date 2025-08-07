@@ -24,3 +24,4 @@ Terminal chat interface to Ollama with MCP tool integration.
 - Markdown rendering maps termimad foreground and background colors to ratatui styles.
 - Block quotes render with a styled quote mark and italic text.
 - Code blocks and tables are centered, with code blocks showing rectangular backgrounds.
+- Markdown skin colors headings with ANSI 178, bold text yellow, and italic text magenta.
