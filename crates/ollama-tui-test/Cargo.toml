@@ -1,0 +1,12 @@
+[package]
+name = "ollama-tui-test"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ollama-rs = { git = "https://github.com/RobJellinghaus/ollama-rs", branch = "RobJellinghaus/streaming-tools", features = ["macros", "stream"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+ratatui = "0.26"
+crossterm = "0.27"
