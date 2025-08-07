@@ -19,6 +19,7 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
+    text::Line,
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 use rmcp::service::ServerSink;
@@ -186,17 +187,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<usize>) {
+fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<usize>, Vec<bool>) {
     let mut lines = Vec::new();
     let mut mapping = Vec::new();
+    let mut markdown = Vec::new();
     for (idx, item) in items.iter().enumerate() {
-        let text = match item {
-            HistoryItem::Text(t) => t.clone(),
+        let (text, is_markdown) = match item {
+            HistoryItem::Text(t) => (t.clone(), true),
             HistoryItem::Thinking { text, collapsed } => {
                 if *collapsed {
-                    "🤔 Thinking".to_string()
+                    ("🤔 Thinking".to_string(), true)
                 } else {
-                    format!("🤔 {}", text)
+                    (format!("🤔 {}", text), true)
                 }
             }
             HistoryItem::ToolCall {
@@ -205,9 +207,9 @@ fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<
                 collapsed,
             } => {
                 if *collapsed {
-                    format!("🔧 {name}")
+                    (format!("🔧 {name}"), false)
                 } else {
-                    format!("🔧 Calling tool: {name} with args: {args}")
+                    (format!("🔧 Calling tool: {name} with args: {args}"), false)
                 }
             }
             HistoryItem::ToolResult {
@@ -218,25 +220,27 @@ fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<
             } => {
                 let prefix = if *success { "✅" } else { "❌" };
                 if *collapsed {
-                    format!("{prefix} {name}")
+                    (format!("{prefix} {name}"), false)
                 } else {
-                    format!("{prefix} Tool {name} result: {result}")
+                    (format!("{prefix} Tool {name} result: {result}"), false)
                 }
             }
-            HistoryItem::Separator => "─".repeat(width),
+            HistoryItem::Separator => ("─".repeat(width), false),
         };
         let wrapped = wrap(&text, width.max(1));
         if wrapped.is_empty() {
             lines.push(String::new());
             mapping.push(idx);
+            markdown.push(is_markdown);
         } else {
             for w in wrapped {
                 lines.push(w.into_owned());
                 mapping.push(idx);
+                markdown.push(is_markdown);
             }
         }
     }
-    (lines, mapping)
+    (lines, mapping, markdown)
 }
 
 #[derive(Default)]
@@ -264,16 +268,25 @@ fn draw_ui(
         .split(chunks[0]);
 
     let width = history_chunks[0].width as usize;
-    let (lines, mapping) = wrap_history_lines(items, width);
+    let (lines, mapping, markdown_flags) = wrap_history_lines(items, width);
+    let rendered_lines: Vec<Line> = lines
+        .iter()
+        .zip(markdown_flags.iter())
+        .flat_map(|(line, &md)| {
+            if md {
+                from_str(line).lines
+            } else {
+                vec![Line::raw(line.clone())]
+            }
+        })
+        .collect();
     let history_height = history_chunks[0].height as usize;
-    let line_count = lines.len();
+    let line_count = rendered_lines.len();
     let max_scroll = line_count.saturating_sub(history_height) as i32;
     *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
     let top_line = (max_scroll - *scroll_offset) as usize;
 
-    let content = lines.join("\n");
-    let markdown = from_str(&content);
-    let paragraph = Paragraph::new(markdown)
+    let paragraph = Paragraph::new(rendered_lines)
         .wrap(Wrap { trim: false })
         .scroll((top_line as u16, 0));
     f.render_widget(paragraph, history_chunks[0]);
