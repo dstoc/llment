@@ -86,7 +86,7 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
             };
             let mut spans: Vec<Span> = Vec::new();
             if outer_left > 0 {
-                spans.push(Span::raw(" ".repeat(outer_left)));
+                spans.push(Span::styled(" ".repeat(outer_left), base_style));
             }
             if fc.visible_length == 0 && left_inner + right_inner == 0 {
                 spans.push(Span::styled(" ".repeat(inner_width), base_style));
@@ -103,7 +103,7 @@ fn composite_to_spans(skin: &MadSkin, fc: FmtComposite<'_>, width: usize) -> Vec
                 }
             }
             if outer_right > 0 {
-                spans.push(Span::raw(" ".repeat(outer_right)));
+                spans.push(Span::styled(" ".repeat(outer_right), base_style));
             }
             spans
         }
@@ -403,6 +403,8 @@ func foo() {
         assert_eq!(first_len, third_len);
         assert!(blank.spans.iter().any(|s| s.style.bg.is_some()));
         assert!(blank.spans.iter().all(|s| !s.content.is_empty()));
+        assert!(first.spans.iter().all(|s| s.style.bg.is_some()));
+        assert!(third.spans.iter().all(|s| s.style.bg.is_some()));
     }
 
     #[test]
