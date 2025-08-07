@@ -29,6 +29,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use textwrap::wrap;
 use tokio::{process::Command, sync::Mutex};
 use tokio_stream::StreamExt;
 
@@ -184,10 +185,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn build_display_lines(items: &[HistoryItem]) -> Vec<String> {
-    items
-        .iter()
-        .map(|item| match item {
+fn wrap_history_lines(items: &[HistoryItem], width: usize) -> (Vec<String>, Vec<usize>) {
+    let mut lines = Vec::new();
+    let mut mapping = Vec::new();
+    for (idx, item) in items.iter().enumerate() {
+        let text = match item {
             HistoryItem::Text(t) => t.clone(),
             HistoryItem::Thinking { text, collapsed } => {
                 if *collapsed {
@@ -220,12 +222,35 @@ fn build_display_lines(items: &[HistoryItem]) -> Vec<String> {
                     format!("{prefix} Tool {name} result: {result}")
                 }
             }
-            HistoryItem::Separator => "─".repeat(80),
-        })
-        .collect()
+            HistoryItem::Separator => "─".repeat(width),
+        };
+        let wrapped = wrap(&text, width.max(1));
+        if wrapped.is_empty() {
+            lines.push(String::new());
+            mapping.push(idx);
+        } else {
+            for w in wrapped {
+                lines.push(w.into_owned());
+                mapping.push(idx);
+            }
+        }
+    }
+    (lines, mapping)
 }
 
-fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32) -> Rect {
+#[derive(Default)]
+struct DrawState {
+    history_rect: Rect,
+    line_to_item: Vec<usize>,
+    top_line: usize,
+}
+
+fn draw_ui(
+    f: &mut Frame,
+    items: &[HistoryItem],
+    input: &str,
+    scroll_offset: &mut i32,
+) -> DrawState {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -237,20 +262,22 @@ fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32
         .constraints([Constraint::Min(1), Constraint::Length(1)].as_ref())
         .split(chunks[0]);
 
-    let content = lines.join("\n");
+    let width = history_chunks[0].width as usize;
+    let (lines, mapping) = wrap_history_lines(items, width);
     let history_height = history_chunks[0].height as usize;
-    let line_count = content.lines().count();
+    let line_count = lines.len();
     let max_scroll = line_count.saturating_sub(history_height) as i32;
     *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
-    let scroll = (max_scroll - *scroll_offset) as u16;
+    let top_line = (max_scroll - *scroll_offset) as usize;
 
+    let content = lines.join("\n");
     let paragraph = Paragraph::new(content)
         .wrap(Wrap { trim: false })
-        .scroll((scroll, 0));
+        .scroll((top_line as u16, 0));
     f.render_widget(paragraph, history_chunks[0]);
 
     let mut scrollbar_state = ScrollbarState::new(line_count)
-        .position(scroll as usize)
+        .position(top_line)
         .viewport_content_length(history_height);
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
     f.render_stateful_widget(scrollbar, history_chunks[1], &mut scrollbar_state);
@@ -258,7 +285,11 @@ fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32
     let input_widget = Paragraph::new(format!("> {}", input));
     f.render_widget(input_widget, chunks[1]);
 
-    history_chunks[0]
+    DrawState {
+        history_rect: history_chunks[0],
+        line_to_item: mapping,
+        top_line,
+    }
 }
 
 async fn run_app<B: ratatui::backend::Backend>(
@@ -271,12 +302,11 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut input = String::new();
     let mut chat_history: Vec<ChatMessage> = Vec::new();
     let mut scroll_offset: i32 = 0;
-    let mut history_rect = Rect::default();
+    let mut draw_state = DrawState::default();
 
     loop {
-        let display_lines = build_display_lines(&items);
         terminal.draw(|f| {
-            history_rect = draw_ui(f, &display_lines, &input, &mut scroll_offset);
+            draw_state = draw_ui(f, &items, &input, &mut scroll_offset);
         })?;
 
         if event::poll(Duration::from_millis(50))? {
@@ -343,10 +373,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     tool_calls = chunk.message.tool_calls.clone();
                                     break;
                                 }
-                                let display_lines = build_display_lines(&items);
                                 terminal.draw(|f| {
-                                    history_rect =
-                                        draw_ui(f, &display_lines, &input, &mut scroll_offset);
+                                    draw_state = draw_ui(f, &items, &input, &mut scroll_offset);
                                 })?;
                             }
 
@@ -414,25 +442,23 @@ async fn run_app<B: ratatui::backend::Backend>(
                     MouseEventKind::ScrollUp => scroll_offset += 1,
                     MouseEventKind::ScrollDown => scroll_offset -= 1,
                     MouseEventKind::Down(MouseButton::Left) => {
-                        if m.column >= history_rect.x
-                            && m.column < history_rect.x + history_rect.width
-                            && m.row >= history_rect.y
-                            && m.row < history_rect.y + history_rect.height
+                        if m.column >= draw_state.history_rect.x
+                            && m.column < draw_state.history_rect.x + draw_state.history_rect.width
+                            && m.row >= draw_state.history_rect.y
+                            && m.row < draw_state.history_rect.y + draw_state.history_rect.height
                         {
-                            let display_lines = build_display_lines(&items);
-                            let line_count = display_lines.len();
-                            let history_height = history_rect.height as usize;
-                            let max_scroll = line_count.saturating_sub(history_height) as i32;
-                            let top_line = (max_scroll - scroll_offset).max(0) as usize;
-                            let idx = top_line + (m.row - history_rect.y) as usize;
-                            if let Some(item) = items.get_mut(idx) {
-                                match item {
-                                    HistoryItem::Thinking { collapsed, .. }
-                                    | HistoryItem::ToolCall { collapsed, .. }
-                                    | HistoryItem::ToolResult { collapsed, .. } => {
-                                        *collapsed = !*collapsed;
+                            let idx =
+                                draw_state.top_line + (m.row - draw_state.history_rect.y) as usize;
+                            if let Some(&item_idx) = draw_state.line_to_item.get(idx) {
+                                if let Some(item) = items.get_mut(item_idx) {
+                                    match item {
+                                        HistoryItem::Thinking { collapsed, .. }
+                                        | HistoryItem::ToolCall { collapsed, .. }
+                                        | HistoryItem::ToolResult { collapsed, .. } => {
+                                            *collapsed = !*collapsed;
+                                        }
+                                        _ => {}
                                     }
-                                    _ => {}
                                 }
                             }
                         }
