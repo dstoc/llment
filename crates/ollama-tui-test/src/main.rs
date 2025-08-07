@@ -2,7 +2,9 @@ use std::{collections::HashMap, io::stdout, time::Duration};
 
 use clap::Parser;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -16,8 +18,8 @@ use once_cell::sync::Lazy;
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    widgets::{Paragraph, Wrap, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    layout::{Constraint, Direction, Layout, Rect},
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 use rmcp::service::ServerSink;
 use rmcp::{
@@ -34,6 +36,26 @@ static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+enum HistoryItem {
+    Text(String),
+    Thinking {
+        text: String,
+        collapsed: bool,
+    },
+    ToolCall {
+        name: String,
+        args: String,
+        collapsed: bool,
+    },
+    ToolResult {
+        name: String,
+        result: String,
+        success: bool,
+        collapsed: bool,
+    },
+    Separator,
+}
 
 #[derive(Deserialize)]
 struct McpConfig {
@@ -162,7 +184,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32) {
+fn build_display_lines(items: &[HistoryItem]) -> Vec<String> {
+    items
+        .iter()
+        .map(|item| match item {
+            HistoryItem::Text(t) => t.clone(),
+            HistoryItem::Thinking { text, collapsed } => {
+                if *collapsed {
+                    "🤔 Thinking".to_string()
+                } else {
+                    format!("🤔 {}", text)
+                }
+            }
+            HistoryItem::ToolCall {
+                name,
+                args,
+                collapsed,
+            } => {
+                if *collapsed {
+                    format!("🔧 {name}")
+                } else {
+                    format!("🔧 Calling tool: {name} with args: {args}")
+                }
+            }
+            HistoryItem::ToolResult {
+                name,
+                result,
+                success,
+                collapsed,
+            } => {
+                let prefix = if *success { "✅" } else { "❌" };
+                if *collapsed {
+                    format!("{prefix} {name}")
+                } else {
+                    format!("{prefix} Tool {name} result: {result}")
+                }
+            }
+            HistoryItem::Separator => "─".repeat(80),
+        })
+        .collect()
+}
+
+fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32) -> Rect {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -194,6 +257,8 @@ fn draw_ui(f: &mut Frame, lines: &[String], input: &str, scroll_offset: &mut i32
 
     let input_widget = Paragraph::new(format!("> {}", input));
     f.render_widget(input_widget, chunks[1]);
+
+    history_chunks[0]
 }
 
 async fn run_app<B: ratatui::backend::Backend>(
@@ -202,14 +267,17 @@ async fn run_app<B: ratatui::backend::Backend>(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let ollama = Ollama::try_new(host)?;
     let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
-
-    let mut lines: Vec<String> = Vec::new();
+    let mut items: Vec<HistoryItem> = Vec::new();
     let mut input = String::new();
-    let mut history: Vec<ChatMessage> = Vec::new();
+    let mut chat_history: Vec<ChatMessage> = Vec::new();
     let mut scroll_offset: i32 = 0;
+    let mut history_rect = Rect::default();
 
     loop {
-        terminal.draw(|f| draw_ui(f, &lines, &input, &mut scroll_offset))?;
+        let display_lines = build_display_lines(&items);
+        terminal.draw(|f| {
+            history_rect = draw_ui(f, &display_lines, &input, &mut scroll_offset);
+        })?;
 
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
@@ -227,22 +295,24 @@ async fn run_app<B: ratatui::backend::Backend>(
                         if query == "/quit" {
                             break;
                         }
-                        lines.push(format!("📝 User: {}", query));
+                        items.push(HistoryItem::Text(format!("📝 User: {}", query)));
                         input.clear();
-                        history.push(ChatMessage::user(query.clone()));
+                        chat_history.push(ChatMessage::user(query.clone()));
 
                         loop {
-                            lines.push("🤖 Assistant: ".to_string());
-                            let assistant_index = lines.len() - 1;
+                            items.push(HistoryItem::Text("🤖 Assistant: ".to_string()));
+                            let assistant_index = items.len() - 1;
                             let mut current_line = String::new();
                             let mut current_thinking = String::new();
                             let mut thinking_index: Option<usize> = None;
                             let mut tool_calls: Vec<ToolCall> = Vec::new();
 
-                            let request =
-                                ChatMessageRequest::new("gpt-oss:20b".to_string(), history.clone())
-                                    .tools(tool_infos.clone())
-                                    .think(true);
+                            let request = ChatMessageRequest::new(
+                                "gpt-oss:20b".to_string(),
+                                chat_history.clone(),
+                            )
+                            .tools(tool_infos.clone())
+                            .think(true);
                             let mut stream = ollama.send_chat_messages_stream(request).await?;
                             while let Some(chunk) = stream.next().await {
                                 let chunk = match chunk {
@@ -251,42 +321,59 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 };
                                 if let Some(thinking) = chunk.message.thinking.as_ref() {
                                     let idx = thinking_index.unwrap_or_else(|| {
-                                        lines.push("🤔 ".to_string());
-                                        lines.len() - 1
+                                        items.push(HistoryItem::Thinking {
+                                            text: String::new(),
+                                            collapsed: false,
+                                        });
+                                        items.len() - 1
                                     });
                                     thinking_index = Some(idx);
                                     current_thinking.push_str(thinking);
-                                    lines[idx] = format!("🤔 {}", current_thinking);
+                                    if let HistoryItem::Thinking { text, .. } = &mut items[idx] {
+                                        *text = current_thinking.clone();
+                                    }
                                 }
                                 if !chunk.message.content.is_empty() {
                                     current_line.push_str(&chunk.message.content);
-                                    lines[assistant_index] =
-                                        format!("🤖 Assistant: {}", current_line);
+                                    if let HistoryItem::Text(line) = &mut items[assistant_index] {
+                                        *line = format!("🤖 Assistant: {}", current_line);
+                                    }
                                 }
                                 if chunk.done {
                                     tool_calls = chunk.message.tool_calls.clone();
                                     break;
                                 }
-                                terminal
-                                    .draw(|f| draw_ui(f, &lines, &input, &mut scroll_offset))?;
+                                let display_lines = build_display_lines(&items);
+                                terminal.draw(|f| {
+                                    history_rect =
+                                        draw_ui(f, &display_lines, &input, &mut scroll_offset);
+                                })?;
+                            }
+
+                            if let Some(idx) = thinking_index {
+                                if let HistoryItem::Thinking { text, collapsed } = &mut items[idx] {
+                                    *text = current_thinking.clone();
+                                    *collapsed = true;
+                                }
                             }
 
                             if !current_line.is_empty() {
-                                history.push(ChatMessage::assistant(current_line.clone()));
+                                chat_history.push(ChatMessage::assistant(current_line.clone()));
                             } else {
-                                lines.remove(assistant_index);
+                                items.remove(assistant_index);
                             }
 
                             if tool_calls.is_empty() {
-                                lines.push("─".repeat(80));
+                                items.push(HistoryItem::Separator);
                                 break;
                             }
 
                             for call in tool_calls {
-                                lines.push(format!(
-                                    "🔧 [Calling tool: {} with args: {}]",
-                                    call.function.name, call.function.arguments
-                                ));
+                                items.push(HistoryItem::ToolCall {
+                                    name: call.function.name.clone(),
+                                    args: call.function.arguments.to_string(),
+                                    collapsed: true,
+                                });
                                 let result = match call_mcp_tool(
                                     &call.function.name,
                                     call.function.arguments.clone(),
@@ -294,21 +381,26 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 .await
                                 {
                                     Ok(res) => {
-                                        lines.push(format!(
-                                            "✅ [Tool {} completed: {}]",
-                                            call.function.name, res
-                                        ));
+                                        items.push(HistoryItem::ToolResult {
+                                            name: call.function.name.clone(),
+                                            result: res.clone(),
+                                            success: true,
+                                            collapsed: true,
+                                        });
                                         res
                                     }
                                     Err(err) => {
-                                        lines.push(format!(
-                                            "❌ [Tool {} failed: {}]",
-                                            call.function.name, err
-                                        ));
-                                        format!("Tool Failed: {}", err)
+                                        let err_str = format!("Tool Failed: {}", err);
+                                        items.push(HistoryItem::ToolResult {
+                                            name: call.function.name.clone(),
+                                            result: err_str.clone(),
+                                            success: false,
+                                            collapsed: true,
+                                        });
+                                        err_str
                                     }
                                 };
-                                history.push(ChatMessage::tool(
+                                chat_history.push(ChatMessage::tool(
                                     result.clone(),
                                     call.function.name.clone(),
                                 ));
@@ -321,6 +413,30 @@ async fn run_app<B: ratatui::backend::Backend>(
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::ScrollUp => scroll_offset += 1,
                     MouseEventKind::ScrollDown => scroll_offset -= 1,
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        if m.column >= history_rect.x
+                            && m.column < history_rect.x + history_rect.width
+                            && m.row >= history_rect.y
+                            && m.row < history_rect.y + history_rect.height
+                        {
+                            let display_lines = build_display_lines(&items);
+                            let line_count = display_lines.len();
+                            let history_height = history_rect.height as usize;
+                            let max_scroll = line_count.saturating_sub(history_height) as i32;
+                            let top_line = (max_scroll - scroll_offset).max(0) as usize;
+                            let idx = top_line + (m.row - history_rect.y) as usize;
+                            if let Some(item) = items.get_mut(idx) {
+                                match item {
+                                    HistoryItem::Thinking { collapsed, .. }
+                                    | HistoryItem::ToolCall { collapsed, .. }
+                                    | HistoryItem::ToolResult { collapsed, .. } => {
+                                        *collapsed = !*collapsed;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 },
                 _ => {}
