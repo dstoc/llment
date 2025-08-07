@@ -23,6 +23,7 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::Line,
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
@@ -203,38 +204,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 fn wrap_history_lines(
     items: &[HistoryItem],
     width: usize,
-) -> (Vec<String>, Vec<LineMapping>, Vec<bool>) {
+) -> (Vec<String>, Vec<LineMapping>, Vec<bool>, Vec<Option<Style>>) {
+    let width = width.min(100);
     let mut lines = Vec::new();
     let mut mapping = Vec::new();
     let mut markdown = Vec::new();
+    let mut styles = Vec::new();
     for (idx, item) in items.iter().enumerate() {
         match item {
             HistoryItem::User(text) => {
                 let inner_width = width.saturating_sub(7);
                 let wrapped = wrap(text, inner_width.max(1));
-                let box_width = wrapped.iter().map(|l| l.len()).max().unwrap_or(0);
+                let box_width = inner_width;
                 lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                styles.push(None);
                 for w in wrapped {
                     let mut line = w.into_owned();
                     line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
                     lines.push(format!("     │{}│", line));
                     mapping.push(LineMapping::Item(idx));
                     markdown.push(false);
+                    styles.push(None);
                 }
                 lines.push(format!("     └{}┘", "─".repeat(box_width)));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
-                lines.push(String::new());
+                styles.push(None);
+                lines.push(" ".repeat(width));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                styles.push(None);
             }
             HistoryItem::Assistant(text) => {
                 for w in wrap(text, width.max(1)) {
-                    lines.push(w.into_owned());
+                    let mut line = w.into_owned();
+                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                    lines.push(line);
                     mapping.push(LineMapping::Item(idx));
                     markdown.push(true);
+                    styles.push(None);
                 }
             }
             HistoryItem::Thinking {
@@ -255,28 +265,36 @@ fn wrap_history_lines(
                         if calls == 1 { "" } else { "s" },
                     );
                     let arrow = if *collapsed { "›" } else { "⌄" };
-                    lines.push(format!("{summary} {arrow}"));
+                    let mut line = format!("{summary} {arrow}");
+                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                    lines.push(line);
                 } else {
-                    lines.push("Thinking ⌄".to_string());
+                    let mut line = "Thinking ⌄".to_string();
+                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                    lines.push(line);
                 }
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                styles.push(None);
                 if !*collapsed || !*done {
                     for (s_idx, step) in steps.iter().enumerate() {
                         match step {
                             ThinkingStep::Thought(t) => {
                                 let wrapped = wrap(t, width.saturating_sub(2).max(1));
                                 for (i, w) in wrapped.into_iter().enumerate() {
-                                    if i == 0 {
-                                        lines.push(format!("· {}", w));
+                                    let mut line = if i == 0 {
+                                        format!("· {}", w)
                                     } else {
-                                        lines.push(format!("  {}", w));
-                                    }
+                                        format!("  {}", w)
+                                    };
+                                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                                    lines.push(line);
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
                                     markdown.push(false);
+                                    styles.push(None);
                                 }
                             }
                             ThinkingStep::ToolCall {
@@ -287,59 +305,103 @@ fn wrap_history_lines(
                                 collapsed: tc_collapsed,
                             } => {
                                 if *tc_collapsed {
-                                    lines.push(format!("· _{name}_ ›"));
+                                    let mut line = if *success {
+                                        format!("· _{name}_ ›")
+                                    } else {
+                                        format!("· {name} ›")
+                                    };
+                                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                                    lines.push(line);
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    markdown.push(true);
+                                    if *success {
+                                        markdown.push(true);
+                                        styles.push(None);
+                                    } else {
+                                        markdown.push(false);
+                                        styles.push(Some(
+                                            Style::default()
+                                                .fg(Color::Red)
+                                                .add_modifier(Modifier::ITALIC),
+                                        ));
+                                    }
                                 } else {
-                                    lines.push(format!("· _{name}_ ⌄"));
+                                    let mut line = if *success {
+                                        format!("· _{name}_ ⌄")
+                                    } else {
+                                        format!("· {name} ⌄")
+                                    };
+                                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                                    lines.push(line);
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    markdown.push(true);
+                                    if *success {
+                                        markdown.push(true);
+                                        styles.push(None);
+                                    } else {
+                                        markdown.push(false);
+                                        styles.push(Some(
+                                            Style::default()
+                                                .fg(Color::Red)
+                                                .add_modifier(Modifier::ITALIC),
+                                        ));
+                                    }
                                     for w in wrap(
                                         &format!("args: {args}"),
                                         width.saturating_sub(2).max(1),
                                     ) {
-                                        lines.push(format!("  {}", w));
+                                        let mut line = format!("  {}", w);
+                                        line.push_str(
+                                            &" ".repeat(width.saturating_sub(line.len())),
+                                        );
+                                        lines.push(line);
                                         mapping.push(LineMapping::Step {
                                             item: idx,
                                             step: s_idx,
                                         });
                                         markdown.push(false);
+                                        styles.push(None);
                                     }
                                     let prefix = if *success { "result:" } else { "error:" };
                                     for w in wrap(
                                         &format!("{prefix} {result}"),
                                         width.saturating_sub(2).max(1),
                                     ) {
-                                        lines.push(format!("  {}", w));
+                                        let mut line = format!("  {}", w);
+                                        line.push_str(
+                                            &" ".repeat(width.saturating_sub(line.len())),
+                                        );
+                                        lines.push(line);
                                         mapping.push(LineMapping::Step {
                                             item: idx,
                                             step: s_idx,
                                         });
                                         markdown.push(false);
+                                        styles.push(None);
                                     }
                                 }
                             }
                         }
                     }
                 }
-                lines.push(String::new());
+                lines.push(" ".repeat(width));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                styles.push(None);
             }
             HistoryItem::Separator => {
                 lines.push("─".repeat(width));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                styles.push(None);
             }
         }
     }
-    (lines, mapping, markdown)
+    (lines, mapping, markdown, styles)
 }
 
 #[derive(Default)]
@@ -366,20 +428,33 @@ fn draw_ui(
         .constraints([Constraint::Min(1), Constraint::Length(1)].as_ref())
         .split(chunks[0]);
 
-    let width = history_chunks[0].width as usize;
-    let (lines, mapping, markdown_flags) = wrap_history_lines(items, width);
+    let full_width = history_chunks[0].width as usize;
+    let render_width = full_width.min(100);
+    let render_x = history_chunks[0].x + history_chunks[0].width - render_width as u16;
+    let render_rect = Rect {
+        x: render_x,
+        y: history_chunks[0].y,
+        width: render_width as u16,
+        height: history_chunks[0].height,
+    };
+    let (lines, mapping, markdown_flags, styles) = wrap_history_lines(items, render_width);
     let rendered_lines: Vec<Line> = lines
         .iter()
         .zip(markdown_flags.iter())
-        .flat_map(|(line, &md)| {
-            if md {
+        .zip(styles.iter())
+        .flat_map(|((line, &md), style)| {
+            let mut ls = if md {
                 from_str(line).lines
             } else {
                 vec![Line::raw(line.clone())]
+            };
+            if let Some(style) = style {
+                ls = ls.into_iter().map(|l| l.style(*style)).collect();
             }
+            ls
         })
         .collect();
-    let history_height = history_chunks[0].height as usize;
+    let history_height = render_rect.height as usize;
     let line_count = rendered_lines.len();
     let max_scroll = line_count.saturating_sub(history_height) as i32;
     *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
@@ -388,7 +463,7 @@ fn draw_ui(
     let paragraph = Paragraph::new(rendered_lines)
         .wrap(Wrap { trim: false })
         .scroll((top_line as u16, 0));
-    f.render_widget(paragraph, history_chunks[0]);
+    f.render_widget(paragraph, render_rect);
 
     let mut scrollbar_state = ScrollbarState::new(line_count)
         .position(top_line)
@@ -400,7 +475,7 @@ fn draw_ui(
     f.render_widget(input_widget, chunks[1]);
 
     DrawState {
-        history_rect: history_chunks[0],
+        history_rect: render_rect,
         line_map: mapping,
         top_line,
     }
