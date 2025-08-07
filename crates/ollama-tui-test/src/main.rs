@@ -1,9 +1,13 @@
 use std::{io::stdout, time::Duration};
 
+use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ollama_rs::{
+    CoordinatorStreamEvent, Ollama, coordinator::Coordinator, generation::chat::ChatMessage,
 };
 use ratatui::{
     Terminal,
@@ -12,10 +16,6 @@ use ratatui::{
     widgets::Paragraph,
 };
 use tokio_stream::StreamExt;
-
-use ollama_rs::{
-    CoordinatorStreamEvent, Ollama, coordinator::Coordinator, generation::chat::ChatMessage,
-};
 
 /// Get the weather for a given city (mock implementation)
 #[ollama_rs::function]
@@ -38,15 +38,24 @@ async fn calculate_distance(
     ))
 }
 
+#[derive(Parser, Debug)]
+struct Args {
+    /// Ollama host URL, e.g. http://localhost:11434
+    #[arg(long, default_value = "http://127.0.0.1:11434")]
+    host: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal).await;
+    let res = run_app(&mut terminal, &args.host).await;
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -59,8 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
+    host: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let ollama = Ollama::default();
+    let ollama = Ollama::try_new(host)?;
     let history = vec![];
     let mut coordinator = Coordinator::new(ollama, "gpt-oss:20b".to_string(), history)
         .add_tool(get_weather)
