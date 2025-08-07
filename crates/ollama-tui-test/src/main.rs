@@ -214,7 +214,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 "gpt-oss:20b".to_string(),
                                 history.clone(),
                             )
-                            .tools(tool_infos.clone());
+                            .tools(tool_infos.clone())
+                            .think(true);
                             let mut stream =
                                 ollama.send_chat_messages_stream(request).await?;
                             while let Some(chunk) = stream.next().await {
@@ -279,7 +280,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 "gpt-oss:20b".to_string(),
                                 history.clone(),
                             )
-                            .tools(tool_infos.clone());
+                            .tools(tool_infos.clone())
+                            .think(true);
                             let mut stream =
                                 ollama.send_chat_messages_stream(request).await?;
                             while let Some(chunk) = stream.next().await {
