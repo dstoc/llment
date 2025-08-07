@@ -1,33 +1,29 @@
-# Agent Guide
+# Commits
+* Always use conventional commit format, with prefix feat/fix/refactor/chore
+  * Specify the crate if relevant, e.g. fix(mcp-hello) ...
 
-This repository contains several Rust crates within the `crates/` workspace directory. Each crate has a brief overview, key dependencies, and the paths to its primary entry points.
+# Crates
+The project is divided into crates:
+* crates/mcp-hello
+* crates/mcp-edit
+* crates/ollama-tui-test
 
-## mcp-edit
-A file-system based MCP server offering tooling for reading, writing, searching, and modifying files under a workspace root.
+# AGENTS.md protocol
+Each crate/component has its own AGENTS.md file that summarizes the component and the features/requirements/constraints that have been established so far.
 
-- **Entry points:** `crates/mcp-edit/src/lib.rs`, `crates/mcp-edit/src/main.rs`
-- **Key dependencies:**
-  - `rmcp` for server and tool abstractions.
-  - `serde` and `schemars` for parameter serialization and schema generation.
-  - `tokio` for asynchronous execution.
-  - `tracing` and `tracing-subscriber` for logging.
-  - `ignore`, `globset`, and `regex` for file system traversal and matching.
+At the end of each task, for the corresponding AGENTS.md files:
+* Check that no listed features/requirements/constraints have been accidentally removed or violated.
+* Update the list to add/remove/update any features/requirements/constraints involved in this specific task.
 
-## mcp-hello
-A minimal MCP server exposing a single `hello` tool that returns a friendly greeting. Includes basic tests demonstrating tool wiring.
+The list should always be formatted as brief bullet points. Minor/unimportant details should be omitted.
 
-- **Entry points:** `crates/mcp-hello/src/lib.rs`, `crates/mcp-hello/src/main.rs`
-- **Key dependencies:**
-  - `rmcp` for server and tool routing.
-  - `tokio` for async test support.
-  - `tracing` and `tracing-subscriber` for logging.
+A template for component-specific AGENTS.md files follows:
 
-## ollama-tui-test
-A terminal UI experiment that streams chat completions from an Ollama model and exercises tool-calling through the `ollama-rs` crate.
+# Component Name
+Brief description of the component.
 
-- **Entry points:** `crates/ollama-tui-test/src/main.rs`
-- **Key dependencies:**
-  - `ollama-rs` for model interaction and tool registration.
-  - `tokio` and `tokio-stream` for async streaming.
-  - `ratatui` and `crossterm` for terminal rendering and input handling.
-  - `clap` for command-line argument parsing.
+## Dependencies
+A bullet-point list of key dependencies and the reason they are needed. Minor dependencies are omitted.
+
+# Features, Requirements and Constraints
+A bullet-point list of the component's features.
