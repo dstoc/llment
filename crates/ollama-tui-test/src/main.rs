@@ -226,6 +226,9 @@ fn wrap_history_lines(
                 lines.push(format!("     └{}┘", "─".repeat(box_width)));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                lines.push(String::new());
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
             }
             HistoryItem::Assistant(text) => {
                 for w in wrap(text, width.max(1)) {
@@ -284,19 +287,19 @@ fn wrap_history_lines(
                                 collapsed: tc_collapsed,
                             } => {
                                 if *tc_collapsed {
-                                    lines.push(format!("{name} ›"));
+                                    lines.push(format!("· _{name}_ ›"));
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    markdown.push(false);
+                                    markdown.push(true);
                                 } else {
-                                    lines.push(format!("{name} ⌄"));
+                                    lines.push(format!("· _{name}_ ⌄"));
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    markdown.push(false);
+                                    markdown.push(true);
                                     for w in wrap(
                                         &format!("args: {args}"),
                                         width.saturating_sub(2).max(1),
@@ -325,6 +328,9 @@ fn wrap_history_lines(
                         }
                     }
                 }
+                lines.push(String::new());
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
             }
             HistoryItem::Separator => {
                 lines.push("─".repeat(width));
