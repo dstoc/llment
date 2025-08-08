@@ -55,7 +55,7 @@ Terminal chat interface to Ollama with MCP tool integration.
     - shows "Thinking" while in progress
     - summarizes as "Thought for …" when complete
     - persists across follow-up requests after tool calls
-- Ollama host
+- LLM host
   - specified via CLI option
 - user prompts
   - render inside a boxed region

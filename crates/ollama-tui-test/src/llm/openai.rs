@@ -16,9 +16,10 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    pub fn new() -> Self {
+    pub fn new(host: &str) -> Self {
+        let config = OpenAIConfig::default().with_api_base(host);
         Self {
-            inner: Client::new(),
+            inner: Client::with_config(config),
         }
     }
 }
