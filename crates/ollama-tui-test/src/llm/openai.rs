@@ -1,15 +1,13 @@
 use std::error::Error;
 
+use super::{
+    ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
+    ToolCall, ToolCallFunction,
+};
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
-use ollama_rs::generation::{
-    chat::{MessageRole, request::ChatMessageRequest},
-    tools::{ToolCall, ToolCallFunction},
-};
 use serde_json::{Value, to_value};
 use tokio_stream::StreamExt;
-
-use super::{ChatStream, LlmClient, ResponseChunk, ResponseMessage};
 
 pub struct OpenAiClient {
     inner: Client<OpenAIConfig>,
