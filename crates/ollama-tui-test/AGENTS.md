@@ -23,6 +23,8 @@ Terminal chat interface to Ollama with MCP tool integration.
   - wrap chat history
 - termimad
   - render markdown
+- insta
+  - snapshot TUI rendering in tests
 
 ## Features, Requirements and Constraints
 - assistant responses
@@ -68,4 +70,5 @@ Terminal chat interface to Ollama with MCP tool integration.
 - UI rendering
   - drawing logic isolated for easier testing
   - chat layout verified with Ratatui's `TestBackend`
+    - inline snapshots with `insta`
     - covers user, assistant, and thinking blocks
