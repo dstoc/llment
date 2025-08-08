@@ -127,29 +127,26 @@ async fn call_mcp_tool(
     }
 }
 
-fn ensure_thinking_item(
-    items: &mut Vec<HistoryItem>,
-    thinking_index: &mut Option<usize>,
-    assistant_index: &mut usize,
-) -> usize {
-    if let Some(idx) = *thinking_index {
-        idx
-    } else {
-        items.insert(
-            *assistant_index,
-            HistoryItem::Thinking {
-                steps: Vec::new(),
-                collapsed: false,
-                start: Instant::now(),
-                duration: Duration::default(),
-                done: false,
-            },
-        );
-        let idx = *assistant_index;
-        *assistant_index += 1;
-        *thinking_index = Some(idx);
-        idx
+fn ensure_assistant_item(items: &mut Vec<HistoryItem>) -> usize {
+    if let Some(HistoryItem::Assistant(..)) = items.last() {
+        return items.len() - 1;
     }
+    items.push(HistoryItem::Assistant(String::new()));
+    return items.len() - 1;
+}
+
+fn ensure_thinking_item(items: &mut Vec<HistoryItem>) -> usize {
+    if let Some(HistoryItem::Thinking { .. }) = items.last() {
+        return items.len() - 1;
+    }
+    items.push(HistoryItem::Thinking {
+        steps: Vec::new(),
+        collapsed: false,
+        start: Instant::now(),
+        duration: Duration::default(),
+        done: false,
+    });
+    return items.len() - 1;
 }
 
 fn spawn_tool_call(
@@ -157,6 +154,7 @@ fn spawn_tool_call(
     items: &mut Vec<HistoryItem>,
     thinking_idx: usize,
     handles: &mut JoinSet<(
+        usize,
         usize,
         String,
         Result<String, Box<dyn std::error::Error + Send + Sync>>,
@@ -175,7 +173,7 @@ fn spawn_tool_call(
         let args = call.function.arguments.clone();
         handles.spawn(async move {
             let res = call_mcp_tool(&name, args).await;
-            (step_idx, name, res)
+            (thinking_idx, step_idx, name, res)
         });
     }
 }
@@ -234,10 +232,9 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
     let mut chat_stream: Option<ChatMessageResponseStream> = None;
-    let mut thinking_index: Option<usize> = None;
-    let mut assistant_index: usize = 0;
     let mut current_line = String::new();
     let mut tool_handles: JoinSet<(
+        usize,
         usize,
         String,
         Result<String, Box<dyn std::error::Error + Send + Sync>>,
@@ -272,10 +269,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 items.push(HistoryItem::User(query.clone()));
                                 input.clear();
                                 chat_history.push(ChatMessage::user(query.clone()));
-                                items.push(HistoryItem::Assistant(String::new()));
-                                assistant_index = items.len() - 1;
                                 current_line.clear();
-                                thinking_index = None;
                                 let request = ChatMessageRequest::new(
                                     "gpt-oss:20b".to_string(),
                                     chat_history.clone(),
@@ -330,7 +324,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             }, if chat_stream.is_some() => {
                 if let Some(Ok(chunk)) = chat_chunk {
                     if let Some(thinking) = chunk.message.thinking.as_ref() {
-                        let idx = ensure_thinking_item(&mut items, &mut thinking_index, &mut assistant_index);
+                        let idx = ensure_thinking_item(&mut items);
                         if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
                             if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
                                 t.push_str(thinking);
@@ -341,12 +335,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                     if !chunk.message.content.is_empty() {
                         current_line.push_str(&chunk.message.content);
+                        let assistant_index = ensure_assistant_item(&mut items);
                         if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
                             *line = current_line.clone();
                         }
                     }
                     if !chunk.message.tool_calls.is_empty() {
-                        let idx = ensure_thinking_item(&mut items, &mut thinking_index, &mut assistant_index);
+                        let idx = ensure_thinking_item(&mut items);
                         for call in chunk.message.tool_calls {
                             spawn_tool_call(call, &mut items, idx, &mut tool_handles);
                             saw_tool_call = true;
@@ -356,25 +351,23 @@ async fn run_app<B: ratatui::backend::Backend>(
                         chat_stream = None;
                         request_done = true;
 
-                        if !current_line.is_empty() {
-                            chat_history.push(ChatMessage::assistant(current_line.clone()));
-                        } else {
-                            items.remove(assistant_index);
-                        }
-
                         if !saw_tool_call {
-                            if let Some(idx) = thinking_index {
-                                if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
-                                    *collapsed = true;
-                                    *duration = start.elapsed();
-                                    *done = true;
+                            // Collapse all thinking blocks part of this assistant flow
+                            for item in items.iter_mut().rev() {
+                                match item {
+                                    HistoryItem::Separator => break,
+                                    HistoryItem::Thinking { collapsed, start, duration, done, .. } => {
+                                        *collapsed = true;
+                                        // TODO: should we rather update this when we complete the tool calls?
+                                        *duration = start.elapsed();
+                                        *done = true;
+                                    }
+                                    _ => {}
                                 }
                             }
                             items.push(HistoryItem::Separator);
                             request_done = false;
                         } else if tool_handles.is_empty() {
-                            items.push(HistoryItem::Assistant(String::new()));
-                            assistant_index = items.len() - 1;
                             current_line.clear();
                             let request = ChatMessageRequest::new(
                                 "gpt-oss:20b".to_string(),
@@ -392,27 +385,23 @@ async fn run_app<B: ratatui::backend::Backend>(
                 }
             }
             tool_res = tool_handles.join_next(), if !tool_handles.is_empty() => {
-                if let Some(Ok((s_idx, name, res))) = tool_res {
-                    if let Some(t_idx) = thinking_index {
-                        if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
-                            if let Some(ThinkingStep::ToolCall { result, success, .. }) = steps.get_mut(s_idx) {
-                                match res {
-                                    Ok(text) => {
-                                        *result = text.clone();
-                                        chat_history.push(ChatMessage::tool(text, name));
-                                    }
-                                    Err(err) => {
-                                        *result = format!("Tool Failed: {}", err);
-                                        *success = false;
-                                    }
+                if let Some(Ok((t_idx, s_idx, name, res))) = tool_res {
+                    if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
+                        if let Some(ThinkingStep::ToolCall { result, success, .. }) = steps.get_mut(s_idx) {
+                            match res {
+                                Ok(text) => {
+                                    *result = text.clone();
+                                    chat_history.push(ChatMessage::tool(text, name));
+                                }
+                                Err(err) => {
+                                    *result = format!("Tool Failed: {}", err);
+                                    *success = false;
                                 }
                             }
                         }
                     }
                 }
                 if tool_handles.is_empty() && request_done && saw_tool_call {
-                    items.push(HistoryItem::Assistant(String::new()));
-                    assistant_index = items.len() - 1;
                     current_line.clear();
                     let request = ChatMessageRequest::new(
                         "gpt-oss:20b".to_string(),
