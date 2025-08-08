@@ -72,3 +72,6 @@ Terminal chat interface to Ollama with MCP tool integration.
   - chat layout verified with Ratatui's `TestBackend`
     - inline snapshots with `insta`
     - covers user, assistant, and thinking blocks
+- main loop
+  - handles terminal events and async updates concurrently
+  - UI remains interactive while requests stream or tools execute

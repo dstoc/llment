@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::stdout,
     time::{Duration, Instant},
 };
@@ -7,7 +7,8 @@ use std::{
 use clap::Parser;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+        DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, MouseButton,
+        MouseEventKind,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -15,7 +16,7 @@ use crossterm::{
 use ollama_rs::re_exports::schemars::Schema;
 use ollama_rs::{
     Ollama,
-    generation::chat::{ChatMessage, request::ChatMessageRequest},
+    generation::chat::{ChatMessage, ChatMessageResponseStream, request::ChatMessageRequest},
     generation::tools::{ToolCall, ToolFunctionInfo, ToolInfo, ToolType},
 };
 use once_cell::sync::Lazy;
@@ -28,18 +29,17 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::{process::Command, sync::Mutex, task::JoinHandle};
+use tokio_stream::StreamExt;
 
 mod markdown;
 mod ui;
-use tokio::{process::Command, sync::Mutex};
-use tokio_stream::StreamExt;
+use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
 
 static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
-
-use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
 
 #[derive(Deserialize)]
 struct McpConfig {
@@ -127,6 +127,40 @@ async fn call_mcp_tool(
     }
 }
 
+fn start_next_tool_call(
+    pending: &mut VecDeque<ToolCall>,
+    items: &mut Vec<HistoryItem>,
+    thinking_index: Option<usize>,
+) -> Option<
+    JoinHandle<(
+        usize,
+        String,
+        Result<String, Box<dyn std::error::Error + Send + Sync>>,
+    )>,
+> {
+    if let Some(call) = pending.pop_front() {
+        if let Some(idx) = thinking_index {
+            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                steps.push(ThinkingStep::ToolCall {
+                    name: call.function.name.clone(),
+                    args: call.function.arguments.to_string(),
+                    result: String::new(),
+                    success: true,
+                    collapsed: true,
+                });
+                let step_idx = steps.len() - 1;
+                let name = call.function.name.clone();
+                let args = call.function.arguments.clone();
+                return Some(tokio::spawn(async move {
+                    let res = call_mcp_tool(&name, args).await;
+                    (step_idx, name, res)
+                }));
+            }
+        }
+    }
+    None
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     /// Ollama host URL, e.g. http://localhost:11434
@@ -179,210 +213,202 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut chat_history: Vec<ChatMessage> = Vec::new();
     let mut scroll_offset: i32 = 0;
     let mut draw_state = DrawState::default();
+    let mut events = EventStream::new();
+    let mut chat_stream: Option<ChatMessageResponseStream> = None;
+    let mut thinking_index: Option<usize> = None;
+    let mut assistant_index: usize = 0;
+    let mut current_line = String::new();
+    let mut pending_tool_calls: VecDeque<ToolCall> = VecDeque::new();
+    let mut tool_handle: Option<
+        JoinHandle<(
+            usize,
+            String,
+            Result<String, Box<dyn std::error::Error + Send + Sync>>,
+        )>,
+    > = None;
 
     loop {
         terminal.draw(|f| {
             draw_state = draw_ui(f, &items, &input, &mut scroll_offset);
         })?;
 
-        if event::poll(Duration::from_millis(50))? {
-            match event::read()? {
-                Event::Key(key) => match key.code {
-                    KeyCode::Char(c) => input.push(c),
-                    KeyCode::Backspace => {
-                        input.pop();
-                    }
-                    KeyCode::Enter => {
-                        let query = input.trim().to_string();
-                        if query.is_empty() {
-                            input.clear();
-                            continue;
-                        }
-                        if query == "/quit" {
-                            break;
-                        }
-                        items.push(HistoryItem::User(query.clone()));
-                        input.clear();
-                        chat_history.push(ChatMessage::user(query.clone()));
-                        let mut thinking_index: Option<usize> = None;
-                        loop {
-                            items.push(HistoryItem::Assistant(String::new()));
-                            let mut assistant_index = items.len() - 1;
-                            let mut current_line = String::new();
-                            let mut tool_calls: Vec<ToolCall> = Vec::new();
-
-                            let request = ChatMessageRequest::new(
-                                "gpt-oss:20b".to_string(),
-                                chat_history.clone(),
-                            )
-                            .tools(tool_infos.clone())
-                            .think(true);
-                            let mut stream = ollama.send_chat_messages_stream(request).await?;
-                            while let Some(chunk) = stream.next().await {
-                                let chunk = match chunk {
-                                    Ok(c) => c,
-                                    Err(_) => break,
-                                };
-                                if let Some(thinking) = chunk.message.thinking.as_ref() {
-                                    let idx = thinking_index.unwrap_or_else(|| {
-                                        items.insert(
-                                            assistant_index,
-                                            HistoryItem::Thinking {
-                                                steps: Vec::new(),
-                                                collapsed: false,
-                                                start: Instant::now(),
-                                                duration: Duration::default(),
-                                                done: false,
-                                            },
-                                        );
-                                        let idx = assistant_index;
-                                        assistant_index += 1;
-                                        idx
-                                    });
-                                    thinking_index = Some(idx);
-                                    if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                                        if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
-                                            t.push_str(thinking);
-                                        } else {
-                                            steps.push(ThinkingStep::Thought(thinking.clone()));
-                                        }
-                                    }
+        tokio::select! {
+            maybe_event = events.next() => {
+                if let Some(Ok(event)) = maybe_event {
+                    match event {
+                        Event::Key(key) => match key.code {
+                            KeyCode::Char(c) => input.push(c),
+                            KeyCode::Backspace => { input.pop(); }
+                            KeyCode::Enter => {
+                                let query = input.trim().to_string();
+                                if query.is_empty() {
+                                    input.clear();
+                                    continue;
                                 }
-                                if !chunk.message.content.is_empty() {
-                                    current_line.push_str(&chunk.message.content);
-                                    if let HistoryItem::Assistant(line) =
-                                        &mut items[assistant_index]
-                                    {
-                                        *line = current_line.clone();
-                                    }
-                                }
-                                if chunk.done {
-                                    tool_calls = chunk.message.tool_calls.clone();
+                                if query == "/quit" {
                                     break;
                                 }
-                                terminal.draw(|f| {
-                                    draw_state = draw_ui(f, &items, &input, &mut scroll_offset);
-                                })?;
-                            }
-
-                            if !current_line.is_empty() {
-                                chat_history.push(ChatMessage::assistant(current_line.clone()));
-                            } else {
-                                items.remove(assistant_index);
-                            }
-
-                            if tool_calls.is_empty() {
-                                if let Some(idx) = thinking_index {
-                                    if let HistoryItem::Thinking {
-                                        collapsed,
-                                        start,
-                                        duration,
-                                        done,
-                                        ..
-                                    } = &mut items[idx]
-                                    {
-                                        *collapsed = true;
-                                        *duration = start.elapsed();
-                                        *done = true;
-                                    }
+                                if chat_stream.is_some() || tool_handle.is_some() {
+                                    continue;
                                 }
-                                items.push(HistoryItem::Separator);
-                                break;
+                                items.push(HistoryItem::User(query.clone()));
+                                input.clear();
+                                chat_history.push(ChatMessage::user(query.clone()));
+                                items.push(HistoryItem::Assistant(String::new()));
+                                assistant_index = items.len() - 1;
+                                current_line.clear();
+                                thinking_index = None;
+                                let request = ChatMessageRequest::new(
+                                    "gpt-oss:20b".to_string(),
+                                    chat_history.clone(),
+                                )
+                                .tools(tool_infos.clone())
+                                .think(true);
+                                chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
                             }
-
-                            if let Some(t_idx) = thinking_index {
-                                if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
-                                    for call in tool_calls {
-                                        steps.push(ThinkingStep::ToolCall {
-                                            name: call.function.name.clone(),
-                                            args: call.function.arguments.to_string(),
-                                            result: String::new(),
-                                            success: true,
-                                            collapsed: true,
-                                        });
-                                        let s_idx = steps.len() - 1;
-                                        let result = match call_mcp_tool(
-                                            &call.function.name,
-                                            call.function.arguments.clone(),
-                                        )
-                                        .await
-                                        {
-                                            Ok(res) => {
-                                                if let ThinkingStep::ToolCall { result, .. } =
-                                                    &mut steps[s_idx]
-                                                {
-                                                    *result = res.clone();
+                            KeyCode::Esc => break,
+                            _ => {}
+                        },
+                        Event::Mouse(m) => match m.kind {
+                            MouseEventKind::ScrollUp => scroll_offset += 1,
+                            MouseEventKind::ScrollDown => scroll_offset -= 1,
+                            MouseEventKind::Down(MouseButton::Left) => {
+                                if m.column >= draw_state.history_rect.x
+                                    && m.column < draw_state.history_rect.x + draw_state.history_rect.width
+                                    && m.row >= draw_state.history_rect.y
+                                    && m.row < draw_state.history_rect.y + draw_state.history_rect.height
+                                {
+                                    let idx = draw_state.top_line + (m.row - draw_state.history_rect.y) as usize;
+                                    if let Some(map) = draw_state.line_map.get(idx) {
+                                        match *map {
+                                            LineMapping::Item(item_idx) => {
+                                                if let Some(HistoryItem::Thinking { collapsed, done, .. }) = items.get_mut(item_idx) {
+                                                    if *done { *collapsed = !*collapsed; }
                                                 }
-                                                res
                                             }
-                                            Err(err) => {
-                                                if let ThinkingStep::ToolCall {
-                                                    result,
-                                                    success,
-                                                    ..
-                                                } = &mut steps[s_idx]
-                                                {
-                                                    *result = format!("Tool Failed: {}", err);
-                                                    *success = false;
+                                            LineMapping::Step { item, step } => {
+                                                if let Some(HistoryItem::Thinking { steps, .. }) = items.get_mut(item) {
+                                                    if let Some(ThinkingStep::ToolCall { collapsed, .. }) = steps.get_mut(step) {
+                                                        *collapsed = !*collapsed;
+                                                    }
                                                 }
-                                                String::new()
-                                            }
-                                        };
-                                        chat_history.push(ChatMessage::tool(
-                                            result.clone(),
-                                            call.function.name.clone(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Esc => break,
-                    _ => {}
-                },
-                Event::Mouse(m) => match m.kind {
-                    MouseEventKind::ScrollUp => scroll_offset += 1,
-                    MouseEventKind::ScrollDown => scroll_offset -= 1,
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        if m.column >= draw_state.history_rect.x
-                            && m.column < draw_state.history_rect.x + draw_state.history_rect.width
-                            && m.row >= draw_state.history_rect.y
-                            && m.row < draw_state.history_rect.y + draw_state.history_rect.height
-                        {
-                            let idx =
-                                draw_state.top_line + (m.row - draw_state.history_rect.y) as usize;
-                            if let Some(map) = draw_state.line_map.get(idx) {
-                                match *map {
-                                    LineMapping::Item(item_idx) => {
-                                        if let Some(HistoryItem::Thinking {
-                                            collapsed, done, ..
-                                        }) = items.get_mut(item_idx)
-                                        {
-                                            if *done {
-                                                *collapsed = !*collapsed;
-                                            }
-                                        }
-                                    }
-                                    LineMapping::Step { item, step } => {
-                                        if let Some(HistoryItem::Thinking { steps, .. }) =
-                                            items.get_mut(item)
-                                        {
-                                            if let Some(ThinkingStep::ToolCall {
-                                                collapsed, ..
-                                            }) = steps.get_mut(step)
-                                            {
-                                                *collapsed = !*collapsed;
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
+                            _ => {}
+                        },
+                        _ => {}
                     }
-                    _ => {}
-                },
-                _ => {}
+                }
             }
+            chat_chunk = async {
+                if let Some(stream) = &mut chat_stream {
+                    stream.next().await
+                } else {
+                    None
+                }
+            }, if chat_stream.is_some() => {
+                if let Some(Ok(chunk)) = chat_chunk {
+                    if let Some(thinking) = chunk.message.thinking.as_ref() {
+                        let idx = thinking_index.unwrap_or_else(|| {
+                            items.insert(
+                                assistant_index,
+                                HistoryItem::Thinking {
+                                    steps: Vec::new(),
+                                    collapsed: false,
+                                    start: Instant::now(),
+                                    duration: Duration::default(),
+                                    done: false,
+                                },
+                            );
+                            let idx = assistant_index;
+                            assistant_index += 1;
+                            idx
+                        });
+                        thinking_index = Some(idx);
+                        if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                            if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
+                                t.push_str(thinking);
+                            } else {
+                                steps.push(ThinkingStep::Thought(thinking.to_string()));
+                            }
+                        }
+                    }
+                    if !chunk.message.content.is_empty() {
+                        current_line.push_str(&chunk.message.content);
+                        if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
+                            *line = current_line.clone();
+                        }
+                    }
+                    if chunk.done {
+                        pending_tool_calls = VecDeque::from(chunk.message.tool_calls.clone());
+                        chat_stream = None;
+
+                        if !current_line.is_empty() {
+                            chat_history.push(ChatMessage::assistant(current_line.clone()));
+                        } else {
+                            items.remove(assistant_index);
+                        }
+
+                        if pending_tool_calls.is_empty() {
+                            if let Some(idx) = thinking_index {
+                                if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
+                                    *collapsed = true;
+                                    *duration = start.elapsed();
+                                    *done = true;
+                                }
+                            }
+                            items.push(HistoryItem::Separator);
+                        } else {
+                            tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
+                        }
+                    }
+                } else {
+                    chat_stream = None;
+                }
+            }
+            tool_res = async {
+                if let Some(handle) = &mut tool_handle {
+                    Some(handle.await)
+                } else {
+                    None
+                }
+            }, if tool_handle.is_some() => {
+                if let Some(Ok((s_idx, name, res))) = tool_res {
+                    if let Some(t_idx) = thinking_index {
+                        if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
+                            if let Some(ThinkingStep::ToolCall { result, success, .. }) = steps.get_mut(s_idx) {
+                                match res {
+                                    Ok(text) => {
+                                        *result = text.clone();
+                                        chat_history.push(ChatMessage::tool(text, name));
+                                    }
+                                    Err(err) => {
+                                        *result = format!("Tool Failed: {}", err);
+                                        *success = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
+                    if tool_handle.is_none() {
+                        if let Some(idx) = thinking_index {
+                            if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
+                                *collapsed = true;
+                                *duration = start.elapsed();
+                                *done = true;
+                            }
+                        }
+                        items.push(HistoryItem::Separator);
+                    }
+                } else {
+                    tool_handle = None;
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
         }
     }
 
