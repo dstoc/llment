@@ -2,8 +2,12 @@ use std::error::Error;
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use ollama_rs::generation::{chat::request::ChatMessageRequest, tools::ToolCall};
 use tokio_stream::Stream;
+
+pub use ollama_rs::generation::{
+    chat::{ChatMessage, request::ChatMessageRequest},
+    tools::ToolCall,
+};
 
 pub mod ollama;
 pub mod openai;
