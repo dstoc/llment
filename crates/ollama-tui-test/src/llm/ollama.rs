@@ -1,0 +1,43 @@
+use std::error::Error;
+
+use async_trait::async_trait;
+use ollama_rs::Ollama;
+use ollama_rs::generation::chat::{ChatMessageResponseStream, request::ChatMessageRequest};
+use tokio_stream::StreamExt;
+
+use super::{ChatStream, LlmClient, ResponseChunk, ResponseMessage};
+
+pub struct OllamaClient {
+    inner: Ollama,
+}
+
+impl OllamaClient {
+    pub fn new(host: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        Ok(Self {
+            inner: Ollama::try_new(host)?,
+        })
+    }
+}
+
+#[async_trait]
+impl LlmClient for OllamaClient {
+    async fn send_chat_messages_stream(
+        &self,
+        request: ChatMessageRequest,
+    ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
+        let stream: ChatMessageResponseStream =
+            self.inner.send_chat_messages_stream(request).await?;
+        let mapped = stream.map(|res| match res {
+            Ok(r) => Ok(ResponseChunk {
+                message: ResponseMessage {
+                    content: r.message.content,
+                    tool_calls: r.message.tool_calls,
+                    thinking: r.message.thinking,
+                },
+                done: r.done,
+            }),
+            Err(_) => Err("stream error".into()),
+        });
+        Ok(Box::pin(mapped))
+    }
+}

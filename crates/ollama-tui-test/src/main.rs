@@ -1,10 +1,11 @@
 use std::{
     collections::HashMap,
     io::stdout,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use crossterm::{
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -15,8 +16,7 @@ use crossterm::{
 };
 use ollama_rs::re_exports::schemars::Schema;
 use ollama_rs::{
-    Ollama,
-    generation::chat::{ChatMessage, ChatMessageResponseStream, request::ChatMessageRequest},
+    generation::chat::{ChatMessage, request::ChatMessageRequest},
     generation::tools::{ToolCall, ToolFunctionInfo, ToolInfo, ToolType},
 };
 use once_cell::sync::Lazy;
@@ -33,6 +33,7 @@ use tokio::{process::Command, sync::Mutex, task::JoinSet};
 use tokio_stream::StreamExt;
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
+mod llm;
 mod markdown;
 mod ui;
 use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
@@ -179,8 +180,19 @@ fn spawn_tool_call(
     }
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum Provider {
+    Ollama,
+    Openai,
+}
+
 #[derive(Parser, Debug)]
 struct Args {
+    #[arg(long, value_enum, default_value_t = Provider::Ollama)]
+    provider: Provider,
+    /// Model identifier to use
+    #[arg(long, default_value = "gpt-oss:20b")]
+    model: String,
     /// Ollama host URL, e.g. http://localhost:11434
     #[arg(long, default_value = "http://127.0.0.1:11434")]
     host: String,
@@ -210,7 +222,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal, &args.host).await;
+    let client: Arc<dyn llm::LlmClient> = match args.provider {
+        Provider::Ollama => Arc::new(llm::ollama::OllamaClient::new(&args.host)?),
+        Provider::Openai => Arc::new(llm::openai::OpenAiClient::new()),
+    };
+
+    let res = run_app(&mut terminal, client, args.model.clone()).await;
 
     disable_raw_mode()?;
     execute!(
@@ -228,9 +245,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
-    host: &str,
+    client: Arc<dyn llm::LlmClient>,
+    model: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ollama = Ollama::try_new(host)?;
     let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
     let mut items: Vec<HistoryItem> = Vec::new();
     let mut input = Input::default();
@@ -238,7 +255,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut scroll_offset: i32 = 0;
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
-    let mut chat_stream: Option<ChatMessageResponseStream> = None;
+    let mut chat_stream: Option<llm::ChatStream> = None;
     let mut current_line = String::new();
     let mut tool_handles: JoinSet<(
         usize,
@@ -282,14 +299,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     items.push(HistoryItem::User(query.clone()));
                                     input.reset();
                                     chat_history.push(ChatMessage::user(query.clone()));
-                                    current_line.clear();
-                                    let request = ChatMessageRequest::new(
-                                        "gpt-oss:20b".to_string(),
-                                        chat_history.clone(),
-                                    )
-                                    .tools(tool_infos.clone())
-                                    .think(true);
-                                    chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                        current_line.clear();
+                        let request = ChatMessageRequest::new(
+                            model.clone(),
+                            chat_history.clone(),
+                        )
+                        .tools(tool_infos.clone())
+                        .think(true);
+                        chat_stream = Some(client.send_chat_messages_stream(request).await?);
                                 }
                                 (KeyCode::Esc, _) => break,
                                 _ => {
@@ -391,12 +408,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                         } else if tool_handles.is_empty() {
                             current_line.clear();
                             let request = ChatMessageRequest::new(
-                                "gpt-oss:20b".to_string(),
+                                model.clone(),
                                 chat_history.clone(),
                             )
                             .tools(tool_infos.clone())
                             .think(true);
-                            chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                            chat_stream = Some(client.send_chat_messages_stream(request).await?);
                             saw_tool_call = false;
                             request_done = false;
                         }
@@ -425,12 +442,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                 if tool_handles.is_empty() && request_done && saw_tool_call {
                     current_line.clear();
                     let request = ChatMessageRequest::new(
-                        "gpt-oss:20b".to_string(),
+                        model.clone(),
                         chat_history.clone(),
                     )
                     .tools(tool_infos.clone())
                     .think(true);
-                    chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                    chat_stream = Some(client.send_chat_messages_stream(request).await?);
                     saw_tool_call = false;
                     request_done = false;
                 }
