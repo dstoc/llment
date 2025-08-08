@@ -6,6 +6,10 @@ Terminal chat interface to Ollama with MCP tool integration.
   - parse command-line arguments
 - ollama-rs (dstoc fork)
   - communicate with Ollama using streaming and tools
+- async-openai
+  - connect to OpenAI models
+- async-trait
+  - define async trait abstraction for model backends
 - tokio
   - asynchronous runtime
   - streaming via `tokio-stream`
@@ -31,6 +35,9 @@ Terminal chat interface to Ollama with MCP tool integration.
   - compute cursor positions for multi-line input
 
 ## Features, Requirements and Constraints
+- LLM providers
+  - abstracted via trait interface
+  - supports Ollama and OpenAI backends
 - assistant responses
   - stream incrementally
     - display "thinking" tokens before assistant messages
