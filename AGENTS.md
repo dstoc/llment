@@ -23,7 +23,11 @@ At the end of each task, for the corresponding AGENTS.md files:
 * check that no listed features/requirements/constraints have been accidentally removed or violated.
 * update the list to add/remove/update any features/requirements/constraints involved in this specific task.
 
-The list should always be formatted as brief bullet points. Minor/unimportant details should be omitted.
+The list should always be formatted as brief bullet points with hierarchical structure. Sub-lists may be nested as deeply as necessary. Minor/unimportant details should be omitted. e.g:
+* The textbox allows both prompts and commands
+  * Commands start with a /
+    * Example: `/help` lists commands
+  * Ctrl-D will exit
 
 A template for component-specific AGENTS.md files follows:
 
