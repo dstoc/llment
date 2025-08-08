@@ -278,4 +278,67 @@ mod tests {
         ]);
         assert_eq!(buffer, expected);
     }
+
+    #[test]
+    fn draw_ui_renders_assistant_message() {
+        let backend = TestBackend::new(20, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = vec![HistoryItem::Assistant("Hello".into())];
+        let mut scroll = 0;
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, "", &mut scroll);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let expected = Buffer::with_lines(vec![
+            "Hello              ▲",
+            "                   █",
+            "                   █",
+            "                   ▼",
+            ">                   ",
+            "                    ",
+            "                    ",
+        ]);
+        assert_eq!(buffer, expected);
+    }
+
+    #[test]
+    fn draw_ui_renders_thinking_block_with_tool_call() {
+        let backend = TestBackend::new(20, 8);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = vec![HistoryItem::Thinking {
+            steps: vec![ThinkingStep::ToolCall {
+                name: "tool".into(),
+                args: "{}".into(),
+                result: "ok".into(),
+                success: true,
+                collapsed: false,
+            }],
+            collapsed: false,
+            start: Instant::now(),
+            duration: Duration::from_secs(0),
+            done: false,
+        }];
+        let mut scroll = 0;
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, "", &mut scroll);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let expected = Buffer::with_lines(vec![
+            "Thinking ⌄         ▲",
+            "· _tool_ ⌄         █",
+            "  args: {}         █",
+            "  result: ok       ║",
+            "                   ▼",
+            ">                   ",
+            "                    ",
+            "                    ",
+        ]);
+        assert_eq!(buffer, expected);
+    }
 }

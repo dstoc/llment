@@ -68,3 +68,4 @@ Terminal chat interface to Ollama with MCP tool integration.
 - UI rendering
   - drawing logic isolated for easier testing
   - chat layout verified with Ratatui's `TestBackend`
+    - covers user, assistant, and thinking blocks
