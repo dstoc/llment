@@ -76,3 +76,4 @@ Terminal chat interface to Ollama with MCP tool integration.
   - handles terminal events and async updates concurrently
   - UI remains interactive while requests stream or tools execute
   - after tool calls complete, sends a follow-up request with results for the final assistant response
+    - inserts a new assistant placeholder before streaming the final response
