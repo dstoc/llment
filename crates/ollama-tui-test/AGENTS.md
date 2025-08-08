@@ -21,3 +21,4 @@ Terminal chat interface to Ollama with MCP tool integration.
 - Thinking steps start with a bullet; tool names are italicized while tool arguments and results render as plain text.
 - Failed tool call headings render in red italics.
 - Chat content is padded to 100 columns and centered; the user prompt box always extends to the right edge of this area.
+- Markdown formatting is applied to complete messages before wrapping to ensure consistent styling.

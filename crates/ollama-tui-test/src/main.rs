@@ -24,7 +24,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::Line,
+    text::{Line, Span},
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 use rmcp::service::ServerSink;
@@ -35,7 +35,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use textwrap::wrap;
+use textwrap::{Options, wrap};
 use tokio::{process::Command, sync::Mutex};
 use tokio_stream::StreamExt;
 use tui_markdown::from_str;
@@ -204,47 +204,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 fn wrap_history_lines(
     items: &[HistoryItem],
     width: usize,
-) -> (Vec<String>, Vec<LineMapping>, Vec<bool>, Vec<Option<Style>>) {
+) -> (Vec<Line<'static>>, Vec<LineMapping>) {
+    fn owned(line: Line) -> Line<'static> {
+        let spans = line
+            .spans
+            .into_iter()
+            .map(|span| Span::styled(span.content.to_string(), span.style))
+            .collect();
+        Line {
+            style: line.style,
+            alignment: line.alignment,
+            spans,
+        }
+    }
     let width = width.min(100);
-    let mut lines = Vec::new();
+    let mut lines: Vec<Line<'static>> = Vec::new();
     let mut mapping = Vec::new();
-    let mut markdown = Vec::new();
-    let mut styles = Vec::new();
     for (idx, item) in items.iter().enumerate() {
         match item {
             HistoryItem::User(text) => {
                 let inner_width = width.saturating_sub(7);
-                let wrapped = wrap(text, inner_width.max(1));
+                let wrapped = wrap(text, Options::new(inner_width.max(1)).break_words(false));
                 let box_width = inner_width;
-                lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
+                lines.push(Line::raw(format!("     ┌{}┐", "─".repeat(box_width))));
                 mapping.push(LineMapping::Item(idx));
-                markdown.push(false);
-                styles.push(None);
                 for w in wrapped {
-                    let mut line = w.into_owned();
-                    line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
-                    lines.push(format!("     │{}│", line));
+                    let mut content = w.into_owned();
+                    if content.len() < box_width {
+                        content.push_str(&" ".repeat(box_width - content.len()));
+                    }
+                    lines.push(Line::raw(format!("     │{}│", content)));
                     mapping.push(LineMapping::Item(idx));
-                    markdown.push(false);
-                    styles.push(None);
                 }
-                lines.push(format!("     └{}┘", "─".repeat(box_width)));
+                lines.push(Line::raw(format!("     └{}┘", "─".repeat(box_width))));
                 mapping.push(LineMapping::Item(idx));
-                markdown.push(false);
-                styles.push(None);
-                lines.push(" ".repeat(width));
+                lines.push(Line::raw(" ".repeat(width)));
                 mapping.push(LineMapping::Item(idx));
-                markdown.push(false);
-                styles.push(None);
             }
             HistoryItem::Assistant(text) => {
-                for w in wrap(text, width.max(1)) {
-                    let mut line = w.into_owned();
-                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
+                let wrapped = wrap(text, Options::new(width.max(1)).break_words(false));
+                let wrapped_block = wrapped.join("\n");
+                let parsed = from_str(&wrapped_block);
+                for line in parsed.lines {
+                    let mut line = owned(line);
+                    let line_width = line.width();
+                    if line_width < width {
+                        line.spans.push(Span::raw(" ".repeat(width - line_width)));
+                    }
                     lines.push(line);
                     mapping.push(LineMapping::Item(idx));
-                    markdown.push(true);
-                    styles.push(None);
                 }
             }
             HistoryItem::Thinking {
@@ -258,43 +266,44 @@ fn wrap_history_lines(
                     .iter()
                     .filter(|s| matches!(s, ThinkingStep::ToolCall { .. }))
                     .count();
-                if *done {
+                let mut header = if *done {
                     let summary = format!(
                         "Thought for {} seconds, {calls} tool call{}",
                         duration.as_secs(),
                         if calls == 1 { "" } else { "s" },
                     );
                     let arrow = if *collapsed { "›" } else { "⌄" };
-                    let mut line = format!("{summary} {arrow}");
-                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
-                    lines.push(line);
+                    format!("{summary} {arrow}")
                 } else {
-                    let mut line = "Thinking ⌄".to_string();
-                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
-                    lines.push(line);
+                    "Thinking ⌄".to_string()
+                };
+                if header.len() < width {
+                    header.push_str(&" ".repeat(width - header.len()));
                 }
+                lines.push(Line::raw(header));
                 mapping.push(LineMapping::Item(idx));
-                markdown.push(false);
-                styles.push(None);
                 if !*collapsed || !*done {
                     for (s_idx, step) in steps.iter().enumerate() {
                         match step {
                             ThinkingStep::Thought(t) => {
-                                let wrapped = wrap(t, width.saturating_sub(2).max(1));
+                                let wrapped = wrap(
+                                    t,
+                                    Options::new(width.saturating_sub(2).max(1)).break_words(false),
+                                );
                                 for (i, w) in wrapped.into_iter().enumerate() {
-                                    let mut line = if i == 0 {
+                                    let mut content = if i == 0 {
                                         format!("· {}", w)
                                     } else {
                                         format!("  {}", w)
                                     };
-                                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
-                                    lines.push(line);
+                                    if content.len() < width {
+                                        content.push_str(&" ".repeat(width - content.len()));
+                                    }
+                                    lines.push(Line::raw(content));
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    markdown.push(false);
-                                    styles.push(None);
                                 }
                             }
                             ThinkingStep::ToolCall {
@@ -305,103 +314,113 @@ fn wrap_history_lines(
                                 collapsed: tc_collapsed,
                             } => {
                                 if *tc_collapsed {
-                                    let mut line = if *success {
-                                        format!("· _{name}_ ›")
+                                    if *success {
+                                        let formatted = format!("· _{name}_ ›");
+                                        let parsed = from_str(&formatted);
+                                        for line in parsed.lines {
+                                            let mut line = owned(line);
+                                            let line_width = line.width();
+                                            if line_width < width {
+                                                line.spans.push(Span::raw(
+                                                    " ".repeat(width - line_width),
+                                                ));
+                                            }
+                                            lines.push(line);
+                                        }
                                     } else {
-                                        format!("· {name} ›")
-                                    };
-                                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
-                                    lines.push(line);
+                                        let mut line = Line::raw(format!("· {name} ›"));
+                                        line = line.style(
+                                            Style::default()
+                                                .fg(Color::Red)
+                                                .add_modifier(Modifier::ITALIC),
+                                        );
+                                        let lw = line.width();
+                                        if lw < width {
+                                            line.spans.push(Span::raw(" ".repeat(width - lw)));
+                                        }
+                                        lines.push(line);
+                                    }
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    if *success {
-                                        markdown.push(true);
-                                        styles.push(None);
-                                    } else {
-                                        markdown.push(false);
-                                        styles.push(Some(
-                                            Style::default()
-                                                .fg(Color::Red)
-                                                .add_modifier(Modifier::ITALIC),
-                                        ));
-                                    }
                                 } else {
-                                    let mut line = if *success {
-                                        format!("· _{name}_ ⌄")
+                                    if *success {
+                                        let formatted = format!("· _{name}_ ⌄");
+                                        let parsed = from_str(&formatted);
+                                        for line in parsed.lines {
+                                            let mut line = owned(line);
+                                            let line_width = line.width();
+                                            if line_width < width {
+                                                line.spans.push(Span::raw(
+                                                    " ".repeat(width - line_width),
+                                                ));
+                                            }
+                                            lines.push(line);
+                                        }
                                     } else {
-                                        format!("· {name} ⌄")
-                                    };
-                                    line.push_str(&" ".repeat(width.saturating_sub(line.len())));
-                                    lines.push(line);
+                                        let mut line = Line::raw(format!("· {name} ⌄"));
+                                        line = line.style(
+                                            Style::default()
+                                                .fg(Color::Red)
+                                                .add_modifier(Modifier::ITALIC),
+                                        );
+                                        let lw = line.width();
+                                        if lw < width {
+                                            line.spans.push(Span::raw(" ".repeat(width - lw)));
+                                        }
+                                        lines.push(line);
+                                    }
                                     mapping.push(LineMapping::Step {
                                         item: idx,
                                         step: s_idx,
                                     });
-                                    if *success {
-                                        markdown.push(true);
-                                        styles.push(None);
-                                    } else {
-                                        markdown.push(false);
-                                        styles.push(Some(
-                                            Style::default()
-                                                .fg(Color::Red)
-                                                .add_modifier(Modifier::ITALIC),
-                                        ));
-                                    }
                                     for w in wrap(
                                         &format!("args: {args}"),
-                                        width.saturating_sub(2).max(1),
+                                        Options::new(width.saturating_sub(2).max(1))
+                                            .break_words(false),
                                     ) {
-                                        let mut line = format!("  {}", w);
-                                        line.push_str(
-                                            &" ".repeat(width.saturating_sub(line.len())),
-                                        );
-                                        lines.push(line);
+                                        let mut content = format!("  {}", w);
+                                        if content.len() < width {
+                                            content.push_str(&" ".repeat(width - content.len()));
+                                        }
+                                        lines.push(Line::raw(content));
                                         mapping.push(LineMapping::Step {
                                             item: idx,
                                             step: s_idx,
                                         });
-                                        markdown.push(false);
-                                        styles.push(None);
                                     }
                                     let prefix = if *success { "result:" } else { "error:" };
                                     for w in wrap(
                                         &format!("{prefix} {result}"),
-                                        width.saturating_sub(2).max(1),
+                                        Options::new(width.saturating_sub(2).max(1))
+                                            .break_words(false),
                                     ) {
-                                        let mut line = format!("  {}", w);
-                                        line.push_str(
-                                            &" ".repeat(width.saturating_sub(line.len())),
-                                        );
-                                        lines.push(line);
+                                        let mut content = format!("  {}", w);
+                                        if content.len() < width {
+                                            content.push_str(&" ".repeat(width - content.len()));
+                                        }
+                                        lines.push(Line::raw(content));
                                         mapping.push(LineMapping::Step {
                                             item: idx,
                                             step: s_idx,
                                         });
-                                        markdown.push(false);
-                                        styles.push(None);
                                     }
                                 }
                             }
                         }
                     }
                 }
-                lines.push(" ".repeat(width));
+                lines.push(Line::raw(" ".repeat(width)));
                 mapping.push(LineMapping::Item(idx));
-                markdown.push(false);
-                styles.push(None);
             }
             HistoryItem::Separator => {
-                lines.push("─".repeat(width));
+                lines.push(Line::raw("─".repeat(width)));
                 mapping.push(LineMapping::Item(idx));
-                markdown.push(false);
-                styles.push(None);
             }
         }
     }
-    (lines, mapping, markdown, styles)
+    (lines, mapping)
 }
 
 #[derive(Default)]
@@ -438,23 +457,7 @@ fn draw_ui(
         width: render_width as u16,
         height: history_chunks[0].height,
     };
-    let (lines, mapping, markdown_flags, styles) = wrap_history_lines(items, render_width);
-    let rendered_lines: Vec<Line> = lines
-        .iter()
-        .zip(markdown_flags.iter())
-        .zip(styles.iter())
-        .flat_map(|((line, &md), style)| {
-            let mut ls = if md {
-                from_str(line).lines
-            } else {
-                vec![Line::raw(line.clone())]
-            };
-            if let Some(style) = style {
-                ls = ls.into_iter().map(|l| l.style(*style)).collect();
-            }
-            ls
-        })
-        .collect();
+    let (rendered_lines, mapping) = wrap_history_lines(items, render_width);
     let history_height = render_rect.height as usize;
     let line_count = rendered_lines.len();
     let max_scroll = line_count.saturating_sub(history_height) as i32;
