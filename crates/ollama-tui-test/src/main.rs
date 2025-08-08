@@ -169,8 +169,8 @@ struct Args {
     /// Model name
     #[arg(long, default_value = "gpt-oss:20b")]
     model: String,
-    /// Endpoint URL, e.g. http://localhost:11434
-    #[arg(long, default_value = "http://127.0.0.1:11434")]
+    /// Endpoint base URL, e.g. http://localhost:11434/v1/
+    #[arg(long, default_value = "http://127.0.0.1:11434/v1/")]
     host: String,
     /// Path to MCP configuration JSON
     #[arg(long)]
@@ -225,7 +225,13 @@ async fn run_app<B: ratatui::backend::Backend>(
         _ => AdapterKind::Ollama,
     };
     let model_owned = model.to_string();
-    let endpoint_owned = endpoint.to_string();
+    let mut endpoint_owned = endpoint.to_string();
+    if !endpoint_owned.ends_with('/') {
+        endpoint_owned.push('/');
+    }
+    if !endpoint_owned.ends_with("v1/") {
+        endpoint_owned.push_str("v1/");
+    }
     let resolver = ServiceTargetResolver::from_resolver_fn(move |mut st: ServiceTarget| {
         st.endpoint = Endpoint::from_owned(endpoint_owned.clone());
         Ok(st)

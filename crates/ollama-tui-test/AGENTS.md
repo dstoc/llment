@@ -46,6 +46,7 @@ Terminal chat interface to LLM providers via genai with MCP tool integration.
     - persists across follow-up requests after tool calls
 - endpoint
   - specified via CLI option
+  - normalized to ensure a trailing `/v1/`
 - provider and model
   - selectable via CLI options
 - user prompts
