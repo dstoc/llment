@@ -45,6 +45,7 @@ Terminal chat interface to LLM providers via genai with MCP tool integration.
     - shows "Thinking" while in progress
     - summarizes as "Thought for …" when complete
     - persists across follow-up requests after tool calls
+    - handles streaming tool call chunks as they arrive
 - endpoint
   - specified via CLI option
   - normalized to ensure a trailing `/v1/`

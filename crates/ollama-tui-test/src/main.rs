@@ -15,8 +15,8 @@ use crossterm::{
 };
 use genai::adapter::AdapterKind;
 use genai::chat::{
-    ChatMessage, ChatOptions, ChatRequest, ChatStream, ChatStreamEvent, MessageContent, Tool,
-    ToolCall, ToolResponse,
+    ChatMessage, ChatOptions, ChatRequest, ChatStream, ChatStreamEvent, Tool, ToolCall,
+    ToolResponse,
 };
 use genai::resolver::{Endpoint, ServiceTargetResolver};
 use genai::{Client, ModelIden, ServiceTarget};
@@ -296,7 +296,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 let request = ChatRequest::from_messages(chat_history.clone())
                                     .with_tools(tool_infos.clone());
                                 let options = ChatOptions::default()
-                                    .with_capture_content(true)
+                                    .with_capture_tool_calls(true)
                                     .with_capture_reasoning_content(true)
                                     .with_normalize_reasoning_content(true);
                                 let stream_res = client
@@ -381,10 +381,42 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 *line = current_line.clone();
                             }
                         }
+                        ChatStreamEvent::ToolCallChunk(tool_chunk) => {
+                            let call = tool_chunk.tool_call;
+                            let idx = thinking_index.unwrap_or_else(|| {
+                                items.insert(
+                                    assistant_index,
+                                    HistoryItem::Thinking {
+                                        steps: Vec::new(),
+                                        collapsed: false,
+                                        start: Instant::now(),
+                                        duration: Duration::default(),
+                                        done: false,
+                                    },
+                                );
+                                let idx = assistant_index;
+                                assistant_index += 1;
+                                idx
+                            });
+                            thinking_index = Some(idx);
+                            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                                steps.push(ThinkingStep::ToolCall {
+                                    name: call.fn_name.clone(),
+                                    args: call.fn_arguments.to_string(),
+                                    result: String::new(),
+                                    success: true,
+                                    collapsed: true,
+                                });
+                            }
+                            pending_tool_calls.push_back(call);
+                        }
                         ChatStreamEvent::End(end) => {
                             chat_stream = None;
                             let reasoning = end.captured_reasoning_content.clone();
-                            let has_tool_calls = if let Some(MessageContent::ToolCalls(calls)) = end.captured_content.clone() {
+                            let captured_calls = end
+                                .captured_tool_calls()
+                                .map(|c| c.into_iter().cloned().collect::<Vec<_>>());
+                            let has_tool_calls = if let Some(calls) = captured_calls {
                                 pending_tool_calls = VecDeque::from(calls.clone());
                                 chat_history.push(ChatMessage::from(calls));
                                 true
@@ -474,7 +506,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                         let request = ChatRequest::from_messages(chat_history.clone())
                             .with_tools(tool_infos.clone());
                         let options = ChatOptions::default()
-                            .with_capture_content(true)
+                            .with_capture_tool_calls(true)
                             .with_capture_reasoning_content(true)
                             .with_normalize_reasoning_content(true);
                         let stream_res = client
