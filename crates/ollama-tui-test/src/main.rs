@@ -264,10 +264,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
                                     input.reset();
                                 }
-                                (KeyCode::Enter, m)
-                                    if m.contains(KeyModifiers::SHIFT)
-                                        || m.contains(KeyModifiers::CONTROL) =>
-                                {
+                                (KeyCode::Char('j'), m) if m.contains(KeyModifiers::CONTROL) => {
                                     input.handle(InputRequest::InsertChar('\n'));
                                 }
                                 (KeyCode::Enter, _) => {
