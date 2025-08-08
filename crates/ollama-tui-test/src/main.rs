@@ -402,7 +402,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 *done = true;
                             }
                         }
-                        items.push(HistoryItem::Separator);
+                        thinking_index = None;
+                        let request = ChatMessageRequest::new(
+                            "gpt-oss:20b".to_string(),
+                            chat_history.clone(),
+                        )
+                        .tools(tool_infos.clone())
+                        .think(true);
+                        chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
                     }
                 } else {
                     tool_handle = None;
