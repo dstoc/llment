@@ -20,55 +20,123 @@ use replace_in_content::replace_in_content;
 
 use rmcp::{schemars::JsonSchema, serde::Deserialize};
 
+fn default_expected_replacements() -> Option<usize> {
+    Some(1)
+}
+
+fn default_offset() -> Option<usize> {
+    Some(0)
+}
+
+fn default_true() -> Option<bool> {
+    Some(true)
+}
+
+fn default_false() -> Option<bool> {
+    Some(false)
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct ReplaceParams {
+    /// Absolute path to the file to modify.
     file_path: String,
+    /// Text to search for in the file.
     old_string: String,
+    /// Replacement text.
     new_string: String,
+    /// Number of replacements required. Defaults to 1.
+    #[serde(default = "default_expected_replacements")]
+    #[schemars(default = "default_expected_replacements")]
     expected_replacements: Option<usize>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct ListDirectoryParams {
+    /// Directory path to list.
     path: String,
+    /// Glob patterns to ignore.
+    #[serde(default)]
+    #[schemars(default)]
     ignore: Option<Vec<String>>,
+    /// Whether to respect `.gitignore` files. Defaults to true.
+    #[serde(default = "default_true")]
+    #[schemars(default = "default_true")]
     _respect_git_ignore: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct ReadFileParams {
+    /// Absolute path to the file to read.
     path: String,
+    /// Line offset to start reading from. Defaults to 0.
+    #[serde(default = "default_offset")]
+    #[schemars(default = "default_offset")]
     offset: Option<usize>,
+    /// Maximum number of lines to read. Reads to end of file when omitted.
+    #[serde(default)]
+    #[schemars(default)]
     limit: Option<usize>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct ReadManyFilesParams {
+    /// Glob patterns of absolute paths to read.
     paths: Vec<String>,
+    /// Additional include glob patterns.
+    #[serde(default)]
+    #[schemars(default)]
     include: Option<Vec<String>>,
+    /// Additional exclude glob patterns.
+    #[serde(default)]
+    #[schemars(default)]
     exclude: Option<Vec<String>>,
+    /// Recurse into directories. Defaults to true.
+    #[serde(default = "default_true")]
+    #[schemars(default = "default_true")]
     recursive: Option<bool>,
+    /// Whether to respect `.gitignore` files. Defaults to true.
+    #[serde(default = "default_true")]
+    #[schemars(default = "default_true")]
     respect_git_ignore: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct WriteFileParams {
+    /// Absolute path where the file will be written.
     file_path: String,
+    /// Content to write to the file.
     content: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct GlobParams {
+    /// Glob pattern to match files.
     pattern: String,
+    /// Directory to search within. Defaults to the workspace root.
+    #[serde(default)]
+    #[schemars(default)]
     path: Option<String>,
+    /// Enable case-sensitive matching. Defaults to false.
+    #[serde(default = "default_false")]
+    #[schemars(default = "default_false")]
     case_sensitive: Option<bool>,
+    /// Whether to respect `.gitignore` files. Defaults to true.
+    #[serde(default = "default_true")]
+    #[schemars(default = "default_true")]
     respect_git_ignore: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct SearchFileContentParams {
+    /// Regex pattern to search for.
     pattern: String,
+    /// Directory to search within. Defaults to the workspace root.
+    #[serde(default)]
+    #[schemars(default)]
     path: Option<String>,
+    /// Glob pattern for files to include.
+    #[serde(default)]
+    #[schemars(default)]
     include: Option<String>,
 }
 
