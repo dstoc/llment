@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     text::Line,
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
@@ -43,10 +44,11 @@ pub enum LineMapping {
 pub fn wrap_history_lines(
     items: &[HistoryItem],
     width: usize,
-) -> (Vec<String>, Vec<LineMapping>, Vec<bool>) {
+) -> (Vec<String>, Vec<LineMapping>, Vec<bool>, Vec<bool>) {
     let mut lines = Vec::new();
     let mut mapping = Vec::new();
     let mut markdown = Vec::new();
+    let mut error = Vec::new();
     for (idx, item) in items.iter().enumerate() {
         match item {
             HistoryItem::User(text) => {
@@ -56,24 +58,29 @@ pub fn wrap_history_lines(
                 lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                error.push(false);
                 for w in wrapped {
                     let mut line = w.into_owned();
                     line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
                     lines.push(format!("     │{}│", line));
                     mapping.push(LineMapping::Item(idx));
                     markdown.push(false);
+                    error.push(false);
                 }
                 lines.push(format!("     └{}┘", "─".repeat(box_width)));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                error.push(false);
                 lines.push(String::new());
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                error.push(false);
             }
             HistoryItem::Assistant(text) => {
                 lines.push(text.clone());
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(true);
+                error.push(false);
             }
             HistoryItem::Thinking {
                 steps,
@@ -99,6 +106,7 @@ pub fn wrap_history_lines(
                 }
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                error.push(false);
                 if !*collapsed || !*done {
                     for (s_idx, step) in steps.iter().enumerate() {
                         match step {
@@ -115,6 +123,7 @@ pub fn wrap_history_lines(
                                         step: s_idx,
                                     });
                                     markdown.push(false);
+                                    error.push(false);
                                 }
                             }
                             ThinkingStep::ToolCall {
@@ -125,19 +134,43 @@ pub fn wrap_history_lines(
                                 collapsed: tc_collapsed,
                             } => {
                                 if *tc_collapsed {
-                                    lines.push(format!("· _{name}_ ›"));
-                                    mapping.push(LineMapping::Step {
-                                        item: idx,
-                                        step: s_idx,
-                                    });
-                                    markdown.push(true);
+                                    if *success {
+                                        lines.push(format!("· _{name}_ ›"));
+                                        mapping.push(LineMapping::Step {
+                                            item: idx,
+                                            step: s_idx,
+                                        });
+                                        markdown.push(true);
+                                        error.push(false);
+                                    } else {
+                                        let line = format!("· {name} ›");
+                                        lines.push(line);
+                                        mapping.push(LineMapping::Step {
+                                            item: idx,
+                                            step: s_idx,
+                                        });
+                                        markdown.push(false);
+                                        error.push(true);
+                                    }
                                 } else {
-                                    lines.push(format!("· _{name}_ ⌄"));
-                                    mapping.push(LineMapping::Step {
-                                        item: idx,
-                                        step: s_idx,
-                                    });
-                                    markdown.push(true);
+                                    if *success {
+                                        lines.push(format!("· _{name}_ ⌄"));
+                                        mapping.push(LineMapping::Step {
+                                            item: idx,
+                                            step: s_idx,
+                                        });
+                                        markdown.push(true);
+                                        error.push(false);
+                                    } else {
+                                        let line = format!("· {name} ⌄");
+                                        lines.push(line);
+                                        mapping.push(LineMapping::Step {
+                                            item: idx,
+                                            step: s_idx,
+                                        });
+                                        markdown.push(false);
+                                        error.push(true);
+                                    }
                                     for w in wrap(
                                         &format!("args: {args}"),
                                         width.saturating_sub(2).max(1),
@@ -148,6 +181,7 @@ pub fn wrap_history_lines(
                                             step: s_idx,
                                         });
                                         markdown.push(false);
+                                        error.push(false);
                                     }
                                     let prefix = if *success { "result:" } else { "error:" };
                                     for w in wrap(
@@ -160,6 +194,7 @@ pub fn wrap_history_lines(
                                             step: s_idx,
                                         });
                                         markdown.push(false);
+                                        error.push(false);
                                     }
                                 }
                             }
@@ -169,15 +204,17 @@ pub fn wrap_history_lines(
                 lines.push(String::new());
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                error.push(false);
             }
             HistoryItem::Separator => {
                 lines.push("─".repeat(width));
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(false);
+                error.push(false);
             }
         }
     }
-    (lines, mapping, markdown)
+    (lines, mapping, markdown, error)
 }
 
 #[derive(Default)]
@@ -194,29 +231,42 @@ pub fn draw_ui(
     scroll_offset: &mut i32,
 ) -> DrawState {
     let area = f.area();
+    let content_width = area.width.saturating_sub(1).min(100);
+    let total_width = content_width + 1;
+    let x_offset = (area.width.saturating_sub(total_width)) / 2;
+    let centered = Rect::new(area.x + x_offset, area.y, total_width, area.height);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
-        .split(area);
+        .split(centered);
 
     let history_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(1), Constraint::Length(1)].as_ref())
+        .constraints([Constraint::Length(content_width), Constraint::Length(1)].as_ref())
         .split(chunks[0]);
 
-    let width = history_chunks[0].width as usize;
-    let (lines, mapping, markdown_flags) = wrap_history_lines(items, width);
+    let width = content_width as usize;
+    let (lines, mapping, markdown_flags, error_flags) = wrap_history_lines(items, width);
     let mut rendered_lines = Vec::new();
     let mut rendered_map = Vec::new();
-    for ((line, map), &md) in lines
+    for (((line, map), &md), &err) in lines
         .into_iter()
         .zip(mapping.into_iter())
         .zip(markdown_flags.iter())
+        .zip(error_flags.iter())
     {
         if md {
             let converted = markdown::markdown_to_lines(&line, width);
             rendered_map.extend(std::iter::repeat(map).take(converted.len()));
             rendered_lines.extend(converted);
+        } else if err {
+            rendered_map.push(map);
+            rendered_lines.push(Line::styled(
+                line,
+                Style::default()
+                    .fg(Color::Red)
+                    .add_modifier(Modifier::ITALIC),
+            ));
         } else {
             rendered_map.push(map);
             rendered_lines.push(Line::raw(line));
@@ -241,6 +291,7 @@ pub fn draw_ui(
 
     let input_widget = Paragraph::new(format!("> {}", input));
     f.render_widget(input_widget, chunks[1]);
+    f.set_cursor_position((chunks[1].x + 2 + input.len() as u16, chunks[1].y));
 
     DrawState {
         history_rect: history_chunks[0],
@@ -253,7 +304,12 @@ pub fn draw_ui(
 mod tests {
     use super::*;
     use insta::assert_snapshot;
-    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        buffer::Buffer,
+        style::{Color, Modifier},
+    };
 
     fn buffer_to_string(buffer: &Buffer) -> String {
         let area = buffer.area;
@@ -354,5 +410,51 @@ Thinking ⌄         ▲
                     
                     
 "###);
+    }
+
+    #[test]
+    fn centers_chat_content() {
+        let backend = TestBackend::new(120, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = vec![HistoryItem::Assistant("Hi".into())];
+        let mut scroll = 0;
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, "", &mut scroll);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered = buffer_to_string(&buffer);
+        let first_line = rendered.lines().next().unwrap();
+        assert_eq!(first_line.find("Hi"), Some(9));
+    }
+
+    #[test]
+    fn failed_tool_call_heading_is_red_italic() {
+        let backend = TestBackend::new(20, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = vec![HistoryItem::Thinking {
+            steps: vec![ThinkingStep::ToolCall {
+                name: "tool".into(),
+                args: "{}".into(),
+                result: "bad".into(),
+                success: false,
+                collapsed: true,
+            }],
+            collapsed: false,
+            start: Instant::now(),
+            duration: Duration::from_secs(0),
+            done: false,
+        }];
+        let mut scroll = 0;
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, "", &mut scroll);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let cell = buffer.cell((0, 0)).unwrap();
+        assert_eq!(cell.style().fg, Some(Color::Red));
+        assert!(cell.style().add_modifier.contains(Modifier::ITALIC));
     }
 }

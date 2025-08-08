@@ -37,6 +37,8 @@ Terminal chat interface to Ollama with MCP tool integration.
 - chat history
   - wrapped and scrollable
     - scrollbar and mouse support
+  - padded to 100 columns and centered
+    - user prompt boxes extend to the right edge
 - reasoning and tool steps
   - grouped into a single "Thinking" block
     - shows "Thinking" while in progress
@@ -53,6 +55,7 @@ Terminal chat interface to Ollama with MCP tool integration.
 - thinking steps
   - start with a bullet
   - tool names italicized
+    - failed tool call headings render in red italics
     - tool arguments and results render as plain text
 - markdown rendering
   - via termimad
@@ -75,6 +78,7 @@ Terminal chat interface to Ollama with MCP tool integration.
   - chat layout verified with Ratatui's `TestBackend`
     - inline snapshots with `insta`
     - covers user, assistant, and thinking blocks
+  - terminal cursor positioned at the bottom input prompt
 - main loop
   - handles terminal events and async updates concurrently
   - UI remains interactive while requests stream or tools execute
