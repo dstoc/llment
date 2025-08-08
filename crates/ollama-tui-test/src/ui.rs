@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
 use textwrap::wrap;
+use unicode_width::UnicodeWidthChar;
 
 use crate::markdown;
 use tui_input::Input;
@@ -236,9 +237,11 @@ pub fn draw_ui(
     let total_width = content_width + 1;
     let x_offset = (area.width.saturating_sub(total_width)) / 2;
     let centered = Rect::new(area.x + x_offset, area.y, total_width, area.height);
+    let input_lines: Vec<&str> = input.value().split('\n').collect();
+    let input_height = input_lines.len() as u16 + 2;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
+        .constraints([Constraint::Min(1), Constraint::Length(input_height)].as_ref())
         .split(centered);
 
     let history_chunks = Layout::default()
@@ -290,9 +293,28 @@ pub fn draw_ui(
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
     f.render_stateful_widget(scrollbar, history_chunks[1], &mut scrollbar_state);
 
-    let input_widget = Paragraph::new(format!("> {}", input.value()));
+    let mut display_lines = Vec::new();
+    if let Some((first, rest)) = input_lines.split_first() {
+        display_lines.push(Line::raw(format!("> {}", first)));
+        for line in rest {
+            display_lines.push(Line::raw(format!("  {}", line)));
+        }
+    }
+    let input_widget = Paragraph::new(display_lines);
     f.render_widget(input_widget, chunks[1]);
-    f.set_cursor_position((chunks[1].x + 2 + input.visual_cursor() as u16, chunks[1].y));
+
+    let cursor_pos = input.cursor();
+    let mut x = 0u16;
+    let mut y = 0u16;
+    for c in input.value().chars().take(cursor_pos) {
+        if c == '\n' {
+            y += 1;
+            x = 0;
+        } else {
+            x += c.width().unwrap_or(0) as u16;
+        }
+    }
+    f.set_cursor_position((chunks[1].x + 2 + x, chunks[1].y + y));
 
     DrawState {
         history_rect: history_chunks[0],
@@ -375,6 +397,34 @@ Hello              ▲
 >                   
                     
                     
+"###);
+    }
+
+    #[test]
+    fn input_box_expands_for_multiline() {
+        let backend = TestBackend::new(20, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = vec![];
+        let mut scroll = 0;
+        let input = Input::default().with_value("hello\nworld".into());
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, &input, &mut scroll);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        let rendered = buffer_to_string(&buffer);
+        let trimmed = rendered
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        assert_snapshot!(trimmed, @r###"
+> hello
+  world
 "###);
     }
 
