@@ -252,7 +252,21 @@ pub fn draw_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use insta::assert_snapshot;
     use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
+
+    fn buffer_to_string(buffer: &Buffer) -> String {
+        let area = buffer.area;
+        let mut lines = Vec::new();
+        for y in 0..area.height {
+            let mut line = String::new();
+            for x in 0..area.width {
+                line.push_str(buffer.cell((x, y)).unwrap().symbol());
+            }
+            lines.push(line);
+        }
+        lines.join("\n")
+    }
 
     #[test]
     fn draw_ui_renders_user_message() {
@@ -267,16 +281,16 @@ mod tests {
             .unwrap();
 
         let buffer = terminal.backend().buffer().clone();
-        let expected = Buffer::with_lines(vec![
-            "     ┌─────┐       ▲",
-            "     │Hello│       █",
-            "     └─────┘       ║",
-            "                   ▼",
-            ">                   ",
-            "                    ",
-            "                    ",
-        ]);
-        assert_eq!(buffer, expected);
+        let rendered = buffer_to_string(&buffer);
+        assert_snapshot!(rendered, @r###"
+     ┌─────┐       ▲
+     │Hello│       █
+     └─────┘       ║
+                   ▼
+>                   
+                    
+                    
+"###);
     }
 
     #[test]
@@ -292,16 +306,16 @@ mod tests {
             .unwrap();
 
         let buffer = terminal.backend().buffer().clone();
-        let expected = Buffer::with_lines(vec![
-            "Hello              ▲",
-            "                   █",
-            "                   █",
-            "                   ▼",
-            ">                   ",
-            "                    ",
-            "                    ",
-        ]);
-        assert_eq!(buffer, expected);
+        let rendered = buffer_to_string(&buffer);
+        assert_snapshot!(rendered, @r###"
+Hello              ▲
+                   █
+                   █
+                   ▼
+>                   
+                    
+                    
+"###);
     }
 
     #[test]
@@ -329,16 +343,16 @@ mod tests {
             .unwrap();
 
         let buffer = terminal.backend().buffer().clone();
-        let expected = Buffer::with_lines(vec![
-            "Thinking ⌄         ▲",
-            "· _tool_ ⌄         █",
-            "  args: {}         █",
-            "  result: ok       ║",
-            "                   ▼",
-            ">                   ",
-            "                    ",
-            "                    ",
-        ]);
-        assert_eq!(buffer, expected);
+        let rendered = buffer_to_string(&buffer);
+        assert_snapshot!(rendered, @r###"
+Thinking ⌄         ▲
+· _tool_ ⌄         █
+  args: {}         █
+  result: ok       ║
+                   ▼
+>                   
+                    
+                    
+"###);
     }
 }
