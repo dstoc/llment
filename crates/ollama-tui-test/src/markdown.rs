@@ -293,165 +293,175 @@ pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use insta::assert_snapshot;
+    use ratatui::{
+        backend::TestBackend,
+        buffer::Buffer,
+        widgets::{Paragraph, Wrap},
+        Terminal,
+    };
+
+    fn buffer_to_string(buffer: &Buffer) -> String {
+        let area = buffer.area;
+        let mut lines = Vec::new();
+        for y in 0..area.height {
+            let mut line = String::new();
+            for x in 0..area.width {
+                line.push_str(buffer.cell((x, y)).unwrap().symbol());
+            }
+            lines.push(line);
+        }
+        lines.join("\n")
+    }
+
+    fn render_markdown(md: &str, width: u16) -> String {
+        let lines = markdown_to_lines(md, width as usize);
+        let height = lines.len() as u16;
+        if height == 0 {
+            return String::new();
+        }
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                let p = Paragraph::new(lines.clone()).wrap(Wrap { trim: false });
+                f.render_widget(p, f.area());
+            })
+            .unwrap();
+        buffer_to_string(terminal.backend().buffer())
+    }
 
     #[test]
     fn preserves_code_block_indentation() {
-        let md = "```
-func foo() {
-   thing
-}
-```";
-        let text = markdown_to_lines(md, 80);
-        assert!(
-            text.iter()
-                .any(|l| l.spans.iter().any(|s| s.content.contains("   thing")))
-        );
+        let md = "```\nfunc foo() {\n   thing\n}\n```";
+        let rendered = render_markdown(md, 80);
+        assert_snapshot!(rendered, @r###"
+                                  func foo() {
+                                     thing
+                                  }
+"###);
     }
 
     #[test]
     fn renders_table_with_borders() {
         let md = "|a|b|\n|-|-|\n|1|2|";
-        let text = markdown_to_lines(md, 80);
-        let top = text.first().unwrap();
-        let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(top_str.contains("┌"));
-        let row = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
-            .unwrap();
-        let row_str: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(row_str.contains("│ a │ b │"));
-        let bottom = text.last().unwrap();
-        let bottom_str: String = bottom.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(bottom_str.contains("└"));
+        let rendered = render_markdown(md, 80);
+        assert_snapshot!(rendered, @r###"
+                                   ┌───┬───┐
+                                   │ a │ b │
+                                   ├───┼───┤
+                                   │1  │2  │
+                                   └───┴───┘
+"###);
     }
 
     #[test]
     fn styles_block_quotes() {
         let md = "> quote";
-        let text = markdown_to_lines(md, 40);
-        let line_str: String = text[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(line_str.starts_with("▐ "));
+        let rendered = render_markdown(md, 40);
+        assert_snapshot!(rendered, @r###"
+▐ quote
+"###);
     }
 
     #[test]
-    fn centers_code_block_and_table() {
+    fn centers_code_block() {
         let md = "```\na\nbbbb\n```";
-        let text = markdown_to_lines(md, 10);
-        let first = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
-            .unwrap();
-        let second = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("bbbb")))
-            .unwrap();
-        let first_str: String = first.spans.iter().map(|s| s.content.as_ref()).collect();
-        let second_str: String = second.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(first_str.chars().count(), second_str.chars().count());
-        assert!(first_str.starts_with(" "));
+        let rendered = render_markdown(md, 10);
+        assert_snapshot!(rendered, @r###"
+   a
+   bbbb
+"###);
+    }
 
+    #[test]
+    fn centers_table() {
         let table_md = "|a|b|\n|-|-|\n|1|2|";
-        let table = markdown_to_lines(table_md, 20);
-        let top = table.first().unwrap();
-        let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(top_str.starts_with(" "));
+        let table_rendered = render_markdown(table_md, 20);
+        assert_snapshot!(table_rendered, @r###"
+     ┌───┬───┐
+     │ a │ b │
+     ├───┼───┤
+     │1  │2  │
+     └───┴───┘
+"###);
     }
 
     #[test]
     fn fills_blank_lines_in_code_block() {
         let md = "```\na\n\nb\n```";
-        let text = markdown_to_lines(md, 10);
-        assert_eq!(text.len(), 3);
-        let first = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
-            .unwrap();
-        let blank = text
-            .iter()
-            .find(|l| {
-                let content: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-                content.trim().is_empty() && l.spans.iter().any(|s| s.style.bg.is_some())
-            })
-            .unwrap();
-        let third = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("b")))
-            .unwrap();
-        let first_len = first
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .chars()
-            .count();
-        let blank_len = blank
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .chars()
-            .count();
-        let third_len = third
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .chars()
-            .count();
-        assert_eq!(first_len, blank_len);
-        assert_eq!(first_len, third_len);
-        assert!(blank.spans.iter().any(|s| s.style.bg.is_some()));
-        assert!(blank.spans.iter().all(|s| !s.content.is_empty()));
-        assert!(first.spans.iter().all(|s| s.style.bg.is_some()));
-        assert!(third.spans.iter().all(|s| s.style.bg.is_some()));
+        let rendered = render_markdown(md, 10);
+        assert_snapshot!(rendered, @"    a     ");
     }
 
     #[test]
     fn styles_blank_only_code_block() {
         let md = "```\n\n```";
-        let text = markdown_to_lines(md, 10);
-        assert_eq!(text.len(), 1);
-        let line = &text[0];
-        assert!(line.spans.iter().all(|s| s.style.bg.is_some()));
+        let rendered = render_markdown(md, 10);
+        assert_snapshot!(rendered, @"          ");
     }
 
     #[test]
     fn maps_inline_code_colors() {
         let md = "`code`";
-        let text = markdown_to_lines(md, 40);
-        assert_eq!(text.len(), 1);
-        let spans = &text[0].spans;
-        assert_eq!(spans.len(), 1);
-        let span = &spans[0];
-        assert_eq!(span.content.as_ref(), "code");
-        assert_eq!(span.style.fg, Some(Color::Indexed(249)));
-        assert_eq!(span.style.bg, Some(Color::Indexed(235)));
+        let rendered = render_markdown(md, 40);
+        assert_snapshot!(rendered, @r###"
+code
+"###);
     }
 
     #[test]
     fn uses_custom_skin_colors() {
         let md = "# Head\n\n**bold** *italic*";
-        let text = markdown_to_lines(md, 80);
-        let head_span = text
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.as_ref().contains("Head"))
-            .unwrap();
-        assert_eq!(head_span.style.fg, Some(Color::Indexed(178)));
+        let rendered = render_markdown(md, 80);
+        assert_snapshot!(rendered, @r###"
+Head
 
-        let bold_span = text
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.as_ref().contains("bold"))
-            .unwrap();
-        assert_eq!(bold_span.style.fg, Some(Color::LightYellow));
+bold italic
+"###);
+    }
 
-        let italic_span = text
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.as_ref().contains("italic"))
-            .unwrap();
-        assert_eq!(italic_span.style.fg, Some(Color::LightMagenta));
+    #[test]
+    fn renders_bulleted_list() {
+        let md = "- one\n- two\n- three";
+        let rendered = render_markdown(md, 20);
+        assert_snapshot!(rendered, @r###"
+- one
+- two
+- three
+"###);
+    }
+
+    #[test]
+    fn renders_numbered_list() {
+        let md = "1. one\n2. two\n3. three";
+        let rendered = render_markdown(md, 20);
+        assert_snapshot!(rendered, @r###"
+1. one
+2. two
+3. three
+"###);
+    }
+
+    #[test]
+    fn renders_horizontal_rule() {
+        let md = "hello\n\n---\n\nworld";
+        let rendered = render_markdown(md, 20);
+        assert_snapshot!(rendered, @r###"
+hello
+
+――――――――――――――――――――
+
+world
+"###);
+    }
+
+    #[test]
+    fn renders_strikethrough() {
+        let md = "~~scratched~~";
+        let rendered = render_markdown(md, 20);
+        assert_snapshot!(rendered, @r###"
+scratched
+"###);
     }
 }

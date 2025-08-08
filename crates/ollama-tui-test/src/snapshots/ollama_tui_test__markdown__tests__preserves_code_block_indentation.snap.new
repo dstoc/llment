@@ -1,0 +1,8 @@
+---
+source: crates/ollama-tui-test/src/markdown.rs
+assertion_line: 338
+expression: rendered
+---
+                                  func foo() {
+                                     thing
+                                  }

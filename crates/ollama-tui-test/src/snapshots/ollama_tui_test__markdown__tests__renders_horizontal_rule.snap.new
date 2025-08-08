@@ -1,0 +1,10 @@
+---
+source: crates/ollama-tui-test/src/markdown.rs
+assertion_line: 415
+expression: rendered
+---
+hello
+
+――――――――――――――――――――
+
+world

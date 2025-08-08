@@ -1,0 +1,8 @@
+---
+source: crates/ollama-tui-test/src/markdown.rs
+assertion_line: 401
+expression: rendered
+---
+- one
+- two
+- three
