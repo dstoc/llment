@@ -61,7 +61,8 @@ Terminal chat interface to Ollama with MCP tool integration.
       - code blocks show rectangular backgrounds
       - blank lines retain background shading
       - padding uses the base style
-    - covered by tests
+    - covered by tests rendered with Ratatui's `TestBackend`
+      - insta inline snapshots include foreground/background colors
   - maps termimad foreground and background colors to ratatui styles
   - block quotes render with a styled quote mark and italic text
   - markdown skin
