@@ -137,25 +137,24 @@ fn start_next_tool_call(
         Result<String, Box<dyn std::error::Error + Send + Sync>>,
     )>,
 > {
+    let idx = thinking_index?;
     if let Some(call) = pending.pop_front() {
-        if let Some(idx) = thinking_index {
-            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                steps.push(ThinkingStep::ToolCall {
-                    name: call.fn_name.clone(),
-                    args: call.fn_arguments.to_string(),
-                    result: String::new(),
-                    success: true,
-                    collapsed: true,
-                });
-                let step_idx = steps.len() - 1;
-                let name = call.fn_name.clone();
-                let call_id = call.call_id.clone();
-                let args = call.fn_arguments.clone();
-                return Some(tokio::spawn(async move {
-                    let res = call_mcp_tool(&name, args).await;
-                    (step_idx, name, call_id, res)
-                }));
-            }
+        if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+            steps.push(ThinkingStep::ToolCall {
+                name: call.fn_name.clone(),
+                args: call.fn_arguments.to_string(),
+                result: String::new(),
+                success: true,
+                collapsed: true,
+            });
+            let step_idx = steps.len() - 1;
+            let name = call.fn_name.clone();
+            let call_id = call.call_id.clone();
+            let args = call.fn_arguments.clone();
+            return Some(tokio::spawn(async move {
+                let res = call_mcp_tool(&name, args).await;
+                (step_idx, name, call_id, res)
+            }));
         }
     }
     None
@@ -298,7 +297,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     .with_tools(tool_infos.clone());
                                 let options = ChatOptions::default()
                                     .with_capture_content(true)
-                                    .with_capture_reasoning_content(true);
+                                    .with_capture_reasoning_content(true)
+                                    .with_normalize_reasoning_content(true);
                                 let stream_res = client
                                     .exec_chat_stream(model, request, Some(&options))
                                     .await?;
@@ -383,13 +383,44 @@ async fn run_app<B: ratatui::backend::Backend>(
                         }
                         ChatStreamEvent::End(end) => {
                             chat_stream = None;
-                            if let Some(MessageContent::ToolCalls(calls)) = end.captured_content.clone() {
+                            let reasoning = end.captured_reasoning_content.clone();
+                            let has_tool_calls = if let Some(MessageContent::ToolCalls(calls)) = end.captured_content.clone() {
                                 pending_tool_calls = VecDeque::from(calls.clone());
                                 chat_history.push(ChatMessage::from(calls));
+                                true
                             } else if !current_line.is_empty() {
                                 chat_history.push(ChatMessage::assistant(current_line.clone()));
+                                false
                             } else {
                                 items.remove(assistant_index);
+                                false
+                            };
+
+                            if thinking_index.is_none() && (has_tool_calls || reasoning.is_some()) {
+                                items.insert(
+                                    assistant_index,
+                                    HistoryItem::Thinking {
+                                        steps: Vec::new(),
+                                        collapsed: false,
+                                        start: Instant::now(),
+                                        duration: Duration::default(),
+                                        done: false,
+                                    },
+                                );
+                                thinking_index = Some(assistant_index);
+                                assistant_index += 1;
+                            }
+
+                            if let Some(reason) = reasoning {
+                                if let Some(idx) = thinking_index {
+                                    if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                                        if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
+                                            t.push_str(&reason);
+                                        } else {
+                                            steps.push(ThinkingStep::Thought(reason));
+                                        }
+                                    }
+                                }
                             }
 
                             if pending_tool_calls.is_empty() {
@@ -444,7 +475,8 @@ async fn run_app<B: ratatui::backend::Backend>(
                             .with_tools(tool_infos.clone());
                         let options = ChatOptions::default()
                             .with_capture_content(true)
-                            .with_capture_reasoning_content(true);
+                            .with_capture_reasoning_content(true)
+                            .with_normalize_reasoning_content(true);
                         let stream_res = client
                             .exec_chat_stream(model, request, Some(&options))
                             .await?;

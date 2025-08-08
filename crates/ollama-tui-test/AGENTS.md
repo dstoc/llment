@@ -41,6 +41,7 @@ Terminal chat interface to LLM providers via genai with MCP tool integration.
     - user prompt boxes extend to the right edge
 - reasoning and tool steps
   - grouped into a single "Thinking" block
+    - created even if only tool calls or end-of-stream reasoning are returned
     - shows "Thinking" while in progress
     - summarizes as "Thought for …" when complete
     - persists across follow-up requests after tool calls
