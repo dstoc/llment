@@ -57,7 +57,7 @@ Terminal chat interface to Ollama with MCP tool integration.
     - supports bracketed paste
     - `Ctrl-D` exits
     - `Ctrl-L` clears input
-    - `Shift-Enter`/`Ctrl-Enter` insert newlines
+    - `Ctrl-J` inserts newlines
     - expands upward for multi-line input
   - thinking blocks
     - flush left with wrapped lines indented by two spaces
