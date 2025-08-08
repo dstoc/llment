@@ -13,6 +13,8 @@ MCP server offering file system editing utilities.
   - encode binary file data
 - globset, ignore, regex
   - globbing and pattern search
+- glob
+  - expand glob patterns for reading many files
 - tracing
   - logging
   - uses `tracing-subscriber` for output formatting
@@ -26,6 +28,8 @@ MCP server offering file system editing utilities.
   - `list_directory`
   - `read_file`
     - supports offset/limit and base64-encoded images
+  - `read_many_files`
+    - reads and concatenates multiple files using glob patterns
   - `write_file`
     - creates parent directories as needed
   - `glob`

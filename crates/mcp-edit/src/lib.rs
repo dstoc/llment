@@ -43,6 +43,15 @@ struct ReadFileParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct ReadManyFilesParams {
+    paths: Vec<String>,
+    include: Option<Vec<String>>,
+    exclude: Option<Vec<String>>,
+    recursive: Option<bool>,
+    respect_git_ignore: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct WriteFileParams {
     file_path: String,
     content: String,
@@ -275,6 +284,165 @@ impl FsServer {
         }
     }
 
+    #[tool(description = "Read multiple files and concatenate their contents.")]
+    pub async fn read_many_files(
+        &self,
+        Parameters(params): Parameters<ReadManyFilesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let ReadManyFilesParams {
+            paths,
+            include,
+            exclude,
+            recursive,
+            respect_git_ignore,
+        } = params;
+        if paths.is_empty() {
+            return Err(McpError::invalid_params(
+                "paths must not be empty".to_string(),
+                None,
+            ));
+        }
+
+        let include_set =
+            if let Some(pats) = include {
+                let mut builder = GlobSetBuilder::new();
+                for p in pats {
+                    builder.add(Glob::new(&p).map_err(|e| {
+                        McpError::invalid_params(format!("invalid include glob: {e}"), None)
+                    })?);
+                }
+                Some(builder.build().map_err(|e| {
+                    McpError::internal_error(format!("include build error: {e}"), None)
+                })?)
+            } else {
+                None
+            };
+
+        let mut exclude_patterns = exclude.unwrap_or_default();
+        exclude_patterns.extend([
+            "**/node_modules/**".into(),
+            "**/.git/**".into(),
+            "**/target/**".into(),
+        ]);
+        let exclude_set =
+            if exclude_patterns.is_empty() {
+                None
+            } else {
+                let mut builder = GlobSetBuilder::new();
+                for p in exclude_patterns {
+                    builder.add(Glob::new(&p).map_err(|e| {
+                        McpError::invalid_params(format!("invalid exclude glob: {e}"), None)
+                    })?);
+                }
+                Some(builder.build().map_err(|e| {
+                    McpError::internal_error(format!("exclude build error: {e}"), None)
+                })?)
+            };
+
+        let mut file_paths = Vec::new();
+        for pattern in paths {
+            if !Path::new(&pattern).is_absolute() {
+                return Err(McpError::invalid_params(
+                    "paths must be absolute".to_string(),
+                    None,
+                ));
+            }
+            let glob_iter = glob::glob(&pattern).map_err(|e| {
+                McpError::invalid_params(format!("invalid glob pattern: {e}"), None)
+            })?;
+            for entry in glob_iter {
+                let path = entry
+                    .map_err(|e| McpError::internal_error(format!("glob error: {e}"), None))?;
+                let canonical = fs::canonicalize(&path).map_err(|e| {
+                    McpError::internal_error(format!("failed to canonicalize path: {e}"), None)
+                })?;
+                if !canonical.starts_with(&self.workspace_root) {
+                    return Err(McpError::invalid_params(
+                        "path must be within the workspace".to_string(),
+                        None,
+                    ));
+                }
+                if canonical.is_file() {
+                    file_paths.push(canonical);
+                } else if canonical.is_dir() {
+                    let mut builder = WalkBuilder::new(&canonical);
+                    builder.standard_filters(true);
+                    builder.git_ignore(respect_git_ignore.unwrap_or(true));
+                    if !recursive.unwrap_or(true) {
+                        builder.max_depth(Some(1));
+                    }
+                    for result in builder.build() {
+                        let entry = result.map_err(|e| {
+                            McpError::internal_error(format!("walk error: {e}"), None)
+                        })?;
+                        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+                            continue;
+                        }
+                        let canon = fs::canonicalize(entry.path()).map_err(|e| {
+                            McpError::internal_error(
+                                format!("failed to canonicalize path: {e}"),
+                                None,
+                            )
+                        })?;
+                        file_paths.push(canon);
+                    }
+                }
+            }
+        }
+
+        file_paths.sort();
+        file_paths.dedup();
+
+        let mut text_output = String::new();
+        let mut contents = Vec::new();
+        for file in file_paths {
+            let rel = file.strip_prefix(&self.workspace_root).unwrap_or(&file);
+            if let Some(ref inc) = include_set {
+                if !inc.is_match(rel) {
+                    continue;
+                }
+            }
+            if let Some(ref exc) = exclude_set {
+                if exc.is_match(rel) {
+                    continue;
+                }
+            }
+            let data = fs::read(&file)
+                .map_err(|e| McpError::internal_error(format!("failed to read file: {e}"), None))?;
+            if let Ok(content) = String::from_utf8(data.clone()) {
+                text_output.push_str(&format!("===== {} =====\n{}\n\n", rel.display(), content));
+            } else {
+                let ext = file
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let mime = match ext.as_str() {
+                    "png" => Some("image/png"),
+                    "jpg" | "jpeg" => Some("image/jpeg"),
+                    "gif" => Some("image/gif"),
+                    "webp" => Some("image/webp"),
+                    "svg" => Some("image/svg+xml"),
+                    "bmp" => Some("image/bmp"),
+                    "pdf" => Some("application/pdf"),
+                    _ => None,
+                };
+                if let Some(mime) = mime {
+                    let encoded = BASE64.encode(data);
+                    contents.push(Content::image(encoded, mime.to_string()));
+                } else {
+                    text_output
+                        .push_str(&format!("===== {} =====\n[binary file]\n\n", rel.display()));
+                }
+            }
+        }
+
+        if !text_output.is_empty() {
+            contents.insert(0, Content::text(text_output));
+        }
+        Ok(CallToolResult::success(contents))
+    }
+
     #[tool(description = "Write content to a file at an absolute path, creating it if necessary.")]
     pub async fn write_file(
         &self,
@@ -498,6 +666,33 @@ mod tests {
             .text
             .clone();
         assert!(text.contains("second"));
+    }
+
+    #[tokio::test]
+    async fn read_many_files_reads_multiple() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello").unwrap();
+        fs::write(dir.path().join("b.txt"), "world").unwrap();
+        let server = FsServer::new(dir.path());
+        let pattern = format!("{}/**/*.txt", dir.path().display());
+        let result = server
+            .read_many_files(Parameters(ReadManyFilesParams {
+                paths: vec![pattern],
+                include: None,
+                exclude: None,
+                recursive: Some(true),
+                respect_git_ignore: None,
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(text.contains("hello"));
+        assert!(text.contains("world"));
     }
 
     #[tokio::test]
