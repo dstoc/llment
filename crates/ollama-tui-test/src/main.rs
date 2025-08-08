@@ -14,9 +14,9 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use llm::{ChatMessage, ChatMessageRequest, ToolCall};
-use ollama_rs::generation::tools::{ToolFunctionInfo, ToolInfo, ToolType};
-use ollama_rs::re_exports::schemars::Schema;
+use llm::{
+    ChatMessage, ChatMessageRequest, Schema, ToolCall, ToolFunctionInfo, ToolInfo, ToolType,
+};
 use once_cell::sync::Lazy;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use rmcp::service::ServerSink;

@@ -4,9 +4,12 @@ use std::pin::Pin;
 use async_trait::async_trait;
 use tokio_stream::Stream;
 
-pub use ollama_rs::generation::{
-    chat::{ChatMessage, request::ChatMessageRequest},
-    tools::ToolCall,
+pub use ollama_rs::{
+    generation::{
+        chat::{ChatMessage, MessageRole, request::ChatMessageRequest},
+        tools::{ToolCall, ToolCallFunction, ToolFunctionInfo, ToolInfo, ToolType},
+    },
+    re_exports::schemars::Schema,
 };
 
 pub mod ollama;
