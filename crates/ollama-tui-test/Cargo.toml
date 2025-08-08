@@ -6,7 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-ollama-rs = { git = "https://github.com/dstoc/ollama-rs", branch = "RobJellinghaus/streaming-tools", features = ["macros", "stream"] }
+async-openai = "0.29.0"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 ratatui = "0.29"

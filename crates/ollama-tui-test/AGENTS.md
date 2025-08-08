@@ -4,8 +4,8 @@ Terminal chat interface to Ollama with MCP tool integration.
 ## Dependencies
 - clap
   - parse command-line arguments
-- ollama-rs (dstoc fork)
-  - communicate with Ollama using streaming and tools
+- async-openai
+  - communicate with OpenAI-compatible models using streaming and tools
 - tokio
   - asynchronous runtime
   - streaming via `tokio-stream`
@@ -44,7 +44,7 @@ Terminal chat interface to Ollama with MCP tool integration.
     - shows "Thinking" while in progress
     - summarizes as "Thought for …" when complete
     - persists across follow-up requests after tool calls
-- Ollama host
+- OpenAI API base
   - specified via CLI option
 - user prompts
   - render inside a boxed region
