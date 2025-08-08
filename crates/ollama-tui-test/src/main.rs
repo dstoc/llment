@@ -403,6 +403,9 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
                         }
                         thinking_index = None;
+                        items.push(HistoryItem::Assistant(String::new()));
+                        assistant_index = items.len() - 1;
+                        current_line.clear();
                         let request = ChatMessageRequest::new(
                             "gpt-oss:20b".to_string(),
                             chat_history.clone(),
