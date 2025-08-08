@@ -293,6 +293,44 @@ pub fn markdown_to_lines(md: &str, width: usize) -> Vec<Line<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use insta::assert_snapshot;
+    use ratatui::{
+        Terminal, backend::TestBackend, buffer::Buffer, layout::Rect, widgets::Paragraph,
+    };
+
+    fn render_markdown(md: &str, width: u16) -> Buffer {
+        let lines = markdown_to_lines(md, width as usize);
+        let height = lines.len() as u16;
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                let paragraph = Paragraph::new(lines.clone());
+                f.render_widget(paragraph, Rect::new(0, 0, width, height));
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_to_debug_string(buf: &Buffer) -> String {
+        let mut out = String::new();
+        for y in buf.area.top()..buf.area.bottom() {
+            for x in buf.area.left()..buf.area.right() {
+                let c = buf.cell((x, y)).unwrap();
+                let fg = match c.style().fg {
+                    Some(col) => format!("{:?}", col),
+                    None => "_".into(),
+                };
+                let bg = match c.style().bg {
+                    Some(col) => format!("{:?}", col),
+                    None => "_".into(),
+                };
+                out.push_str(&format!("{}[{},{}]", c.symbol(), fg, bg));
+            }
+            out.push('\n');
+        }
+        out
+    }
 
     #[test]
     fn preserves_code_block_indentation() {
@@ -301,157 +339,92 @@ func foo() {
    thing
 }
 ```";
-        let text = markdown_to_lines(md, 80);
-        assert!(
-            text.iter()
-                .any(|l| l.spans.iter().any(|s| s.content.contains("   thing")))
-        );
+        let buffer = render_markdown(md, 20);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @r"
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]f[Indexed(249),Indexed(235)]u[Indexed(249),Indexed(235)]n[Indexed(249),Indexed(235)]c[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]f[Indexed(249),Indexed(235)]o[Indexed(249),Indexed(235)]o[Indexed(249),Indexed(235)]([Indexed(249),Indexed(235)])[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]{[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]t[Indexed(249),Indexed(235)]h[Indexed(249),Indexed(235)]i[Indexed(249),Indexed(235)]n[Indexed(249),Indexed(235)]g[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]}[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        ");
     }
 
     #[test]
     fn renders_table_with_borders() {
         let md = "|a|b|\n|-|-|\n|1|2|";
-        let text = markdown_to_lines(md, 80);
-        let top = text.first().unwrap();
-        let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(top_str.contains("┌"));
-        let row = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
-            .unwrap();
-        let row_str: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(row_str.contains("│ a │ b │"));
-        let bottom = text.last().unwrap();
-        let bottom_str: String = bottom.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(bottom_str.contains("└"));
+        let buffer = render_markdown(md, 20);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @r"
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]┌[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┬[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┐[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]a[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]b[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]├[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┼[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┤[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]1[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]2[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]└[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┴[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┘[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        ");
     }
 
     #[test]
     fn styles_block_quotes() {
-        let md = "> quote";
-        let text = markdown_to_lines(md, 40);
-        let line_str: String = text[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(line_str.starts_with("▐ "));
+        let buffer = render_markdown("> quote", 20);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @"▐[Indexed(244),Reset] [Indexed(244),Reset]q[Gray,Reset]u[Gray,Reset]o[Gray,Reset]t[Gray,Reset]e[Gray,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]");
     }
 
     #[test]
-    fn centers_code_block_and_table() {
-        let md = "```\na\nbbbb\n```";
-        let text = markdown_to_lines(md, 10);
-        let first = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
-            .unwrap();
-        let second = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("bbbb")))
-            .unwrap();
-        let first_str: String = first.spans.iter().map(|s| s.content.as_ref()).collect();
-        let second_str: String = second.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(first_str.chars().count(), second_str.chars().count());
-        assert!(first_str.starts_with(" "));
+    fn centers_code_block() {
+        let buffer = render_markdown("```\na\nbbbb\n```", 10);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @r"
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]a[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        ");
+    }
 
-        let table_md = "|a|b|\n|-|-|\n|1|2|";
-        let table = markdown_to_lines(table_md, 20);
-        let top = table.first().unwrap();
-        let top_str: String = top.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(top_str.starts_with(" "));
+    #[test]
+    fn centers_table() {
+        let buffer = render_markdown("|a|b|\n|-|-|\n|1|2|", 20);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @r"
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]┌[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┬[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┐[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]a[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]b[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]├[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┼[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┤[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]1[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]2[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]└[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┴[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┘[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        ");
     }
 
     #[test]
     fn fills_blank_lines_in_code_block() {
-        let md = "```\na\n\nb\n```";
-        let text = markdown_to_lines(md, 10);
-        assert_eq!(text.len(), 3);
-        let first = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("a")))
-            .unwrap();
-        let blank = text
-            .iter()
-            .find(|l| {
-                let content: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-                content.trim().is_empty() && l.spans.iter().any(|s| s.style.bg.is_some())
-            })
-            .unwrap();
-        let third = text
-            .iter()
-            .find(|l| l.spans.iter().any(|s| s.content.contains("b")))
-            .unwrap();
-        let first_len = first
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .chars()
-            .count();
-        let blank_len = blank
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .chars()
-            .count();
-        let third_len = third
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .chars()
-            .count();
-        assert_eq!(first_len, blank_len);
-        assert_eq!(first_len, third_len);
-        assert!(blank.spans.iter().any(|s| s.style.bg.is_some()));
-        assert!(blank.spans.iter().all(|s| !s.content.is_empty()));
-        assert!(first.spans.iter().all(|s| s.style.bg.is_some()));
-        assert!(third.spans.iter().all(|s| s.style.bg.is_some()));
+        let buffer = render_markdown("```\na\n\nb\n```", 10);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @r"
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]a[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        ");
     }
 
     #[test]
     fn styles_blank_only_code_block() {
-        let md = "```\n\n```";
-        let text = markdown_to_lines(md, 10);
-        assert_eq!(text.len(), 1);
-        let line = &text[0];
-        assert!(line.spans.iter().all(|s| s.style.bg.is_some()));
+        let buffer = render_markdown("```\n\n```", 10);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @" [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]");
     }
 
     #[test]
     fn maps_inline_code_colors() {
-        let md = "`code`";
-        let text = markdown_to_lines(md, 40);
-        assert_eq!(text.len(), 1);
-        let spans = &text[0].spans;
-        assert_eq!(spans.len(), 1);
-        let span = &spans[0];
-        assert_eq!(span.content.as_ref(), "code");
-        assert_eq!(span.style.fg, Some(Color::Indexed(249)));
-        assert_eq!(span.style.bg, Some(Color::Indexed(235)));
+        let buffer = render_markdown("`code`", 40);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @"c[Indexed(249),Indexed(235)]o[Indexed(249),Indexed(235)]d[Indexed(249),Indexed(235)]e[Indexed(249),Indexed(235)] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]");
     }
 
     #[test]
     fn uses_custom_skin_colors() {
-        let md = "# Head\n\n**bold** *italic*";
-        let text = markdown_to_lines(md, 80);
-        let head_span = text
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.as_ref().contains("Head"))
-            .unwrap();
-        assert_eq!(head_span.style.fg, Some(Color::Indexed(178)));
-
-        let bold_span = text
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.as_ref().contains("bold"))
-            .unwrap();
-        assert_eq!(bold_span.style.fg, Some(Color::LightYellow));
-
-        let italic_span = text
-            .iter()
-            .flat_map(|l| &l.spans)
-            .find(|s| s.content.as_ref().contains("italic"))
-            .unwrap();
-        assert_eq!(italic_span.style.fg, Some(Color::LightMagenta));
+        let buffer = render_markdown("# Head\n\n**bold** *italic*", 40);
+        let dbg = buffer_to_debug_string(&buffer);
+        assert_snapshot!(dbg, @r"
+        H[Indexed(178),Reset]e[Indexed(178),Reset]a[Indexed(178),Reset]d[Indexed(178),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+         [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        b[LightYellow,Reset]o[LightYellow,Reset]l[LightYellow,Reset]d[LightYellow,Reset] [Reset,Reset]i[LightMagenta,Reset]t[LightMagenta,Reset]a[LightMagenta,Reset]l[LightMagenta,Reset]i[LightMagenta,Reset]c[LightMagenta,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        ");
     }
 }
