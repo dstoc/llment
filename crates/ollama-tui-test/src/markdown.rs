@@ -315,17 +315,20 @@ mod tests {
     fn buffer_to_debug_string(buf: &Buffer) -> String {
         let mut out = String::new();
         for y in buf.area.top()..buf.area.bottom() {
+            let mut prev_fg = None;
+            let mut prev_bg = None;
             for x in buf.area.left()..buf.area.right() {
                 let c = buf.cell((x, y)).unwrap();
-                let fg = match c.style().fg {
-                    Some(col) => format!("{:?}", col),
-                    None => "_".into(),
-                };
-                let bg = match c.style().bg {
-                    Some(col) => format!("{:?}", col),
-                    None => "_".into(),
-                };
-                out.push_str(&format!("{}[{},{}]", c.symbol(), fg, bg));
+                let fg = c.style().fg;
+                let bg = c.style().bg;
+                if prev_fg != fg || prev_bg != bg {
+                    let fg_str = fg.map(|c| format!("{:?}", c)).unwrap_or_else(|| "_".into());
+                    let bg_str = bg.map(|c| format!("{:?}", c)).unwrap_or_else(|| "_".into());
+                    out.push_str(&format!("[{},{}]", fg_str, bg_str));
+                    prev_fg = fg;
+                    prev_bg = bg;
+                }
+                out.push_str(c.symbol());
             }
             out.push('\n');
         }
@@ -342,9 +345,9 @@ func foo() {
         let buffer = render_markdown(md, 20);
         let dbg = buffer_to_debug_string(&buffer);
         assert_snapshot!(dbg, @r"
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]f[Indexed(249),Indexed(235)]u[Indexed(249),Indexed(235)]n[Indexed(249),Indexed(235)]c[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]f[Indexed(249),Indexed(235)]o[Indexed(249),Indexed(235)]o[Indexed(249),Indexed(235)]([Indexed(249),Indexed(235)])[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]{[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]t[Indexed(249),Indexed(235)]h[Indexed(249),Indexed(235)]i[Indexed(249),Indexed(235)]n[Indexed(249),Indexed(235)]g[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]}[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)]    func foo() {    
+        [Indexed(249),Indexed(235)]       thing        
+        [Indexed(249),Indexed(235)]    }
         ");
     }
 
@@ -354,11 +357,11 @@ func foo() {
         let buffer = render_markdown(md, 20);
         let dbg = buffer_to_debug_string(&buffer);
         assert_snapshot!(dbg, @r"
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]┌[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┬[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┐[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]a[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]b[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]├[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┼[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┤[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]1[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]2[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]└[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┴[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┘[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset]     [Indexed(239),Reset]┌───┬───┐[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]│[Reset,Reset] a [Indexed(239),Reset]│[Reset,Reset] b [Indexed(239),Reset]│[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]├───┼───┤[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]│[Reset,Reset]1  [Indexed(239),Reset]│[Reset,Reset]2  [Indexed(239),Reset]│[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]└───┴───┘[Reset,Reset]
         ");
     }
 
@@ -366,7 +369,7 @@ func foo() {
     fn styles_block_quotes() {
         let buffer = render_markdown("> quote", 20);
         let dbg = buffer_to_debug_string(&buffer);
-        assert_snapshot!(dbg, @"▐[Indexed(244),Reset] [Indexed(244),Reset]q[Gray,Reset]u[Gray,Reset]o[Gray,Reset]t[Gray,Reset]e[Gray,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]");
+        assert_snapshot!(dbg, @"[Indexed(244),Reset]▐ [Gray,Reset]quote[Reset,Reset]");
     }
 
     #[test]
@@ -374,8 +377,8 @@ func foo() {
         let buffer = render_markdown("```\na\nbbbb\n```", 10);
         let dbg = buffer_to_debug_string(&buffer);
         assert_snapshot!(dbg, @r"
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]a[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)]   a      
+        [Indexed(249),Indexed(235)]   bbbb
         ");
     }
 
@@ -384,11 +387,11 @@ func foo() {
         let buffer = render_markdown("|a|b|\n|-|-|\n|1|2|", 20);
         let dbg = buffer_to_debug_string(&buffer);
         assert_snapshot!(dbg, @r"
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]┌[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┬[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┐[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]a[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset]b[Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]├[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┼[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┤[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]1[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset]2[Reset,Reset] [Reset,Reset] [Reset,Reset]│[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]└[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┴[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]─[Indexed(239),Reset]┘[Indexed(239),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Reset,Reset]     [Indexed(239),Reset]┌───┬───┐[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]│[Reset,Reset] a [Indexed(239),Reset]│[Reset,Reset] b [Indexed(239),Reset]│[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]├───┼───┤[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]│[Reset,Reset]1  [Indexed(239),Reset]│[Reset,Reset]2  [Indexed(239),Reset]│[Reset,Reset]      
+        [Reset,Reset]     [Indexed(239),Reset]└───┴───┘[Reset,Reset]
         ");
     }
 
@@ -397,9 +400,9 @@ func foo() {
         let buffer = render_markdown("```\na\n\nb\n```", 10);
         let dbg = buffer_to_debug_string(&buffer);
         assert_snapshot!(dbg, @r"
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]a[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
-        [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]b[Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]
+        [Indexed(249),Indexed(235)]    a     
+        [Indexed(249),Indexed(235)]          
+        [Indexed(249),Indexed(235)]    b
         ");
     }
 
@@ -407,14 +410,14 @@ func foo() {
     fn styles_blank_only_code_block() {
         let buffer = render_markdown("```\n\n```", 10);
         let dbg = buffer_to_debug_string(&buffer);
-        assert_snapshot!(dbg, @" [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)] [Indexed(249),Indexed(235)]");
+        assert_snapshot!(dbg, @"[Indexed(249),Indexed(235)]");
     }
 
     #[test]
     fn maps_inline_code_colors() {
         let buffer = render_markdown("`code`", 40);
         let dbg = buffer_to_debug_string(&buffer);
-        assert_snapshot!(dbg, @"c[Indexed(249),Indexed(235)]o[Indexed(249),Indexed(235)]d[Indexed(249),Indexed(235)]e[Indexed(249),Indexed(235)] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]");
+        assert_snapshot!(dbg, @"[Indexed(249),Indexed(235)]code[Reset,Reset]");
     }
 
     #[test]
@@ -422,9 +425,9 @@ func foo() {
         let buffer = render_markdown("# Head\n\n**bold** *italic*", 40);
         let dbg = buffer_to_debug_string(&buffer);
         assert_snapshot!(dbg, @r"
-        H[Indexed(178),Reset]e[Indexed(178),Reset]a[Indexed(178),Reset]d[Indexed(178),Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-         [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
-        b[LightYellow,Reset]o[LightYellow,Reset]l[LightYellow,Reset]d[LightYellow,Reset] [Reset,Reset]i[LightMagenta,Reset]t[LightMagenta,Reset]a[LightMagenta,Reset]l[LightMagenta,Reset]i[LightMagenta,Reset]c[LightMagenta,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset] [Reset,Reset]
+        [Indexed(178),Reset]Head[Reset,Reset]                                    
+        [Reset,Reset]                                        
+        [LightYellow,Reset]bold[Reset,Reset] [LightMagenta,Reset]italic[Reset,Reset]
         ");
     }
 }
