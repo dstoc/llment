@@ -23,6 +23,8 @@ Terminal chat interface to Ollama with MCP tool integration.
   - wrap chat history
 - termimad
   - render markdown
+- tracing, tracing-subscriber, tracing-appender
+  - write trace logs to a file for debugging
 - insta
   - snapshot TUI rendering in tests
 
@@ -84,3 +86,5 @@ Terminal chat interface to Ollama with MCP tool integration.
   - UI remains interactive while requests stream or tools execute
   - after tool calls complete, sends a follow-up request with results for the final assistant response
     - inserts a new assistant placeholder before streaming the final response
+- trace logs
+  - async-openai, reqwest, and hyper emit TRACE-level output to `ollama-tui-test.log`

@@ -35,6 +35,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::{process::Command, sync::Mutex, task::JoinHandle};
 use tokio_stream::StreamExt;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::EnvFilter;
 
 mod markdown;
 mod ui;
@@ -58,6 +60,20 @@ struct McpServer {
     args: Vec<String>,
     #[serde(default)]
     env: HashMap<String, String>,
+}
+
+fn init_tracing() -> WorkerGuard {
+    let file_appender = tracing_appender::rolling::never(".", "ollama-tui-test.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+    let filter = EnvFilter::from_default_env()
+        .add_directive("async_openai=trace".parse().unwrap())
+        .add_directive("reqwest=trace".parse().unwrap())
+        .add_directive("hyper=trace".parse().unwrap());
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(non_blocking)
+        .init();
+    guard
 }
 
 async fn load_mcp_servers(
@@ -179,6 +195,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let _guard = init_tracing();
     let args = Args::parse();
 
     let _services = if let Some(path) = &args.mcp {
