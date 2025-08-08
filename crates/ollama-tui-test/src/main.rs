@@ -395,14 +395,6 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                     tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
                     if tool_handle.is_none() {
-                        if let Some(idx) = thinking_index {
-                            if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
-                                *collapsed = true;
-                                *duration = start.elapsed();
-                                *done = true;
-                            }
-                        }
-                        thinking_index = None;
                         items.push(HistoryItem::Assistant(String::new()));
                         assistant_index = items.len() - 1;
                         current_line.clear();
