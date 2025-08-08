@@ -2,27 +2,66 @@
 Terminal chat interface to Ollama with MCP tool integration.
 
 ## Dependencies
-- clap: parse command-line arguments.
-- ollama-rs (dstoc fork): communicate with Ollama using streaming and tools.
-- tokio and tokio-stream: asynchronous runtime and streaming.
-- ratatui and crossterm: terminal UI and input handling.
-- rmcp: connect to MCP servers.
-- serde and serde_json: load MCP server configuration.
-- once_cell: shared state for loaded tools.
-- textwrap: wrap chat history.
-- termimad: render markdown.
+- clap
+  - parse command-line arguments
+- ollama-rs (dstoc fork)
+  - communicate with Ollama using streaming and tools
+- tokio
+  - asynchronous runtime
+  - streaming via `tokio-stream`
+- ratatui
+  - terminal UI
+    - input handling via `crossterm`
+- rmcp
+  - connect to MCP servers
+- serde
+  - load MCP server configuration
+    - `serde_json` handles JSON parsing
+- once_cell
+  - shared state for loaded tools
+- textwrap
+  - wrap chat history
+- termimad
+  - render markdown
 
 ## Features, Requirements and Constraints
-- Streams assistant responses and displays incremental "thinking" tokens before assistant messages.
-- Loads MCP servers from configuration, exposes their tools, and executes tool calls with error handling.
-- Chat history is wrapped and scrollable with scrollbar and mouse support.
-- Groups all reasoning and tool steps into a single "Thinking" block that shows "Thinking" while in progress and summarizes as "Thought for …" when complete.
-- Allows specifying the Ollama host via CLI option.
-- User prompts render inside a boxed region with a 5-character left margin followed by a blank line; thinking blocks are flush left with wrapped lines indented by two spaces and end with a blank line.
-- Thinking steps start with a bullet; tool names are italicized while tool arguments and results render as plain text.
-- Markdown rendering via termimad preserves code block indentation and tables with padding and complete Unicode borders and is covered by tests.
-- Markdown rendering maps termimad foreground and background colors to ratatui styles.
-- Block quotes render with a styled quote mark and italic text.
-- Code blocks and tables are centered, with code blocks showing rectangular backgrounds.
-- Markdown skin colors headings with ANSI 178, bold text yellow, and italic text magenta.
-- Blank lines within code blocks retain their background shading without introducing extra unstyled lines, and code block padding uses the base style to keep rectangular backgrounds.
+- assistant responses
+  - stream incrementally
+    - display "thinking" tokens before assistant messages
+- MCP servers
+  - loaded from configuration
+    - expose tools
+    - execute tool calls with error handling
+- chat history
+  - wrapped and scrollable
+    - scrollbar and mouse support
+- reasoning and tool steps
+  - grouped into a single "Thinking" block
+    - shows "Thinking" while in progress
+    - summarizes as "Thought for …" when complete
+- Ollama host
+  - specified via CLI option
+- user prompts
+  - render inside a boxed region
+    - 5-character left margin followed by a blank line
+  - thinking blocks
+    - flush left with wrapped lines indented by two spaces
+    - end with a blank line
+- thinking steps
+  - start with a bullet
+  - tool names italicized
+    - tool arguments and results render as plain text
+- markdown rendering
+  - via termimad
+    - preserves code block indentation and tables with padding and complete Unicode borders
+    - code blocks and tables centered
+      - code blocks show rectangular backgrounds
+      - blank lines retain background shading
+      - padding uses the base style
+    - covered by tests
+  - maps termimad foreground and background colors to ratatui styles
+  - block quotes render with a styled quote mark and italic text
+  - markdown skin
+    - colors headings with ANSI 178
+    - bold text yellow
+    - italic text magenta
