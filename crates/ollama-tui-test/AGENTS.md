@@ -65,3 +65,6 @@ Terminal chat interface to Ollama with MCP tool integration.
     - colors headings with ANSI 178
     - bold text yellow
     - italic text magenta
+- UI rendering
+  - drawing logic isolated for easier testing
+  - chat layout verified with Ratatui's `TestBackend`
