@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     io::stdout,
     time::{Duration, Instant},
 };
@@ -29,7 +29,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::{process::Command, sync::Mutex, task::JoinHandle};
+use tokio::{process::Command, sync::Mutex, task::JoinSet};
 use tokio_stream::StreamExt;
 
 mod markdown;
@@ -127,38 +127,57 @@ async fn call_mcp_tool(
     }
 }
 
-fn start_next_tool_call(
-    pending: &mut VecDeque<ToolCall>,
+fn ensure_thinking_item(
     items: &mut Vec<HistoryItem>,
-    thinking_index: Option<usize>,
-) -> Option<
-    JoinHandle<(
+    thinking_index: &mut Option<usize>,
+    assistant_index: &mut usize,
+) -> usize {
+    if let Some(idx) = *thinking_index {
+        idx
+    } else {
+        items.insert(
+            *assistant_index,
+            HistoryItem::Thinking {
+                steps: Vec::new(),
+                collapsed: false,
+                start: Instant::now(),
+                duration: Duration::default(),
+                done: false,
+            },
+        );
+        let idx = *assistant_index;
+        *assistant_index += 1;
+        *thinking_index = Some(idx);
+        idx
+    }
+}
+
+fn spawn_tool_call(
+    call: ToolCall,
+    items: &mut Vec<HistoryItem>,
+    thinking_idx: usize,
+    handles: &mut JoinSet<(
         usize,
         String,
         Result<String, Box<dyn std::error::Error + Send + Sync>>,
     )>,
-> {
-    if let Some(call) = pending.pop_front() {
-        if let Some(idx) = thinking_index {
-            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                steps.push(ThinkingStep::ToolCall {
-                    name: call.function.name.clone(),
-                    args: call.function.arguments.to_string(),
-                    result: String::new(),
-                    success: true,
-                    collapsed: true,
-                });
-                let step_idx = steps.len() - 1;
-                let name = call.function.name.clone();
-                let args = call.function.arguments.clone();
-                return Some(tokio::spawn(async move {
-                    let res = call_mcp_tool(&name, args).await;
-                    (step_idx, name, res)
-                }));
-            }
-        }
+) {
+    if let HistoryItem::Thinking { steps, .. } = &mut items[thinking_idx] {
+        steps.push(ThinkingStep::ToolCall {
+            name: call.function.name.clone(),
+            args: call.function.arguments.to_string(),
+            result: String::new(),
+            success: true,
+            collapsed: true,
+        });
+        let step_idx = steps.len() - 1;
+        let name = call.function.name.clone();
+        let args = call.function.arguments.clone();
+        handles.spawn(async move {
+            let res = call_mcp_tool(&name, args).await;
+            (step_idx, name, res)
+        });
     }
-    None
 }
 
 #[derive(Parser, Debug)]
@@ -218,14 +237,13 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut thinking_index: Option<usize> = None;
     let mut assistant_index: usize = 0;
     let mut current_line = String::new();
-    let mut pending_tool_calls: VecDeque<ToolCall> = VecDeque::new();
-    let mut tool_handle: Option<
-        JoinHandle<(
-            usize,
-            String,
-            Result<String, Box<dyn std::error::Error + Send + Sync>>,
-        )>,
-    > = None;
+    let mut tool_handles: JoinSet<(
+        usize,
+        String,
+        Result<String, Box<dyn std::error::Error + Send + Sync>>,
+    )> = JoinSet::new();
+    let mut saw_tool_call = false;
+    let mut request_done = false;
 
     loop {
         terminal.draw(|f| {
@@ -248,7 +266,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 if query == "/quit" {
                                     break;
                                 }
-                                if chat_stream.is_some() || tool_handle.is_some() {
+                                if chat_stream.is_some() || !tool_handles.is_empty() {
                                     continue;
                                 }
                                 items.push(HistoryItem::User(query.clone()));
@@ -312,22 +330,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             }, if chat_stream.is_some() => {
                 if let Some(Ok(chunk)) = chat_chunk {
                     if let Some(thinking) = chunk.message.thinking.as_ref() {
-                        let idx = thinking_index.unwrap_or_else(|| {
-                            items.insert(
-                                assistant_index,
-                                HistoryItem::Thinking {
-                                    steps: Vec::new(),
-                                    collapsed: false,
-                                    start: Instant::now(),
-                                    duration: Duration::default(),
-                                    done: false,
-                                },
-                            );
-                            let idx = assistant_index;
-                            assistant_index += 1;
-                            idx
-                        });
-                        thinking_index = Some(idx);
+                        let idx = ensure_thinking_item(&mut items, &mut thinking_index, &mut assistant_index);
                         if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
                             if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
                                 t.push_str(thinking);
@@ -342,9 +345,16 @@ async fn run_app<B: ratatui::backend::Backend>(
                             *line = current_line.clone();
                         }
                     }
+                    if !chunk.message.tool_calls.is_empty() {
+                        let idx = ensure_thinking_item(&mut items, &mut thinking_index, &mut assistant_index);
+                        for call in chunk.message.tool_calls {
+                            spawn_tool_call(call, &mut items, idx, &mut tool_handles);
+                            saw_tool_call = true;
+                        }
+                    }
                     if chunk.done {
-                        pending_tool_calls = VecDeque::from(chunk.message.tool_calls.clone());
                         chat_stream = None;
+                        request_done = true;
 
                         if !current_line.is_empty() {
                             chat_history.push(ChatMessage::assistant(current_line.clone()));
@@ -352,7 +362,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                             items.remove(assistant_index);
                         }
 
-                        if pending_tool_calls.is_empty() {
+                        if !saw_tool_call {
                             if let Some(idx) = thinking_index {
                                 if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
                                     *collapsed = true;
@@ -361,21 +371,27 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 }
                             }
                             items.push(HistoryItem::Separator);
-                        } else {
-                            tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
+                            request_done = false;
+                        } else if tool_handles.is_empty() {
+                            items.push(HistoryItem::Assistant(String::new()));
+                            assistant_index = items.len() - 1;
+                            current_line.clear();
+                            let request = ChatMessageRequest::new(
+                                "gpt-oss:20b".to_string(),
+                                chat_history.clone(),
+                            )
+                            .tools(tool_infos.clone())
+                            .think(true);
+                            chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                            saw_tool_call = false;
+                            request_done = false;
                         }
                     }
                 } else {
                     chat_stream = None;
                 }
             }
-            tool_res = async {
-                if let Some(handle) = &mut tool_handle {
-                    Some(handle.await)
-                } else {
-                    None
-                }
-            }, if tool_handle.is_some() => {
+            tool_res = tool_handles.join_next(), if !tool_handles.is_empty() => {
                 if let Some(Ok((s_idx, name, res))) = tool_res {
                     if let Some(t_idx) = thinking_index {
                         if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
@@ -393,21 +409,20 @@ async fn run_app<B: ratatui::backend::Backend>(
                             }
                         }
                     }
-                    tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
-                    if tool_handle.is_none() {
-                        items.push(HistoryItem::Assistant(String::new()));
-                        assistant_index = items.len() - 1;
-                        current_line.clear();
-                        let request = ChatMessageRequest::new(
-                            "gpt-oss:20b".to_string(),
-                            chat_history.clone(),
-                        )
-                        .tools(tool_infos.clone())
-                        .think(true);
-                        chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
-                    }
-                } else {
-                    tool_handle = None;
+                }
+                if tool_handles.is_empty() && request_done && saw_tool_call {
+                    items.push(HistoryItem::Assistant(String::new()));
+                    assistant_index = items.len() - 1;
+                    current_line.clear();
+                    let request = ChatMessageRequest::new(
+                        "gpt-oss:20b".to_string(),
+                        chat_history.clone(),
+                    )
+                    .tools(tool_infos.clone())
+                    .think(true);
+                    chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                    saw_tool_call = false;
+                    request_done = false;
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(50)) => {}
