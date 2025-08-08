@@ -13,12 +13,13 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ollama_rs::re_exports::schemars::Schema;
-use ollama_rs::{
-    Ollama,
-    generation::chat::{ChatMessage, ChatMessageResponseStream, request::ChatMessageRequest},
-    generation::tools::{ToolCall, ToolFunctionInfo, ToolInfo, ToolType},
+use genai::adapter::AdapterKind;
+use genai::chat::{
+    ChatMessage, ChatOptions, ChatRequest, ChatStream, ChatStreamEvent, MessageContent, Tool,
+    ToolCall, ToolResponse,
 };
+use genai::resolver::{Endpoint, ServiceTargetResolver};
+use genai::{Client, ModelIden, ServiceTarget};
 use once_cell::sync::Lazy;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use rmcp::service::ServerSink;
@@ -39,7 +40,7 @@ use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
 static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static MCP_TOOL_INFOS: Lazy<Mutex<Vec<Tool>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 #[derive(Deserialize)]
 struct McpConfig {
@@ -76,16 +77,13 @@ async fn load_mcp_servers(
             let mut infos = MCP_TOOL_INFOS.lock().await;
             for tool in tools.tools {
                 map.insert(tool.name.to_string(), service.peer().clone());
-                let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
+                let schema = tool.schema_as_json_value();
                 let description = tool.description.clone().unwrap_or_default().to_string();
-                infos.push(ToolInfo {
-                    tool_type: ToolType::Function,
-                    function: ToolFunctionInfo {
-                        name: tool.name.to_string(),
-                        description,
-                        parameters: schema,
-                    },
-                });
+                infos.push(
+                    Tool::new(tool.name.to_string())
+                        .with_description(description)
+                        .with_schema(schema),
+                );
             }
         }
         services.push(service);
@@ -135,6 +133,7 @@ fn start_next_tool_call(
     JoinHandle<(
         usize,
         String,
+        String,
         Result<String, Box<dyn std::error::Error + Send + Sync>>,
     )>,
 > {
@@ -142,18 +141,19 @@ fn start_next_tool_call(
         if let Some(idx) = thinking_index {
             if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
                 steps.push(ThinkingStep::ToolCall {
-                    name: call.function.name.clone(),
-                    args: call.function.arguments.to_string(),
+                    name: call.fn_name.clone(),
+                    args: call.fn_arguments.to_string(),
                     result: String::new(),
                     success: true,
                     collapsed: true,
                 });
                 let step_idx = steps.len() - 1;
-                let name = call.function.name.clone();
-                let args = call.function.arguments.clone();
+                let name = call.fn_name.clone();
+                let call_id = call.call_id.clone();
+                let args = call.fn_arguments.clone();
                 return Some(tokio::spawn(async move {
                     let res = call_mcp_tool(&name, args).await;
-                    (step_idx, name, res)
+                    (step_idx, name, call_id, res)
                 }));
             }
         }
@@ -163,7 +163,13 @@ fn start_next_tool_call(
 
 #[derive(Parser, Debug)]
 struct Args {
-    /// Ollama host URL, e.g. http://localhost:11434
+    /// Provider name (e.g. ollama, openai)
+    #[arg(long, default_value = "ollama")]
+    provider: String,
+    /// Model name
+    #[arg(long, default_value = "gpt-oss:20b")]
+    model: String,
+    /// Endpoint URL, e.g. http://localhost:11434
     #[arg(long, default_value = "http://127.0.0.1:11434")]
     host: String,
     /// Path to MCP configuration JSON
@@ -187,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal, &args.host).await;
+    let res = run_app(&mut terminal, &args.provider, &args.model, &args.host).await;
 
     disable_raw_mode()?;
     execute!(
@@ -204,9 +210,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
-    host: &str,
+    provider: &str,
+    model: &str,
+    endpoint: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ollama = Ollama::try_new(host)?;
+    let provider_kind = match provider.to_lowercase().as_str() {
+        "openai" => AdapterKind::OpenAI,
+        "anthropic" => AdapterKind::Anthropic,
+        "cohere" => AdapterKind::Cohere,
+        "gemini" => AdapterKind::Gemini,
+        "groq" => AdapterKind::Groq,
+        "xai" => AdapterKind::Xai,
+        "deepseek" => AdapterKind::DeepSeek,
+        _ => AdapterKind::Ollama,
+    };
+    let endpoint_owned = endpoint.to_string();
+    let model_owned = model.to_string();
+    let resolver = ServiceTargetResolver::from_resolver_fn(move |mut st: ServiceTarget| {
+        st.endpoint = Endpoint::from_owned(endpoint_owned.clone());
+        st.model = ModelIden::new(provider_kind, model_owned.clone());
+        Ok(st)
+    });
+    let client = Client::builder()
+        .with_service_target_resolver(resolver)
+        .build();
     let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
     let mut items: Vec<HistoryItem> = Vec::new();
     let mut input = String::new();
@@ -214,7 +241,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut scroll_offset: i32 = 0;
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
-    let mut chat_stream: Option<ChatMessageResponseStream> = None;
+    let mut chat_stream: Option<ChatStream> = None;
     let mut thinking_index: Option<usize> = None;
     let mut assistant_index: usize = 0;
     let mut current_line = String::new();
@@ -222,6 +249,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut tool_handle: Option<
         JoinHandle<(
             usize,
+            String,
             String,
             Result<String, Box<dyn std::error::Error + Send + Sync>>,
         )>,
@@ -258,13 +286,15 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 assistant_index = items.len() - 1;
                                 current_line.clear();
                                 thinking_index = None;
-                                let request = ChatMessageRequest::new(
-                                    "gpt-oss:20b".to_string(),
-                                    chat_history.clone(),
-                                )
-                                .tools(tool_infos.clone())
-                                .think(true);
-                                chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                                let request = ChatRequest::from_messages(chat_history.clone())
+                                    .with_tools(tool_infos.clone());
+                                let options = ChatOptions::default()
+                                    .with_capture_content(true)
+                                    .with_capture_reasoning_content(true);
+                                let stream_res = client
+                                    .exec_chat_stream(model, request, Some(&options))
+                                    .await?;
+                                chat_stream = Some(stream_res.stream);
                             }
                             KeyCode::Esc => break,
                             _ => {}
@@ -303,67 +333,71 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                 }
             }
-            chat_chunk = async {
+            chat_event = async {
                 if let Some(stream) = &mut chat_stream {
                     stream.next().await
                 } else {
                     None
                 }
             }, if chat_stream.is_some() => {
-                if let Some(Ok(chunk)) = chat_chunk {
-                    if let Some(thinking) = chunk.message.thinking.as_ref() {
-                        let idx = thinking_index.unwrap_or_else(|| {
-                            items.insert(
-                                assistant_index,
-                                HistoryItem::Thinking {
-                                    steps: Vec::new(),
-                                    collapsed: false,
-                                    start: Instant::now(),
-                                    duration: Duration::default(),
-                                    done: false,
-                                },
-                            );
-                            let idx = assistant_index;
-                            assistant_index += 1;
-                            idx
-                        });
-                        thinking_index = Some(idx);
-                        if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                            if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
-                                t.push_str(thinking);
-                            } else {
-                                steps.push(ThinkingStep::Thought(thinking.to_string()));
-                            }
-                        }
-                    }
-                    if !chunk.message.content.is_empty() {
-                        current_line.push_str(&chunk.message.content);
-                        if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
-                            *line = current_line.clone();
-                        }
-                    }
-                    if chunk.done {
-                        pending_tool_calls = VecDeque::from(chunk.message.tool_calls.clone());
-                        chat_stream = None;
-
-                        if !current_line.is_empty() {
-                            chat_history.push(ChatMessage::assistant(current_line.clone()));
-                        } else {
-                            items.remove(assistant_index);
-                        }
-
-                        if pending_tool_calls.is_empty() {
-                            if let Some(idx) = thinking_index {
-                                if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
-                                    *collapsed = true;
-                                    *duration = start.elapsed();
-                                    *done = true;
+                if let Some(Ok(event)) = chat_event {
+                    match event {
+                        ChatStreamEvent::ReasoningChunk(chunk) => {
+                            let idx = thinking_index.unwrap_or_else(|| {
+                                items.insert(
+                                    assistant_index,
+                                    HistoryItem::Thinking {
+                                        steps: Vec::new(),
+                                        collapsed: false,
+                                        start: Instant::now(),
+                                        duration: Duration::default(),
+                                        done: false,
+                                    },
+                                );
+                                let idx = assistant_index;
+                                assistant_index += 1;
+                                idx
+                            });
+                            thinking_index = Some(idx);
+                            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                                if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
+                                    t.push_str(&chunk.content);
+                                } else {
+                                    steps.push(ThinkingStep::Thought(chunk.content));
                                 }
                             }
-                            items.push(HistoryItem::Separator);
-                        } else {
-                            tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
                         }
+                        ChatStreamEvent::Chunk(chunk) => {
+                            current_line.push_str(&chunk.content);
+                            if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
+                                *line = current_line.clone();
+                            }
+                        }
+                        ChatStreamEvent::End(end) => {
+                            chat_stream = None;
+                            if let Some(MessageContent::ToolCalls(calls)) = end.captured_content.clone() {
+                                pending_tool_calls = VecDeque::from(calls.clone());
+                                chat_history.push(ChatMessage::from(calls));
+                            } else if !current_line.is_empty() {
+                                chat_history.push(ChatMessage::assistant(current_line.clone()));
+                            } else {
+                                items.remove(assistant_index);
+                            }
+
+                            if pending_tool_calls.is_empty() {
+                                if let Some(idx) = thinking_index {
+                                    if let HistoryItem::Thinking { collapsed, start, duration, done, .. } = &mut items[idx] {
+                                        *collapsed = true;
+                                        *duration = start.elapsed();
+                                        *done = true;
+                                    }
+                                }
+                                items.push(HistoryItem::Separator);
+                            } else {
+                                tool_handle = start_next_tool_call(&mut pending_tool_calls, &mut items, thinking_index);
+                            }
+                        }
+                        ChatStreamEvent::Start => {}
                     }
                 } else {
                     chat_stream = None;
@@ -376,14 +410,14 @@ async fn run_app<B: ratatui::backend::Backend>(
                     None
                 }
             }, if tool_handle.is_some() => {
-                if let Some(Ok((s_idx, name, res))) = tool_res {
+                if let Some(Ok((s_idx, _name, call_id, res))) = tool_res {
                     if let Some(t_idx) = thinking_index {
                         if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
                             if let Some(ThinkingStep::ToolCall { result, success, .. }) = steps.get_mut(s_idx) {
                                 match res {
                                     Ok(text) => {
                                         *result = text.clone();
-                                        chat_history.push(ChatMessage::tool(text, name));
+                                        chat_history.push(ChatMessage::from(ToolResponse::new(call_id, text)));
                                     }
                                     Err(err) => {
                                         *result = format!("Tool Failed: {}", err);
@@ -398,13 +432,15 @@ async fn run_app<B: ratatui::backend::Backend>(
                         items.push(HistoryItem::Assistant(String::new()));
                         assistant_index = items.len() - 1;
                         current_line.clear();
-                        let request = ChatMessageRequest::new(
-                            "gpt-oss:20b".to_string(),
-                            chat_history.clone(),
-                        )
-                        .tools(tool_infos.clone())
-                        .think(true);
-                        chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
+                        let request = ChatRequest::from_messages(chat_history.clone())
+                            .with_tools(tool_infos.clone());
+                        let options = ChatOptions::default()
+                            .with_capture_content(true)
+                            .with_capture_reasoning_content(true);
+                        let stream_res = client
+                            .exec_chat_stream(model, request, Some(&options))
+                            .await?;
+                        chat_stream = Some(stream_res.stream);
                     }
                 } else {
                     tool_handle = None;

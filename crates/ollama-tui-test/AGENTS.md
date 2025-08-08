@@ -1,11 +1,11 @@
 # ollama-tui-test
-Terminal chat interface to Ollama with MCP tool integration.
+Terminal chat interface to LLM providers via genai with MCP tool integration.
 
 ## Dependencies
 - clap
   - parse command-line arguments
-- ollama-rs (dstoc fork)
-  - communicate with Ollama using streaming and tools
+- genai
+  - communicate with multiple providers using streaming and tools
 - tokio
   - asynchronous runtime
   - streaming via `tokio-stream`
@@ -44,8 +44,10 @@ Terminal chat interface to Ollama with MCP tool integration.
     - shows "Thinking" while in progress
     - summarizes as "Thought for …" when complete
     - persists across follow-up requests after tool calls
-- Ollama host
+- endpoint
   - specified via CLI option
+- provider and model
+  - selectable via CLI options
 - user prompts
   - render inside a boxed region
     - 5-character left margin followed by a blank line
