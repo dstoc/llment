@@ -7,8 +7,8 @@ use std::{
 use clap::Parser;
 use crossterm::{
     event::{
-        DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, MouseButton,
-        MouseEventKind,
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event, EventStream, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
@@ -31,6 +31,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::{process::Command, sync::Mutex, task::JoinSet};
 use tokio_stream::StreamExt;
+use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
 mod markdown;
 mod ui;
@@ -200,7 +201,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     enable_raw_mode()?;
     let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -210,7 +216,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        DisableMouseCapture
+        DisableMouseCapture,
+        DisableBracketedPaste
     )?;
 
     if let Err(err) = res {
@@ -226,7 +233,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let ollama = Ollama::try_new(host)?;
     let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
     let mut items: Vec<HistoryItem> = Vec::new();
-    let mut input = String::new();
+    let mut input = Input::default();
     let mut chat_history: Vec<ChatMessage> = Vec::new();
     let mut scroll_offset: i32 = 0;
     let mut draw_state = DrawState::default();
@@ -251,36 +258,47 @@ async fn run_app<B: ratatui::backend::Backend>(
             maybe_event = events.next() => {
                 if let Some(Ok(event)) = maybe_event {
                     match event {
-                        Event::Key(key) => match key.code {
-                            KeyCode::Char(c) => input.push(c),
-                            KeyCode::Backspace => { input.pop(); }
-                            KeyCode::Enter => {
-                                let query = input.trim().to_string();
-                                if query.is_empty() {
-                                    input.clear();
-                                    continue;
+                        Event::Key(key) => {
+                            match (key.code, key.modifiers) {
+                                (KeyCode::Char('d'), m) if m.contains(KeyModifiers::CONTROL) => break,
+                                (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
+                                    input.reset();
                                 }
-                                if query == "/quit" {
-                                    break;
+                                (KeyCode::Enter, _) => {
+                                    let query = input.value().trim().to_string();
+                                    if query.is_empty() {
+                                        input.reset();
+                                        continue;
+                                    }
+                                    if query == "/quit" {
+                                        break;
+                                    }
+                                    if chat_stream.is_some() || !tool_handles.is_empty() {
+                                        continue;
+                                    }
+                                    items.push(HistoryItem::User(query.clone()));
+                                    input.reset();
+                                    chat_history.push(ChatMessage::user(query.clone()));
+                                    current_line.clear();
+                                    let request = ChatMessageRequest::new(
+                                        "gpt-oss:20b".to_string(),
+                                        chat_history.clone(),
+                                    )
+                                    .tools(tool_infos.clone())
+                                    .think(true);
+                                    chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
                                 }
-                                if chat_stream.is_some() || !tool_handles.is_empty() {
-                                    continue;
+                                (KeyCode::Esc, _) => break,
+                                _ => {
+                                    input.handle_event(&Event::Key(key));
                                 }
-                                items.push(HistoryItem::User(query.clone()));
-                                input.clear();
-                                chat_history.push(ChatMessage::user(query.clone()));
-                                current_line.clear();
-                                let request = ChatMessageRequest::new(
-                                    "gpt-oss:20b".to_string(),
-                                    chat_history.clone(),
-                                )
-                                .tools(tool_infos.clone())
-                                .think(true);
-                                chat_stream = Some(ollama.send_chat_messages_stream(request).await?);
                             }
-                            KeyCode::Esc => break,
-                            _ => {}
-                        },
+                        }
+                        Event::Paste(data) => {
+                            for c in data.chars() {
+                                input.handle(InputRequest::InsertChar(c));
+                            }
+                        }
                         Event::Mouse(m) => match m.kind {
                             MouseEventKind::ScrollUp => scroll_offset += 1,
                             MouseEventKind::ScrollDown => scroll_offset -= 1,

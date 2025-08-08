@@ -25,6 +25,8 @@ Terminal chat interface to Ollama with MCP tool integration.
   - render markdown
 - insta
   - snapshot TUI rendering in tests
+- tui-input
+  - line editing with paste and control shortcuts
 
 ## Features, Requirements and Constraints
 - assistant responses
@@ -49,6 +51,10 @@ Terminal chat interface to Ollama with MCP tool integration.
 - user prompts
   - render inside a boxed region
     - 5-character left margin followed by a blank line
+  - line input via `tui-input`
+    - supports bracketed paste
+    - `Ctrl-D` exits
+    - `Ctrl-L` clears input
   - thinking blocks
     - flush left with wrapped lines indented by two spaces
     - end with a blank line

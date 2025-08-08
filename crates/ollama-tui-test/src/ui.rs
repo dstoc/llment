@@ -10,6 +10,7 @@ use ratatui::{
 use textwrap::wrap;
 
 use crate::markdown;
+use tui_input::Input;
 
 pub enum HistoryItem {
     User(String),
@@ -227,7 +228,7 @@ pub struct DrawState {
 pub fn draw_ui(
     f: &mut Frame,
     items: &[HistoryItem],
-    input: &str,
+    input: &Input,
     scroll_offset: &mut i32,
 ) -> DrawState {
     let area = f.area();
@@ -289,9 +290,9 @@ pub fn draw_ui(
     let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
     f.render_stateful_widget(scrollbar, history_chunks[1], &mut scrollbar_state);
 
-    let input_widget = Paragraph::new(format!("> {}", input));
+    let input_widget = Paragraph::new(format!("> {}", input.value()));
     f.render_widget(input_widget, chunks[1]);
-    f.set_cursor_position((chunks[1].x + 2 + input.len() as u16, chunks[1].y));
+    f.set_cursor_position((chunks[1].x + 2 + input.visual_cursor() as u16, chunks[1].y));
 
     DrawState {
         history_rect: history_chunks[0],
@@ -310,6 +311,7 @@ mod tests {
         buffer::Buffer,
         style::{Color, Modifier},
     };
+    use tui_input::Input;
 
     fn buffer_to_string(buffer: &Buffer) -> String {
         let area = buffer.area;
@@ -330,9 +332,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![HistoryItem::User("Hello".into())];
         let mut scroll = 0;
+        let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, "", &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll);
             })
             .unwrap();
 
@@ -355,9 +358,10 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![HistoryItem::Assistant("Hello".into())];
         let mut scroll = 0;
+        let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, "", &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll);
             })
             .unwrap();
 
@@ -392,9 +396,10 @@ Hello              ▲
             done: false,
         }];
         let mut scroll = 0;
+        let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, "", &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll);
             })
             .unwrap();
 
@@ -418,9 +423,10 @@ Thinking ⌄         ▲
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![HistoryItem::Assistant("Hi".into())];
         let mut scroll = 0;
+        let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, "", &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll);
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
@@ -447,9 +453,10 @@ Thinking ⌄         ▲
             done: false,
         }];
         let mut scroll = 0;
+        let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, "", &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll);
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
