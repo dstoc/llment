@@ -1,6 +1,0 @@
----
-source: crates/ollama-tui-test/src/markdown.rs
-assertion_line: 422
-expression: rendered
----
-scratched
