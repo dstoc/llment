@@ -224,14 +224,16 @@ async fn run_app<B: ratatui::backend::Backend>(
         "deepseek" => AdapterKind::DeepSeek,
         _ => AdapterKind::Ollama,
     };
-    let endpoint_owned = endpoint.to_string();
     let model_owned = model.to_string();
+    let endpoint_owned = endpoint.to_string();
     let resolver = ServiceTargetResolver::from_resolver_fn(move |mut st: ServiceTarget| {
         st.endpoint = Endpoint::from_owned(endpoint_owned.clone());
-        st.model = ModelIden::new(provider_kind, model_owned.clone());
         Ok(st)
     });
     let client = Client::builder()
+        .with_model_mapper_fn(move |_m: ModelIden| {
+            Ok(ModelIden::new(provider_kind, model_owned.clone()))
+        })
         .with_service_target_resolver(resolver)
         .build();
     let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
