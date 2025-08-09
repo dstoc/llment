@@ -24,6 +24,7 @@ pub enum HistoryItem {
         done: bool,
     },
     Separator,
+    Error(String),
 }
 
 pub enum ThinkingStep {
@@ -83,6 +84,12 @@ pub fn wrap_history_lines(
                 mapping.push(LineMapping::Item(idx));
                 markdown.push(true);
                 error.push(false);
+            }
+            HistoryItem::Error(text) => {
+                lines.push(text.clone());
+                mapping.push(LineMapping::Item(idx));
+                markdown.push(false);
+                error.push(true);
             }
             HistoryItem::Thinking {
                 steps,
