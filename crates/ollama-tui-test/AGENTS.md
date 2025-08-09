@@ -53,6 +53,9 @@ Terminal chat interface to Ollama with MCP tool integration.
 - chat history
   - wrapped and scrollable
     - scrollbar and mouse support
+    - scroll calculations exposed for unit tests
+    - scrollbar hides when history fits viewport
+    - snapshot tests cover top and bottom positions
   - padded to 100 columns and centered
     - user prompt boxes extend to the right edge
 - reasoning and tool steps

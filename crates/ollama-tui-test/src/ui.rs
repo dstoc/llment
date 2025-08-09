@@ -226,6 +226,17 @@ pub fn wrap_history_lines(
     (lines, mapping, markdown, error)
 }
 
+pub fn apply_scroll(
+    line_count: usize,
+    viewport_height: usize,
+    scroll_offset: &mut i32,
+) -> (usize, i32) {
+    let max_scroll = line_count.saturating_sub(viewport_height) as i32;
+    *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
+    let top_line = (max_scroll - *scroll_offset) as usize;
+    (top_line, max_scroll)
+}
+
 #[derive(Default)]
 pub struct DrawState {
     pub history_rect: Rect,
@@ -285,20 +296,20 @@ pub fn draw_ui(
     }
     let history_height = history_chunks[0].height as usize;
     let line_count = rendered_lines.len();
-    let max_scroll = line_count.saturating_sub(history_height) as i32;
-    *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
-    let top_line = (max_scroll - *scroll_offset) as usize;
+    let (top_line, max_scroll) = apply_scroll(line_count, history_height, scroll_offset);
 
     let paragraph = Paragraph::new(rendered_lines)
         .wrap(Wrap { trim: false })
         .scroll((top_line as u16, 0));
     f.render_widget(paragraph, history_chunks[0]);
 
-    let mut scrollbar_state = ScrollbarState::new(line_count)
-        .position(top_line)
-        .viewport_content_length(history_height);
-    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
-    f.render_stateful_widget(scrollbar, history_chunks[1], &mut scrollbar_state);
+    if line_count > history_height {
+        let mut scrollbar_state = ScrollbarState::new((max_scroll as usize) + 1)
+            .position(top_line)
+            .viewport_content_length(history_height);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+        f.render_stateful_widget(scrollbar, history_chunks[1], &mut scrollbar_state);
+    }
 
     let mut display_lines = Vec::new();
     if let Some((first, rest)) = input_lines.split_first() {
@@ -356,6 +367,73 @@ mod tests {
     }
 
     #[test]
+    fn apply_scroll_clamps_bounds() {
+        let mut scroll = -10;
+        let (top, max) = apply_scroll(50, 10, &mut scroll);
+        assert_eq!(scroll, 0);
+        assert_eq!(top, 40);
+        assert_eq!(max, 40);
+
+        scroll = 100;
+        let (top, max) = apply_scroll(50, 10, &mut scroll);
+        assert_eq!(scroll, 40);
+        assert_eq!(top, 0);
+        assert_eq!(max, 40);
+    }
+
+    #[test]
+    fn draw_ui_scrolls_history_snapshots() {
+        let backend = TestBackend::new(20, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = (0..6)
+            .map(|i| HistoryItem::Assistant(format!("line{i}")))
+            .collect::<Vec<_>>();
+        let mut scroll = i32::MAX;
+        let input = Input::default();
+
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, &input, &mut scroll);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let top_rendered = buffer_to_string(&buffer);
+        assert_snapshot!(
+            top_rendered,
+            @r###"
+line0              ▲
+line1              █
+line2              ║
+line3              ▼
+>                   
+                    
+                    
+"###
+        );
+
+        scroll = 0;
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, &input, &mut scroll);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let bottom_rendered = buffer_to_string(&buffer);
+        assert_snapshot!(
+            bottom_rendered,
+            @r###"
+line2              ▲
+line3              ║
+line4              █
+line5              ▼
+>
+
+
+"###
+        );
+    }
+
+    #[test]
     fn draw_ui_renders_user_message() {
         let backend = TestBackend::new(20, 7);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -370,15 +448,23 @@ mod tests {
 
         let buffer = terminal.backend().buffer().clone();
         let rendered = buffer_to_string(&buffer);
-        assert_snapshot!(rendered, @r###"
-     ┌─────┐       ▲
-     │Hello│       █
-     └─────┘       ║
-                   ▼
->                   
-                    
-                    
-"###);
+        let trimmed = rendered
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_string();
+        assert_snapshot!(
+            trimmed,
+            @r###"
+     ┌─────┐
+     │Hello│
+     └─────┘
+
+>
+"###
+        );
     }
 
     #[test]
@@ -396,15 +482,23 @@ mod tests {
 
         let buffer = terminal.backend().buffer().clone();
         let rendered = buffer_to_string(&buffer);
-        assert_snapshot!(rendered, @r###"
-Hello              ▲
-                   █
-                   █
-                   ▼
->                   
-                    
-                    
-"###);
+        let trimmed = rendered
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_string();
+        assert_snapshot!(
+            trimmed,
+            @r###"
+Hello
+
+
+
+>
+"###
+        );
     }
 
     #[test]
@@ -462,16 +556,24 @@ Hello              ▲
 
         let buffer = terminal.backend().buffer().clone();
         let rendered = buffer_to_string(&buffer);
-        assert_snapshot!(rendered, @r###"
-Thinking ⌄         ▲
-· _tool_ ⌄         █
-  args: {}         █
-  result: ok       ║
-                   ▼
->                   
-                    
-                    
-"###);
+        let trimmed = rendered
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_string();
+        assert_snapshot!(
+            trimmed,
+            @r###"
+Thinking ⌄
+· _tool_ ⌄
+  args: {}
+  result: ok
+
+>
+"###
+        );
     }
 
     #[test]
