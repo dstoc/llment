@@ -44,7 +44,7 @@ struct ReplaceParams {
     old_string: String,
     /// Replacement text.
     new_string: String,
-    /// Number of replacements required. Defaults to 1.
+    /// Optional. Number of replacements required. Defaults to 1.
     #[serde(default = "default_expected_replacements")]
     #[schemars(default = "default_expected_replacements")]
     expected_replacements: Option<usize>,
@@ -54,11 +54,11 @@ struct ReplaceParams {
 struct ListDirectoryParams {
     /// Directory path to list.
     path: String,
-    /// Glob patterns to ignore.
+    /// Optional. Glob patterns to ignore.
     #[serde(default)]
     #[schemars(default)]
     ignore: Option<Vec<String>>,
-    /// Whether to respect `.gitignore` files. Defaults to true.
+    /// Optional. Whether to respect `.gitignore` files. Defaults to true.
     #[serde(default = "default_true")]
     #[schemars(default = "default_true")]
     _respect_git_ignore: Option<bool>,
@@ -68,11 +68,11 @@ struct ListDirectoryParams {
 struct ReadFileParams {
     /// Absolute path to the file to read.
     path: String,
-    /// Line offset to start reading from. Defaults to 0.
+    /// Optional. Line offset to start reading from. Defaults to 0.
     #[serde(default = "default_offset")]
     #[schemars(default = "default_offset")]
     offset: Option<usize>,
-    /// Maximum number of lines to read. Reads to end of file when omitted.
+    /// Optional. Maximum number of lines to read. Reads to end of file when omitted.
     #[serde(default)]
     #[schemars(default)]
     limit: Option<usize>,
@@ -82,19 +82,19 @@ struct ReadFileParams {
 struct ReadManyFilesParams {
     /// Glob patterns of absolute paths to read.
     paths: Vec<String>,
-    /// Additional include glob patterns.
+    /// Optional. Additional include glob patterns.
     #[serde(default)]
     #[schemars(default)]
     include: Option<Vec<String>>,
-    /// Additional exclude glob patterns.
+    /// Optional. Additional exclude glob patterns.
     #[serde(default)]
     #[schemars(default)]
     exclude: Option<Vec<String>>,
-    /// Recurse into directories. Defaults to true.
+    /// Optional. Recurse into directories. Defaults to true.
     #[serde(default = "default_true")]
     #[schemars(default = "default_true")]
     recursive: Option<bool>,
-    /// Whether to respect `.gitignore` files. Defaults to true.
+    /// Optional. Whether to respect `.gitignore` files. Defaults to true.
     #[serde(default = "default_true")]
     #[schemars(default = "default_true")]
     respect_git_ignore: Option<bool>,
@@ -112,15 +112,15 @@ struct WriteFileParams {
 struct GlobParams {
     /// Glob pattern to match files.
     pattern: String,
-    /// Directory to search within. Defaults to the workspace root.
+    /// Optional. Directory to search within. Defaults to the workspace root.
     #[serde(default)]
     #[schemars(default)]
     path: Option<String>,
-    /// Enable case-sensitive matching. Defaults to false.
+    /// Optional. Enable case-sensitive matching. Defaults to false.
     #[serde(default = "default_false")]
     #[schemars(default = "default_false")]
     case_sensitive: Option<bool>,
-    /// Whether to respect `.gitignore` files. Defaults to true.
+    /// Optional. Whether to respect `.gitignore` files. Defaults to true.
     #[serde(default = "default_true")]
     #[schemars(default = "default_true")]
     respect_git_ignore: Option<bool>,
@@ -130,11 +130,11 @@ struct GlobParams {
 struct SearchFileContentParams {
     /// Regex pattern to search for.
     pattern: String,
-    /// Directory to search within. Defaults to the workspace root.
+    /// Optional. Directory to search within. Defaults to the workspace root.
     #[serde(default)]
     #[schemars(default)]
     path: Option<String>,
-    /// Glob pattern for files to include.
+    /// Optional. Glob pattern for files to include.
     #[serde(default)]
     #[schemars(default)]
     include: Option<String>,
