@@ -18,6 +18,8 @@ Terminal chat interface to Ollama with MCP tool integration.
 - ratatui
   - terminal UI
     - input handling via `crossterm`
+- tuirealm
+  - component framework for `ratatui`
 - rmcp
   - connect to MCP servers
 - serde
@@ -99,11 +101,15 @@ Terminal chat interface to Ollama with MCP tool integration.
     - bold text yellow
     - italic text magenta
 - UI rendering
+  - component-based architecture via `tuirealm`
   - drawing logic isolated for easier testing
   - chat layout verified with Ratatui's `TestBackend`
     - inline snapshots with `insta`
     - covers user, assistant, and thinking blocks
   - terminal cursor positioned at the bottom input prompt
+- testing
+  - behavior tests separated from rendering tests
+  - rendering tests use Ratatui's `TestBackend` with `insta` inline snapshots
 - main loop
   - handles terminal events and async updates concurrently
   - UI remains interactive while requests stream or tools execute
