@@ -8,12 +8,11 @@ use gemini_rs::{
         Part, Role, ToolConfig, Tools,
     },
 };
-use serde_json::{Value, to_value};
 use tokio_stream::StreamExt;
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
-    ToolCall, ToolCallFunction,
+    ToolCall, ToolCallFunction, to_openapi_schema,
 };
 
 pub struct GeminiClient {
@@ -74,7 +73,7 @@ impl LlmClient for GeminiClient {
                 .map(|t| FunctionDeclaration {
                     name: t.function.name.clone(),
                     description: t.function.description.clone(),
-                    parameters: to_value(&t.function.parameters).unwrap_or(Value::Null),
+                    parameters: to_openapi_schema(&t.function.parameters),
                 })
                 .collect();
 

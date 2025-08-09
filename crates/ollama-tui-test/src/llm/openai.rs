@@ -2,11 +2,11 @@ use std::error::Error;
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
-    ToolCall, ToolCallFunction,
+    ToolCall, ToolCallFunction, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
-use serde_json::{Value, to_value};
+use serde_json::Value;
 use tokio_stream::StreamExt;
 
 pub struct OpenAiClient {
@@ -74,9 +74,7 @@ impl LlmClient for OpenAiClient {
                             .function(FunctionObject {
                                 name: t.function.name,
                                 description: Some(t.function.description),
-                                parameters: Some(
-                                    to_value(t.function.parameters).unwrap_or(Value::Null),
-                                ),
+                                parameters: Some(to_openapi_schema(&t.function.parameters)),
                                 strict: None,
                             })
                             .build()

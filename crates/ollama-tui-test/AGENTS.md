@@ -40,6 +40,9 @@ Terminal chat interface to Ollama with MCP tool integration.
 - LLM providers
   - abstracted via trait interface
   - supports Ollama, OpenAI, and Gemini backends
+- tool schemas
+  - sanitized for OpenAPI compatibility
+    - strips `$schema` and converts unsigned integers to `int32`/`int64`
 - assistant responses
   - stream incrementally
     - display "thinking" tokens before assistant messages
