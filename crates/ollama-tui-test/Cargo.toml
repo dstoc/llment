@@ -21,6 +21,7 @@ tui-input = { version = "0.14.0", default-features = false, features = ["crosste
 unicode-width = "0.2.0"
 async-openai = "0.29.0"
 async-trait = "0.1"
+gemini-rs = "2.0.0"
 
 [dev-dependencies]
 insta = "1.43.1"

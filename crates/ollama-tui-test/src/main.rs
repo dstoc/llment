@@ -182,6 +182,7 @@ fn spawn_tool_call(
 enum Provider {
     Ollama,
     Openai,
+    Gemini,
 }
 
 #[derive(Parser, Debug)]
@@ -191,7 +192,7 @@ struct Args {
     /// Model identifier to use
     #[arg(long, default_value = "gpt-oss:20b")]
     model: String,
-    /// LLM host URL, e.g. http://localhost:11434 for Ollama or https://api.openai.com/v1 for OpenAI
+    /// LLM host URL, e.g. http://localhost:11434 for Ollama, https://api.openai.com/v1 for OpenAI or https://generativelanguage.googleapis.com for Gemini
     #[arg(long, default_value = "http://127.0.0.1:11434")]
     host: String,
     /// Path to MCP configuration JSON
@@ -223,6 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client: Arc<dyn llm::LlmClient> = match args.provider {
         Provider::Ollama => Arc::new(llm::ollama::OllamaClient::new(&args.host)?),
         Provider::Openai => Arc::new(llm::openai::OpenAiClient::new(&args.host)),
+        Provider::Gemini => Arc::new(llm::gemini::GeminiClient::new(&args.host)),
     };
 
     let res = run_app(&mut terminal, client, args.model.clone()).await;

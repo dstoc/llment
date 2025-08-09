@@ -8,6 +8,8 @@ Terminal chat interface to Ollama with MCP tool integration.
   - communicate with Ollama using streaming and tools
 - async-openai
   - connect to OpenAI models
+- gemini-rs
+  - connect to Gemini models
 - async-trait
   - define async trait abstraction for model backends
 - tokio
@@ -37,7 +39,7 @@ Terminal chat interface to Ollama with MCP tool integration.
 ## Features, Requirements and Constraints
 - LLM providers
   - abstracted via trait interface
-  - supports Ollama and OpenAI backends
+  - supports Ollama, OpenAI, and Gemini backends
 - assistant responses
   - stream incrementally
     - display "thinking" tokens before assistant messages

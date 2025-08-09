@@ -12,6 +12,7 @@ pub use ollama_rs::{
     re_exports::schemars::Schema,
 };
 
+pub mod gemini;
 pub mod ollama;
 pub mod openai;
 
