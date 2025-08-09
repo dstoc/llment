@@ -4,10 +4,11 @@ use async_trait::async_trait;
 use gemini_rs::{
     Client,
     types::{
-        Content, FunctionCallingConfig, FunctionCallingMode, FunctionDeclaration, GenerationConfig,
-        Part, Role, ToolConfig, Tools,
+        Content, FunctionCall, FunctionCallingConfig, FunctionCallingMode, FunctionDeclaration,
+        FunctionResponse, GenerationConfig, Part, Role, ThinkingConfig, ToolConfig, Tools,
     },
 };
+use serde_json::json;
 use tokio_stream::StreamExt;
 
 use super::{
@@ -43,11 +44,33 @@ impl LlmClient for GeminiClient {
                     role: Role::User,
                     parts: vec![Part::text(&m.content)],
                 }),
-                MessageRole::Assistant => contents.push(Content {
-                    role: Role::Model,
-                    parts: vec![Part::text(&m.content)],
-                }),
+                MessageRole::Assistant => {
+                    if !m.tool_calls.is_empty() {
+                        let parts = m
+                            .tool_calls
+                            .iter()
+                            .map(|tool_call| Part {
+                                function_call: Some(FunctionCall {
+                                    id: None,
+                                    name: tool_call.function.name.clone(),
+                                    args: tool_call.function.arguments.clone(),
+                                }),
+                                ..Default::default()
+                            })
+                            .collect();
+                        contents.push(Content {
+                            role: Role::Model,
+                            parts,
+                        });
+                    } else {
+                        contents.push(Content {
+                            role: Role::Model,
+                            parts: vec![Part::text(&m.content)],
+                        });
+                    }
+                }
                 MessageRole::System => {
+                    // TODO: this is weird
                     if let Some(si) = system_instruction.as_mut() {
                         si.push_str("\n");
                         si.push_str(&m.content);
@@ -56,8 +79,16 @@ impl LlmClient for GeminiClient {
                     }
                 }
                 MessageRole::Tool => contents.push(Content {
-                    role: Role::User,
-                    parts: vec![Part::text(&m.content)],
+                    role: Role::Function,
+                    parts: vec![Part {
+                        function_response: Some(FunctionResponse {
+                            id: None,
+                            name: m.tool_name.unwrap_or("function".into()),
+                            // TODO: try parse m.content as JSON first.
+                            response: json!({"content": m.content}),
+                        }),
+                        ..Default::default()
+                    }],
                 }),
             }
         }
@@ -85,51 +116,68 @@ impl LlmClient for GeminiClient {
             route.tool_config(ToolConfig {
                 function_calling_config: Some(FunctionCallingConfig {
                     mode: Some(FunctionCallingMode::Auto),
-                    allowed_function_names: Some(
-                        function_declarations
-                            .iter()
-                            .map(|d| d.name.clone())
-                            .collect(),
-                    ),
+                    allowed_function_names: None,
                 }),
             });
         }
 
-        route.config(GenerationConfig::default());
+        route.config(GenerationConfig {
+            thinking_config: Some(ThinkingConfig {
+                thinking_budget: None,
+                include_thoughts: Some(true),
+            }),
+            ..Default::default()
+        });
 
         let stream = route
             .stream()
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        let mapped = stream.map(|res| {
-            res.map(|chunk| {
-                let mut content = String::new();
-                let mut tool_calls = Vec::new();
-                if let Some(candidate) = chunk.candidates.get(0) {
-                    for part in &candidate.content.parts {
-                        if let Some(fc) = &part.function_call {
-                            tool_calls.push(ToolCall {
-                                function: ToolCallFunction {
-                                    name: fc.name.clone(),
-                                    arguments: fc.args.clone(),
-                                },
-                            });
-                        } else if let Some(text) = &part.text {
-                            content.push_str(text);
+        let mapped = stream.filter_map(move |res| {
+            match res {
+                Ok(chunk) => {
+                    let mut content = String::new();
+                    let mut tool_calls = Vec::new();
+                    let mut thinking: Option<String> = None;
+
+                    if let Some(candidate) = chunk.candidates.get(0) {
+                        for part in &candidate.content.parts {
+                            if let Some(fc) = &part.function_call {
+                                tool_calls.push(ToolCall {
+                                    function: ToolCallFunction {
+                                        name: fc.name.clone(),
+                                        arguments: fc.args.clone(),
+                                    },
+                                });
+                            } else if let Some(text) = &part.text {
+                                if part.thought == Some(true) {
+                                    thinking.get_or_insert_with(String::new).push_str(text);
+                                } else {
+                                    content.push_str(text);
+                                }
+                            }
                         }
                     }
+
+                    let is_empty =
+                        content.is_empty() && tool_calls.is_empty() && thinking.is_none();
+                    let done = chunk.candidates.iter().any(|c| c.finish_reason.is_some());
+
+                    if done || !is_empty {
+                        Some(Ok(ResponseChunk {
+                            message: ResponseMessage {
+                                content,
+                                tool_calls,
+                                thinking,
+                            },
+                            done,
+                        }))
+                    } else {
+                        None
+                    }
                 }
-                let done = chunk.candidates.iter().any(|c| c.finish_reason.is_some());
-                ResponseChunk {
-                    message: ResponseMessage {
-                        content,
-                        tool_calls,
-                        thinking: None,
-                    },
-                    done,
-                }
-            })
-            .map_err(|e| e.into())
+                Err(e) => Some(Err(e.into())), // preserve errors
+            }
         });
         Ok(Box::pin(mapped))
     }

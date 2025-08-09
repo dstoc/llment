@@ -883,8 +883,7 @@ dependencies = [
 [[package]]
 name = "gemini-rs"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1a238d062485ad7f78e03263846a6e8112a7f3079c07b0aba111ed3c06418c1"
+source = "git+https://github.com/dstoc/gemini-rs?branch=include-thoughts#c794a4eb16bfac84ace37f96d543dd041a22870d"
 dependencies = [
  "bytes",
  "futures",

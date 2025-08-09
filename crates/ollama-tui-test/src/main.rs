@@ -299,18 +299,18 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     items.push(HistoryItem::User(query.clone()));
                                     input.reset();
                                     chat_history.push(ChatMessage::user(query.clone()));
-                        current_line.clear();
-                        let request = ChatMessageRequest::new(
-                            model.clone(),
-                            chat_history.clone(),
-                        )
-                        .tools(tool_infos.clone())
-                        .think(true);
-                        chat_stream = Some(client.send_chat_messages_stream(request).await?);
+                                    current_line.clear();
+                                    let request = ChatMessageRequest::new(
+                                        model.clone(),
+                                        chat_history.clone(),
+                                    )
+                                    .tools(tool_infos.clone())
+                                    .think(true);
+                                    chat_stream = Some(client.send_chat_messages_stream(request).await?);
                                 }
                                 (KeyCode::Esc, _) => break,
                                 _ => {
-                                    input.handle_event(&Event::Key(key));
+                                        input.handle_event(&Event::Key(key));
                                 }
                             }
                         }
@@ -418,8 +418,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                             request_done = false;
                         }
                     }
-                } else {
+                } else if let Some(Err(msg)) = chat_chunk {
+                    // TODO: remove when we validate Error history items
+                    println!("{:}", msg.to_string());
+                    items.push(HistoryItem::Error(msg.to_string()));
                     chat_stream = None;
+                    request_done = false;
                 }
             }
             tool_res = tool_handles.join_next(), if !tool_handles.is_empty() => {
@@ -433,6 +437,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 }
                                 Err(err) => {
                                     *result = format!("Tool Failed: {}", err);
+                                    chat_history.push(ChatMessage::tool(result.clone(), name));
                                     *success = false;
                                 }
                             }
