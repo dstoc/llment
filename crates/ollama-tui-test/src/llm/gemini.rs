@@ -5,7 +5,7 @@ use gemini_rs::{
     Client,
     types::{
         Content, FunctionCallingConfig, FunctionCallingMode, FunctionDeclaration, GenerationConfig,
-        Part, Role, ThinkingConfig, ToolConfig, Tools,
+        Part, Role, ToolConfig, Tools,
     },
 };
 use serde_json::{Value, to_value};
@@ -96,12 +96,7 @@ impl LlmClient for GeminiClient {
             });
         }
 
-        let mut config = GenerationConfig::default();
-        config.thinking_config = Some(ThinkingConfig {
-            include_thoughts: Some(true),
-            thinking_budget: None,
-        });
-        route.config(config);
+        route.config(GenerationConfig::default());
 
         let stream = route
             .stream()
@@ -111,7 +106,6 @@ impl LlmClient for GeminiClient {
             res.map(|chunk| {
                 let mut content = String::new();
                 let mut tool_calls = Vec::new();
-                let mut thinking = None;
                 if let Some(candidate) = chunk.candidates.get(0) {
                     for part in &candidate.content.parts {
                         if let Some(fc) = &part.function_call {
@@ -122,11 +116,7 @@ impl LlmClient for GeminiClient {
                                 },
                             });
                         } else if let Some(text) = &part.text {
-                            if thinking.is_none() && candidate.finish_reason.is_none() {
-                                thinking = Some(text.clone());
-                            } else {
-                                content.push_str(text);
-                            }
+                            content.push_str(text);
                         }
                     }
                 }
@@ -135,7 +125,7 @@ impl LlmClient for GeminiClient {
                     message: ResponseMessage {
                         content,
                         tool_calls,
-                        thinking,
+                        thinking: None,
                     },
                     done,
                 }
