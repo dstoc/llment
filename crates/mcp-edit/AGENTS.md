@@ -36,5 +36,6 @@ MCP server offering file system editing utilities.
     - respects git ignore and optional case sensitivity
   - `search_file_content`
     - runs regex searches with optional include filters
- - parameter metadata
-   - tool parameters include descriptions and default values via rmcp
+- parameter metadata
+  - tool parameters include descriptions and default values via rmcp
+  - optional parameters prefix descriptions with "Optional."
