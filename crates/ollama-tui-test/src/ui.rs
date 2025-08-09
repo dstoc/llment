@@ -223,6 +223,12 @@ pub fn wrap_history_lines(
             }
         }
     }
+    if lines.last().map_or(false, |l| l.is_empty()) {
+        lines.pop();
+        mapping.pop();
+        markdown.pop();
+        error.pop();
+    }
     (lines, mapping, markdown, error)
 }
 
@@ -230,10 +236,16 @@ pub fn apply_scroll(
     line_count: usize,
     viewport_height: usize,
     scroll_offset: &mut i32,
+    last_max_scroll: &mut i32,
 ) -> (usize, i32) {
     let max_scroll = line_count.saturating_sub(viewport_height) as i32;
+    if *scroll_offset > 0 {
+        let delta = max_scroll.saturating_sub(*last_max_scroll);
+        *scroll_offset = (*scroll_offset).saturating_add(delta);
+    }
     *scroll_offset = (*scroll_offset).clamp(0, max_scroll);
     let top_line = (max_scroll - *scroll_offset) as usize;
+    *last_max_scroll = max_scroll;
     (top_line, max_scroll)
 }
 
@@ -249,6 +261,7 @@ pub fn draw_ui(
     items: &[HistoryItem],
     input: &Input,
     scroll_offset: &mut i32,
+    last_max_scroll: &mut i32,
 ) -> DrawState {
     let area = f.area();
     let content_width = area.width.saturating_sub(1).min(100);
@@ -296,12 +309,20 @@ pub fn draw_ui(
     }
     let history_height = history_chunks[0].height as usize;
     let line_count = rendered_lines.len();
-    let (top_line, max_scroll) = apply_scroll(line_count, history_height, scroll_offset);
+    let (top_line, max_scroll) =
+        apply_scroll(line_count, history_height, scroll_offset, last_max_scroll);
+
+    let mut history_rect = history_chunks[0];
+    if line_count < history_height {
+        let pad = (history_height - line_count) as u16;
+        history_rect.y += pad;
+        history_rect.height = line_count as u16;
+    }
 
     let paragraph = Paragraph::new(rendered_lines)
         .wrap(Wrap { trim: false })
         .scroll((top_line as u16, 0));
-    f.render_widget(paragraph, history_chunks[0]);
+    f.render_widget(paragraph, history_rect);
 
     if line_count > history_height {
         let mut scrollbar_state = ScrollbarState::new((max_scroll as usize) + 1)
@@ -335,7 +356,7 @@ pub fn draw_ui(
     f.set_cursor_position((chunks[1].x + 2 + x, chunks[1].y + y));
 
     DrawState {
-        history_rect: history_chunks[0],
+        history_rect,
         line_map: rendered_map,
         top_line,
     }
@@ -369,13 +390,14 @@ mod tests {
     #[test]
     fn apply_scroll_clamps_bounds() {
         let mut scroll = -10;
-        let (top, max) = apply_scroll(50, 10, &mut scroll);
+        let mut last = 0;
+        let (top, max) = apply_scroll(50, 10, &mut scroll, &mut last);
         assert_eq!(scroll, 0);
         assert_eq!(top, 40);
         assert_eq!(max, 40);
 
         scroll = 100;
-        let (top, max) = apply_scroll(50, 10, &mut scroll);
+        let (top, max) = apply_scroll(50, 10, &mut scroll, &mut last);
         assert_eq!(scroll, 40);
         assert_eq!(top, 0);
         assert_eq!(max, 40);
@@ -389,11 +411,12 @@ mod tests {
             .map(|i| HistoryItem::Assistant(format!("line{i}")))
             .collect::<Vec<_>>();
         let mut scroll = i32::MAX;
+        let mut last = 0;
         let input = Input::default();
 
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
@@ -414,7 +437,7 @@ line3              ▼
         scroll = 0;
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
@@ -439,10 +462,11 @@ line5              ▼
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![HistoryItem::User("Hello".into())];
         let mut scroll = 0;
+        let mut last = 0;
         let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
 
@@ -458,10 +482,10 @@ line5              ▼
         assert_snapshot!(
             trimmed,
             @r###"
+
      ┌─────┐
      │Hello│
      └─────┘
-
 >
 "###
         );
@@ -473,10 +497,11 @@ line5              ▼
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![HistoryItem::Assistant("Hello".into())];
         let mut scroll = 0;
+        let mut last = 0;
         let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
 
@@ -487,18 +512,65 @@ line5              ▼
             .map(|l| l.trim_end())
             .collect::<Vec<_>>()
             .join("\n")
-            .trim_end()
+            .trim_start()
             .to_string();
         assert_snapshot!(
             trimmed,
-            @r###"
-Hello
-
-
-
+            @r###"Hello
 >
+
 "###
         );
+    }
+
+    #[test]
+    fn clamps_short_history_to_bottom() {
+        let backend = TestBackend::new(20, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let items = vec![HistoryItem::Assistant("Hi".into())];
+        let mut scroll = 0;
+        let mut last = 0;
+        let input = Input::default();
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered = buffer_to_string(&buffer);
+        let mut lines = rendered.lines();
+        assert!(lines.next().unwrap().trim().is_empty());
+        assert!(lines.next().unwrap().trim().is_empty());
+        assert!(lines.next().unwrap().trim().is_empty());
+        assert!(lines.next().unwrap().contains("Hi"));
+    }
+
+    #[test]
+    fn adding_item_preserves_scroll_when_scrolled_up() {
+        let backend = TestBackend::new(20, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut items = (0..6)
+            .map(|i| HistoryItem::Assistant(format!("line{i}")))
+            .collect::<Vec<_>>();
+        let mut scroll = 1;
+        let mut last = 0;
+        let input = Input::default();
+
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
+            })
+            .unwrap();
+        let before = buffer_to_string(&terminal.backend().buffer().clone());
+
+        items.push(HistoryItem::Assistant("new".into()));
+        terminal
+            .draw(|f| {
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
+            })
+            .unwrap();
+        let after = buffer_to_string(&terminal.backend().buffer().clone());
+        assert_eq!(before, after);
     }
 
     #[test]
@@ -507,10 +579,11 @@ Hello
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![];
         let mut scroll = 0;
+        let mut last = 0;
         let input = Input::default().with_value("hello\nworld".into());
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
 
@@ -547,10 +620,11 @@ Hello
             done: false,
         }];
         let mut scroll = 0;
+        let mut last = 0;
         let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
 
@@ -566,11 +640,11 @@ Hello
         assert_snapshot!(
             trimmed,
             @r###"
+
 Thinking ⌄
 · _tool_ ⌄
   args: {}
   result: ok
-
 >
 "###
         );
@@ -582,16 +656,17 @@ Thinking ⌄
         let mut terminal = Terminal::new(backend).unwrap();
         let items = vec![HistoryItem::Assistant("Hi".into())];
         let mut scroll = 0;
+        let mut last = 0;
         let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
         let rendered = buffer_to_string(&buffer);
-        let first_line = rendered.lines().next().unwrap();
-        assert_eq!(first_line.find("Hi"), Some(9));
+        let line_with_hi = rendered.lines().find(|l| l.contains("Hi")).unwrap();
+        assert_eq!(line_with_hi.find("Hi"), Some(9));
     }
 
     #[test]
@@ -612,14 +687,15 @@ Thinking ⌄
             done: false,
         }];
         let mut scroll = 0;
+        let mut last = 0;
         let input = Input::default();
         terminal
             .draw(|f| {
-                draw_ui(f, &items, &input, &mut scroll);
+                draw_ui(f, &items, &input, &mut scroll, &mut last);
             })
             .unwrap();
         let buffer = terminal.backend().buffer().clone();
-        let cell = buffer.cell((0, 0)).unwrap();
+        let cell = buffer.cell((0, 1)).unwrap();
         assert_eq!(cell.style().fg, Some(Color::Red));
         assert!(cell.style().add_modifier.contains(Modifier::ITALIC));
     }

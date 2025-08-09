@@ -253,6 +253,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut input = Input::default();
     let mut chat_history: Vec<ChatMessage> = Vec::new();
     let mut scroll_offset: i32 = 0;
+    let mut last_max_scroll: i32 = 0;
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
     let mut chat_stream: Option<llm::ChatStream> = None;
@@ -268,7 +269,7 @@ async fn run_app<B: ratatui::backend::Backend>(
 
     loop {
         terminal.draw(|f| {
-            draw_state = draw_ui(f, &items, &input, &mut scroll_offset);
+            draw_state = draw_ui(f, &items, &input, &mut scroll_offset, &mut last_max_scroll);
         })?;
 
         tokio::select! {
