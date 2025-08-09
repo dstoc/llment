@@ -78,7 +78,96 @@ impl MockComponent for InputComponent {
 }
 
 impl Component<(), ()> for InputComponent {
-    fn on(&mut self, _ev: Event<()>) -> Option<()> {
+    fn on(&mut self, ev: Event<()>) -> Option<()> {
+        use crossterm::event::{
+            Event as CEvent, KeyCode as CKeyCode, KeyEvent as CKeyEvent,
+            KeyModifiers as CKeyModifiers,
+        };
+        use tuirealm::event::{Key, KeyModifiers};
+        match ev {
+            Event::Keyboard(key) => {
+                let ct_key = CKeyEvent::new(
+                    match key.code {
+                        Key::Char(c) => CKeyCode::Char(c),
+                        Key::Enter => CKeyCode::Enter,
+                        Key::Backspace => CKeyCode::Backspace,
+                        Key::Left => CKeyCode::Left,
+                        Key::Right => CKeyCode::Right,
+                        Key::Up => CKeyCode::Up,
+                        Key::Down => CKeyCode::Down,
+                        _ => CKeyCode::Null,
+                    },
+                    CKeyModifiers::from_bits_truncate(key.modifiers.bits()),
+                );
+                match (key.code, key.modifiers) {
+                    (Key::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
+                        self.reset();
+                    }
+                    (Key::Char('j'), m) if m.contains(KeyModifiers::CONTROL) => {
+                        self.input.handle(InputRequest::InsertChar('\n'));
+                    }
+                    _ => {
+                        self.input.handle_event(&CEvent::Key(ct_key));
+                    }
+                }
+            }
+            _ => {}
+        }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_snapshot;
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        buffer::Buffer,
+        layout::{Constraint, Direction, Layout},
+    };
+    use tuirealm::MockComponent;
+
+    fn buffer_to_string(buffer: &Buffer) -> String {
+        let area = buffer.area;
+        let mut lines = Vec::new();
+        for y in 0..area.height {
+            let mut line = String::new();
+            for x in 0..area.width {
+                line.push_str(buffer.cell((x, y)).unwrap().symbol());
+            }
+            lines.push(line);
+        }
+        lines.join("\n")
+    }
+
+    #[test]
+    fn input_box_expands_for_multiline() {
+        let backend = TestBackend::new(20, 7);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut input = InputComponent::default();
+        input.input = Input::default().with_value("hello\nworld".into());
+        terminal
+            .draw(|f| {
+                let area = f.area();
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Min(1), Constraint::Length(2)].as_ref())
+                    .split(area);
+                input.view(f, chunks[1]);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered = buffer_to_string(&buffer);
+        let trimmed = rendered
+            .lines()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        assert_snapshot!(trimmed, @r###"> hello
+  world"###);
     }
 }

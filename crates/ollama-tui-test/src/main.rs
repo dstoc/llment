@@ -9,13 +9,16 @@ use clap::{Parser, ValueEnum};
 use crossterm::{
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-        Event, EventStream, KeyCode, KeyModifiers, MouseButton, MouseEventKind,
+        Event as CEvent, EventStream, KeyCode, KeyModifiers,
     },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ollama_tui_test::components::{
-    chat::{Chat, DrawState, HistoryItem, LineMapping, ThinkingStep},
+    chat::Chat,
+    history::{
+        AssistantItem, ErrorItem, HistoryItem, SeparatorItem, ThinkingItem, ThinkingStep, UserItem,
+    },
     input::InputComponent,
 };
 use ollama_tui_test::llm::{
@@ -40,7 +43,7 @@ use tokio_stream::StreamExt;
 use tui_input::InputRequest;
 
 use ollama_tui_test::llm;
-use tuirealm::MockComponent;
+use tuirealm::{Component, MockComponent, event::Event as TEvent};
 
 static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -137,22 +140,22 @@ fn ensure_assistant_item(items: &mut Vec<HistoryItem>) -> usize {
     if let Some(HistoryItem::Assistant(..)) = items.last() {
         return items.len() - 1;
     }
-    items.push(HistoryItem::Assistant(String::new()));
-    return items.len() - 1;
+    items.push(HistoryItem::Assistant(AssistantItem(String::new())));
+    items.len() - 1
 }
 
 fn ensure_thinking_item(items: &mut Vec<HistoryItem>) -> usize {
-    if let Some(HistoryItem::Thinking { .. }) = items.last() {
+    if let Some(HistoryItem::Thinking(..)) = items.last() {
         return items.len() - 1;
     }
-    items.push(HistoryItem::Thinking {
+    items.push(HistoryItem::Thinking(ThinkingItem {
         steps: Vec::new(),
         collapsed: false,
         start: Instant::now(),
         duration: Duration::default(),
         done: false,
-    });
-    return items.len() - 1;
+    }));
+    items.len() - 1
 }
 
 fn spawn_tool_call(
@@ -166,15 +169,15 @@ fn spawn_tool_call(
         Result<String, Box<dyn std::error::Error + Send + Sync>>,
     )>,
 ) {
-    if let HistoryItem::Thinking { steps, .. } = &mut items[thinking_idx] {
-        steps.push(ThinkingStep::ToolCall {
+    if let HistoryItem::Thinking(t) = &mut items[thinking_idx] {
+        t.steps.push(ThinkingStep::ToolCall {
             name: call.function.name.clone(),
             args: call.function.arguments.to_string(),
             result: String::new(),
             success: true,
             collapsed: true,
         });
-        let step_idx = steps.len() - 1;
+        let step_idx = t.steps.len() - 1;
         let name = call.function.name.clone();
         let args = call.function.arguments.clone();
         handles.spawn(async move {
@@ -258,7 +261,6 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut chat = Chat::default();
     let mut input = InputComponent::default();
     let mut chat_history: Vec<ChatMessage> = Vec::new();
-    let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
     let mut chat_stream: Option<llm::ChatStream> = None;
     let mut current_line = String::new();
@@ -286,22 +288,15 @@ async fn run_app<B: ratatui::backend::Backend>(
                 .split(centered);
             chat.view(f, chunks[0]);
             input.view(f, chunks[1]);
-            draw_state = chat.draw_state().clone();
         })?;
 
         tokio::select! {
             maybe_event = events.next() => {
                 if let Some(Ok(event)) = maybe_event {
                     match event {
-                        Event::Key(key) => {
+                        CEvent::Key(key) => {
                             match (key.code, key.modifiers) {
                                 (KeyCode::Char('d'), m) if m.contains(KeyModifiers::CONTROL) => break,
-                                (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
-                                    input.reset();
-                                }
-                                (KeyCode::Char('j'), m) if m.contains(KeyModifiers::CONTROL) => {
-                                    input.handle(InputRequest::InsertChar('\n'));
-                                }
                                 (KeyCode::Enter, _) => {
                                     let query = input.value().trim().to_string();
                                     if query.is_empty() {
@@ -314,7 +309,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     if chat_stream.is_some() || !tool_handles.is_empty() {
                                         continue;
                                     }
-                                    chat.items.push(HistoryItem::User(query.clone()));
+                                    chat.items.push(HistoryItem::User(UserItem(query.clone())));
                                     input.reset();
                                     chat_history.push(ChatMessage::user(query.clone()));
                                     current_line.clear();
@@ -327,46 +322,21 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     chat_stream = Some(client.send_chat_messages_stream(request).await?);
                                 }
                                 (KeyCode::Esc, _) => break,
-                                _ => {
-                                        input.handle_event(&Event::Key(key));
-                                }
+                                _ => {}
                             }
+                            let tkey: tuirealm::event::KeyEvent = key.into();
+                            chat.on(TEvent::Keyboard(tkey.clone()));
+                            input.on(TEvent::Keyboard(tkey));
                         }
-                        Event::Paste(data) => {
+                        CEvent::Paste(data) => {
                             for c in data.chars() {
                                 input.handle(InputRequest::InsertChar(c));
                             }
                         }
-                        Event::Mouse(m) => match m.kind {
-                            MouseEventKind::ScrollUp => chat.scroll += 1,
-                            MouseEventKind::ScrollDown => chat.scroll -= 1,
-                            MouseEventKind::Down(MouseButton::Left) => {
-                                if m.column >= draw_state.history_rect.x
-                                    && m.column < draw_state.history_rect.x + draw_state.history_rect.width
-                                    && m.row >= draw_state.history_rect.y
-                                    && m.row < draw_state.history_rect.y + draw_state.history_rect.height
-                                {
-                                    let idx = draw_state.top_line + (m.row - draw_state.history_rect.y) as usize;
-                                    if let Some(map) = draw_state.line_map.get(idx) {
-                                        match *map {
-                                            LineMapping::Item(item_idx) => {
-                                                if let Some(HistoryItem::Thinking { collapsed, done, .. }) = chat.items.get_mut(item_idx) {
-                                                    if *done { *collapsed = !*collapsed; }
-                                                }
-                                            }
-                                            LineMapping::Step { item, step } => {
-                                                if let Some(HistoryItem::Thinking { steps, .. }) = chat.items.get_mut(item) {
-                                                    if let Some(ThinkingStep::ToolCall { collapsed, .. }) = steps.get_mut(step) {
-                                                        *collapsed = !*collapsed;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {}
-                        },
+                        CEvent::Mouse(m) => {
+                            let tm: tuirealm::event::MouseEvent = m.into();
+                            chat.on(TEvent::Mouse(tm));
+                        }
                         _ => {}
                     }
                 }
@@ -381,11 +351,11 @@ async fn run_app<B: ratatui::backend::Backend>(
                 if let Some(Ok(chunk)) = chat_chunk {
                     if let Some(thinking) = chunk.message.thinking.as_ref() {
                         let idx = ensure_thinking_item(&mut chat.items);
-                        if let HistoryItem::Thinking { steps, .. } = &mut chat.items[idx] {
-                            if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
-                                t.push_str(thinking);
+                        if let HistoryItem::Thinking(t) = &mut chat.items[idx] {
+                            if let Some(ThinkingStep::Thought(s)) = t.steps.last_mut() {
+                                s.push_str(thinking);
                             } else {
-                                steps.push(ThinkingStep::Thought(thinking.to_string()));
+                                t.steps.push(ThinkingStep::Thought(thinking.to_string()));
                             }
                         }
                     }
@@ -393,7 +363,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                         current_line.push_str(&chunk.message.content);
                         let assistant_index = ensure_assistant_item(&mut chat.items);
                         if let HistoryItem::Assistant(line) = &mut chat.items[assistant_index] {
-                            *line = current_line.clone();
+                            line.0 = current_line.clone();
                         }
                     }
                     if !chunk.message.tool_calls.is_empty() {
@@ -411,17 +381,17 @@ async fn run_app<B: ratatui::backend::Backend>(
                             // Collapse all thinking blocks part of this assistant flow
                             for item in chat.items.iter_mut().rev() {
                                 match item {
-                                    HistoryItem::Separator => break,
-                                    HistoryItem::Thinking { collapsed, start, duration, done, .. } => {
-                                        *collapsed = true;
+                                    HistoryItem::Separator(_) => break,
+                                    HistoryItem::Thinking(t) => {
+                                        t.collapsed = true;
                                         // TODO: should we rather update this when we complete the tool calls?
-                                        *duration = start.elapsed();
-                                        *done = true;
+                                        t.duration = t.start.elapsed();
+                                        t.done = true;
                                     }
                                     _ => {}
                                 }
                             }
-                            chat.items.push(HistoryItem::Separator);
+                            chat.items.push(HistoryItem::Separator(SeparatorItem));
                             request_done = false;
                         } else if tool_handles.is_empty() {
                             current_line.clear();
@@ -439,15 +409,15 @@ async fn run_app<B: ratatui::backend::Backend>(
                 } else if let Some(Err(msg)) = chat_chunk {
                     // TODO: remove when we validate Error history items
                     println!("{:}", msg.to_string());
-                    chat.items.push(HistoryItem::Error(msg.to_string()));
+                    chat.items.push(HistoryItem::Error(ErrorItem(msg.to_string())));
                     chat_stream = None;
                     request_done = false;
                 }
             }
             tool_res = tool_handles.join_next(), if !tool_handles.is_empty() => {
                 if let Some(Ok((t_idx, s_idx, name, res))) = tool_res {
-                    if let HistoryItem::Thinking { steps, .. } = &mut chat.items[t_idx] {
-                        if let Some(ThinkingStep::ToolCall { result, success, .. }) = steps.get_mut(s_idx) {
+                    if let HistoryItem::Thinking(t) = &mut chat.items[t_idx] {
+                        if let Some(ThinkingStep::ToolCall { result, success, .. }) = t.steps.get_mut(s_idx) {
                             match res {
                                 Ok(text) => {
                                     *result = text.clone();
