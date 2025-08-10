@@ -60,6 +60,9 @@ impl Default for Model {
                     // TODO: when tuirealm exposes focus-aware subscriptions,
                     // this can be restricted to keyboard events while focused
                     // instead of filtering in the component's `on()` method.
+                    // Attempting to use `SubClause::HasAttrValue` currently
+                    // fails because `SubEventClause::Keyboard` requires a
+                    // concrete key and mouse clauses aren't publicly exposed.
                     Sub::new(SubEventClause::Any, SubClause::Always),
                 ],
             )
