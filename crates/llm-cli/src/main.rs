@@ -56,7 +56,12 @@ impl Default for Model {
             app.mount(
                 Id::Input,
                 Box::new(Prompt::default()),
-                vec![Sub::new(SubEventClause::Any, SubClause::Always)],
+                vec![
+                    // TODO: when tuirealm exposes focus-aware subscriptions,
+                    // this can be restricted to keyboard events while focused
+                    // instead of filtering in the component's `on()` method.
+                    Sub::new(SubEventClause::Any, SubClause::Always),
+                ],
             )
             .is_ok()
         );
