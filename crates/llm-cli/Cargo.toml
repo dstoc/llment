@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+crossterm = "0.29.0"
 ratatui = "0.29.0"
 textwrap = "0.16.2"
 tui-realm-stdlib = "3.0.0"

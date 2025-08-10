@@ -1,4 +1,8 @@
+use std::io::stdout;
 use std::time::Duration;
+
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::execute;
 
 use tuirealm::EventListenerCfg;
 use tuirealm::application::PollStrategy;
@@ -91,6 +95,7 @@ fn main() {
     let mut terminal = TerminalBridge::init_crossterm().expect("Cannot create terminal bridge");
     let _ = terminal.enable_raw_mode();
     let _ = terminal.enter_alternate_screen();
+    let _ = execute!(stdout(), EnableMouseCapture);
 
     while !model.quit {
         if let Ok(messages) = model.app.tick(PollStrategy::Once) {
@@ -107,6 +112,7 @@ fn main() {
         }
     }
 
+    let _ = execute!(stdout(), DisableMouseCapture);
     let _ = terminal.leave_alternate_screen();
     let _ = terminal.disable_raw_mode();
     let _ = terminal.clear_screen();
