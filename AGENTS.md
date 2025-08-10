@@ -12,6 +12,7 @@ The project is divided into crates:
 * crates/mcp-hello
 * crates/mcp-edit
 * crates/ollama-tui-test
+* crates/llm-cli
 
 # Glossary
 MCP: Model Context Protocol
