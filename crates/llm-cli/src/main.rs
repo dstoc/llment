@@ -8,7 +8,7 @@ use tuirealm::EventListenerCfg;
 use tuirealm::application::PollStrategy;
 use tuirealm::ratatui::layout::{Constraint, Direction as LayoutDirection, Layout};
 use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
-use tuirealm::{Application, NoUserEvent, Update};
+use tuirealm::{Application, NoUserEvent, Sub, SubClause, SubEventClause, Update};
 
 mod components;
 use components::{Conversation, Prompt};
@@ -39,8 +39,12 @@ impl Default for Model {
             EventListenerCfg::default().crossterm_input_listener(Duration::from_millis(10), 10),
         );
         assert!(
-            app.mount(Id::Conversation, Box::new(Conversation::default()), vec![])
-                .is_ok()
+            app.mount(
+                Id::Conversation,
+                Box::new(Conversation::default()),
+                vec![Sub::new(SubEventClause::Any, SubClause::Always)],
+            )
+            .is_ok()
         );
         assert!(
             app.mount(Id::Input, Box::new(Prompt::default()), vec![])

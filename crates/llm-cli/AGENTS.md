@@ -17,6 +17,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
 - layout
   - scrollable conversation pane
     - mouse wheel adjusts scroll
+    - mouse clicks or scrolls in the conversation area focus it even when input is active
   - text input field at the bottom
   - Tab switches focus between conversation and input
   - Esc exits the application
