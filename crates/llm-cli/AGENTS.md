@@ -31,3 +31,5 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - partial items are clipped when scrolled
   - line caches invalidate on width or content changes
   - clicking items selects them and toggles collapse
+- code structure
+  - conversation resides under `src/conversation` with modules for nodes and mutation helpers

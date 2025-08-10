@@ -11,7 +11,9 @@ use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
 use tuirealm::{Application, NoUserEvent, Sub, SubClause, SubEventClause, Update};
 
 mod components;
-use components::{Conversation, Prompt};
+mod conversation;
+use components::Prompt;
+use conversation::Conversation;
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
