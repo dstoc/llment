@@ -1,5 +1,5 @@
-pub mod history;
+pub mod conversation;
 pub mod input;
 
-pub use history::History;
+pub use conversation::Conversation;
 pub use input::Prompt;
