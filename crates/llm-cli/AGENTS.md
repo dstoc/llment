@@ -10,6 +10,8 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - prebuilt tuirealm components
 - textwrap
   - wrap conversation lines
+- unicode-width
+  - measure display width for proper box padding
 
 ## Features, Requirements and Constraints
 - layout
@@ -23,3 +25,5 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
     - working and tool sections toggle with Enter
   - items are independent components implementing `ConvNode`
     - selection moves between components, not individual lines
+  - partial items are clipped when scrolled
+  - line caches invalidate on width or content changes
