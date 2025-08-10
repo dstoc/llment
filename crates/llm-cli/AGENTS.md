@@ -22,10 +22,12 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
     - mouse clicks or scrolls in the conversation area focus it even when input is active
   - text input field at the bottom
     - supports multi-line editing with wrapping
+    - height expands to fit content
     - Ctrl-J inserts a new line
     - standard shortcuts: Ctrl-W delete previous word, Ctrl-L clears input
     - paste inserts clipboard text
     - clicking the field focuses it
+    - cursor hidden when unfocused
   - Tab switches focus between conversation and input
   - Esc exits the application
 - conversation items

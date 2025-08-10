@@ -4,11 +4,14 @@ use std::time::Duration;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 
+use textwrap::wrap;
 use tuirealm::EventListenerCfg;
 use tuirealm::application::PollStrategy;
 use tuirealm::ratatui::layout::{Constraint, Direction as LayoutDirection, Layout};
 use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
-use tuirealm::{Application, NoUserEvent, Sub, SubClause, SubEventClause, Update};
+use tuirealm::{
+    Application, NoUserEvent, State, StateValue, Sub, SubClause, SubEventClause, Update,
+};
 
 mod components;
 mod conversation;
@@ -69,11 +72,30 @@ impl Default for Model {
 impl Model {
     fn view(&mut self, terminal: &mut TerminalBridge<CrosstermTerminalAdapter>) {
         let _ = terminal.raw_mut().draw(|f| {
+            let area = f.area();
+            let width = area.width.saturating_sub(2); // account for margin
+            let inner_width = width.saturating_sub(2); // account for borders
+            let mut lines = 1usize;
+            if let Ok(State::One(StateValue::String(s))) = self.app.state(&Id::Input) {
+                lines = 0;
+                for line in s.split('\n') {
+                    let wrapped = wrap(line, inner_width as usize);
+                    if wrapped.is_empty() {
+                        lines += 1;
+                    } else {
+                        lines += wrapped.len();
+                    }
+                }
+                if lines == 0 {
+                    lines = 1;
+                }
+            }
+            let input_height = lines as u16 + 2; // add borders
             let chunks = Layout::default()
                 .direction(LayoutDirection::Vertical)
                 .margin(1)
-                .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
-                .split(f.area());
+                .constraints([Constraint::Min(1), Constraint::Length(input_height)].as_ref())
+                .split(area);
             self.app.view(&Id::Conversation, f, chunks[0]);
             self.app.view(&Id::Input, f, chunks[1]);
         });
