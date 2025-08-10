@@ -25,8 +25,9 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - user messages render inside a boxed region
   - assistant messages show working steps and final response
     - working and tool sections toggle with Enter or mouse click
-  - items are independent components implementing `ConvNode`
+  - items stored as a strongly typed `Node` enum implementing `ConvNode`
     - selection moves between components, not individual lines
+    - helper methods append items and steps, bumping `content_rev` for caching
   - partial items are clipped when scrolled
   - line caches invalidate on width or content changes
   - clicking items selects them and toggles collapse

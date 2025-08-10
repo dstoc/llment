@@ -29,7 +29,7 @@ pub trait ConvNode {
     }
 }
 
-struct UserBubble {
+pub struct UserBubble {
     text: String,
     cache_width: u16,
     cache_rev: u64,
@@ -106,7 +106,7 @@ impl ConvNode for UserBubble {
     }
 }
 
-struct ThoughtStep {
+pub struct ThoughtStep {
     text: String,
     cache_width: u16,
     cache_rev: u64,
@@ -176,7 +176,7 @@ impl ConvNode for ThoughtStep {
     }
 }
 
-struct ToolStep {
+pub struct ToolStep {
     name: String,
     args: String,
     result: String,
@@ -268,9 +268,16 @@ impl ConvNode for ToolStep {
     }
 }
 
-struct AssistantBlock {
+pub enum Node {
+    User(UserBubble),
+    Assistant(AssistantBlock),
+    Thought(ThoughtStep),
+    Tool(ToolStep),
+}
+
+pub struct AssistantBlock {
     working_collapsed: bool,
-    steps: Vec<Box<dyn ConvNode>>,
+    steps: Vec<Node>,
     response: String,
     cache_width: u16,
     cache_rev: u64,
@@ -280,7 +287,7 @@ struct AssistantBlock {
 }
 
 impl AssistantBlock {
-    fn new(working_collapsed: bool, steps: Vec<Box<dyn ConvNode>>, response: String) -> Self {
+    fn new(working_collapsed: bool, steps: Vec<Node>, response: String) -> Self {
         Self {
             working_collapsed,
             steps,
@@ -494,8 +501,62 @@ impl ConvNode for AssistantBlock {
     }
 }
 
+impl ConvNode for Node {
+    fn height(&mut self, width: u16) -> u16 {
+        match self {
+            Node::User(n) => n.height(width),
+            Node::Assistant(n) => n.height(width),
+            Node::Thought(n) => n.height(width),
+            Node::Tool(n) => n.height(width),
+        }
+    }
+
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: bool,
+        start: u16,
+        max_height: u16,
+    ) {
+        match self {
+            Node::User(n) => n.render(frame, area, selected, start, max_height),
+            Node::Assistant(n) => n.render(frame, area, selected, start, max_height),
+            Node::Thought(n) => n.render(frame, area, selected, start, max_height),
+            Node::Tool(n) => n.render(frame, area, selected, start, max_height),
+        }
+    }
+
+    fn activate(&mut self) {
+        match self {
+            Node::User(n) => n.activate(),
+            Node::Assistant(n) => n.activate(),
+            Node::Thought(n) => n.activate(),
+            Node::Tool(n) => n.activate(),
+        }
+    }
+
+    fn on_key(&mut self, key: Key) -> bool {
+        match self {
+            Node::User(n) => n.on_key(key),
+            Node::Assistant(n) => n.on_key(key),
+            Node::Thought(n) => n.on_key(key),
+            Node::Tool(n) => n.on_key(key),
+        }
+    }
+
+    fn click(&mut self, line: u16) {
+        match self {
+            Node::User(n) => n.click(line),
+            Node::Assistant(n) => n.click(line),
+            Node::Thought(n) => n.click(line),
+            Node::Tool(n) => n.click(line),
+        }
+    }
+}
+
 pub struct Conversation {
-    items: Vec<Box<dyn ConvNode>>,
+    items: Vec<Node>,
     selected: usize,
     scroll: u16,
     layout: Vec<(u16, u16)>,
@@ -522,16 +583,16 @@ impl Default for Conversation {
     }
 }
 
-fn sample_items() -> Vec<Box<dyn ConvNode>> {
+fn sample_items() -> Vec<Node> {
     vec![
-        Box::new(UserBubble::new(
+        Node::User(UserBubble::new(
             "Hello! I'm testing the conversation view. This message should be long enough to wrap and require scrolling.".into(),
         )),
-        Box::new(AssistantBlock::new(
+        Node::Assistant(AssistantBlock::new(
             false,
             vec![
-                Box::new(ThoughtStep::new("Analyzing the request".into())),
-                Box::new(ToolStep::new(
+                Node::Thought(ThoughtStep::new("Analyzing the request".into())),
+                Node::Tool(ToolStep::new(
                     "search".into(),
                     "{\"query\":\"scrolling\"}".into(),
                     "{\"answer\":42}".into(),
@@ -540,14 +601,14 @@ fn sample_items() -> Vec<Box<dyn ConvNode>> {
             ],
             "Here's an example response after some thinking and a tool call.".into(),
         )),
-        Box::new(UserBubble::new(
+        Node::User(UserBubble::new(
             "Can you show more details? Another long line is helpful.".into(),
         )),
-        Box::new(AssistantBlock::new(
+        Node::Assistant(AssistantBlock::new(
             true,
             vec![
-                Box::new(ThoughtStep::new("Another thought".into())),
-                Box::new(ToolStep::new(
+                Node::Thought(ThoughtStep::new("Another thought".into())),
+                Node::Tool(ToolStep::new(
                     "math".into(),
                     "1+1".into(),
                     "2".into(),
@@ -556,12 +617,12 @@ fn sample_items() -> Vec<Box<dyn ConvNode>> {
             ],
             "Yes, there's more to see.".into(),
         )),
-        Box::new(UserBubble::new(
+        Node::User(UserBubble::new(
             "This is a final message to ensure scrolling works properly.".into(),
         )),
-        Box::new(AssistantBlock::new(
+        Node::Assistant(AssistantBlock::new(
             false,
-            vec![Box::new(ThoughtStep::new("Wrapping things up".into()))],
+            vec![Node::Thought(ThoughtStep::new("Wrapping things up".into()))],
             "All done!".into(),
         )),
     ]
@@ -597,6 +658,67 @@ impl Conversation {
         } else if end > self.scroll + self.viewport {
             self.scroll = end.saturating_sub(self.viewport);
         }
+    }
+
+    fn ensure_last_assistant(&mut self) -> &mut AssistantBlock {
+        if !matches!(self.items.last(), Some(Node::Assistant(_))) {
+            self.items.push(Node::Assistant(AssistantBlock::new(
+                false,
+                Vec::new(),
+                String::new(),
+            )));
+        }
+        match self.items.last_mut().unwrap() {
+            Node::Assistant(block) => block,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn push_user(&mut self, text: String) {
+        self.items.push(Node::User(UserBubble::new(text)));
+        self.dirty = true;
+    }
+
+    pub fn push_assistant(&mut self) {
+        self.items.push(Node::Assistant(AssistantBlock::new(
+            false,
+            Vec::new(),
+            String::new(),
+        )));
+        self.dirty = true;
+    }
+
+    pub fn append_thinking(&mut self, text: &str) {
+        let block = self.ensure_last_assistant();
+        if let Some(Node::Thought(t)) = block.steps.last_mut() {
+            t.text.push_str(text);
+            t.content_rev += 1;
+        } else {
+            block
+                .steps
+                .push(Node::Thought(ThoughtStep::new(text.into())));
+        }
+        block.content_rev += 1;
+        self.dirty = true;
+    }
+
+    pub fn append_response(&mut self, text: &str) {
+        let block = self.ensure_last_assistant();
+        block.response.push_str(text);
+        block.content_rev += 1;
+        self.dirty = true;
+    }
+
+    pub fn add_step(&mut self, mut step: Node) {
+        match &mut step {
+            Node::Thought(t) => t.content_rev += 1,
+            Node::Tool(t) => t.content_rev += 1,
+            _ => {}
+        }
+        let block = self.ensure_last_assistant();
+        block.steps.push(step);
+        block.content_rev += 1;
+        self.dirty = true;
     }
 }
 
