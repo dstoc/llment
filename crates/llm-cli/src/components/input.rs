@@ -18,6 +18,7 @@ use crate::Msg;
 pub struct Prompt {
     textarea: TextArea<'static>,
     area: Rect,
+    focused: bool,
 }
 
 impl Prompt {
@@ -83,6 +84,7 @@ impl Default for Prompt {
         Self {
             textarea: Self::new_textarea(),
             area: Rect::default(),
+            focused: false,
         }
     }
 }
@@ -113,7 +115,7 @@ fn to_input(ev: KeyEvent) -> TaInput {
 impl Component<Msg, NoUserEvent> for Prompt {
     fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
         match ev {
-            Event::Keyboard(key) => match (key.code, key.modifiers) {
+            Event::Keyboard(key) if self.focused => match (key.code, key.modifiers) {
                 (Key::Char('j'), KeyModifiers::CONTROL) => {
                     self.textarea.insert_newline();
                 }
@@ -127,7 +129,7 @@ impl Component<Msg, NoUserEvent> for Prompt {
                     self.textarea.input(input);
                 }
             },
-            Event::Paste(ref data) => {
+            Event::Paste(ref data) if self.focused => {
                 self.textarea.insert_str(data);
             }
             Event::Mouse(MouseEvent {
@@ -181,15 +183,23 @@ impl MockComponent for Prompt {
         let scroll_y = cursor_y.saturating_sub(inner.height.saturating_sub(1));
         paragraph = paragraph.scroll((scroll_y, 0));
         frame.render_widget(paragraph, area);
-        let (cx, cy, _) = self.cursor_position(inner);
-        frame.set_cursor_position(tuirealm::ratatui::prelude::Position { x: cx, y: cy });
+        if self.focused {
+            let (cx, cy, _) = self.cursor_position(inner);
+            frame.set_cursor_position(tuirealm::ratatui::prelude::Position { x: cx, y: cy });
+        }
     }
 
     fn query(&self, _attr: Attribute) -> Option<AttrValue> {
         None
     }
 
-    fn attr(&mut self, _attr: Attribute, _value: AttrValue) {}
+    fn attr(&mut self, attr: Attribute, value: AttrValue) {
+        if let Attribute::Focus = attr {
+            if let AttrValue::Flag(f) = value {
+                self.focused = f;
+            }
+        }
+    }
 
     fn state(&self) -> State {
         State::One(StateValue::String(self.textarea.lines().join("\n")))
