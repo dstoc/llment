@@ -1439,7 +1439,9 @@ name = "llm-cli"
 version = "0.1.0"
 dependencies = [
  "crossterm 0.29.0",
+ "insta",
  "ratatui",
+ "termimad",
  "textwrap",
  "tui-realm-stdlib",
  "tuirealm",

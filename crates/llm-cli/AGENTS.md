@@ -12,6 +12,8 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - wrap conversation lines
 - unicode-width
   - measure display width for proper box padding
+- termimad
+  - render markdown in assistant responses
 
 ## Features, Requirements and Constraints
 - layout
@@ -25,6 +27,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - user messages render inside a boxed region
   - assistant messages show working steps and final response
     - working and tool sections toggle with Enter or mouse click
+    - final responses render markdown via termimad
   - items stored as a strongly typed `Node` enum implementing `ConvNode`
     - selection moves between components, not individual lines
     - helper methods append items and steps, bumping `content_rev` for caching

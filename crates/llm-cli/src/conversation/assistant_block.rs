@@ -1,4 +1,4 @@
-use textwrap::wrap;
+use crate::markdown::markdown_to_lines;
 use tuirealm::event::Key;
 use tuirealm::ratatui::{
     Frame,
@@ -17,7 +17,7 @@ pub struct AssistantBlock {
     cache_width: u16,
     cache_rev: u64,
     pub(crate) content_rev: u64,
-    response_lines: Vec<String>,
+    response_lines: Vec<Line<'static>>,
     pub(crate) selected: usize,
 }
 
@@ -41,9 +41,8 @@ impl AssistantBlock {
         }
         self.cache_width = width;
         self.cache_rev = self.content_rev;
-        let wrapped = wrap(&self.response, width as usize);
-        self.response_lines = wrapped.into_iter().map(|l| l.into_owned()).collect();
-        self.response_lines.push(String::new());
+        self.response_lines = markdown_to_lines(&self.response, width as usize);
+        self.response_lines.push(Line::default());
     }
 
     fn total_items(&self) -> usize {
@@ -162,7 +161,8 @@ impl ConvNode for AssistantBlock {
             let end_idx = (start_idx + visible as usize).min(self.response_lines.len());
             let lines: Vec<Line> = self.response_lines[start_idx..end_idx]
                 .iter()
-                .map(|l| Line::from(Span::styled(l.clone(), style)))
+                .cloned()
+                .map(|l| l.style(style))
                 .collect();
             let rect = Rect {
                 x: area.x,

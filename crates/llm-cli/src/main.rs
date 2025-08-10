@@ -12,6 +12,7 @@ use tuirealm::{Application, NoUserEvent, Sub, SubClause, SubEventClause, Update}
 
 mod components;
 mod conversation;
+mod markdown;
 use components::Prompt;
 use conversation::Conversation;
 
