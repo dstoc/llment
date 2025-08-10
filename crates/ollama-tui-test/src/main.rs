@@ -14,8 +14,9 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use llm::{
-    ChatMessage, ChatMessageRequest, Schema, ToolCall, ToolFunctionInfo, ToolInfo, ToolType,
+use llm_core::{
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, Schema, ToolCall, ToolFunctionInfo,
+    ToolInfo, ToolType,
 };
 use once_cell::sync::Lazy;
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -31,7 +32,6 @@ use tokio::{process::Command, sync::Mutex, task::JoinSet};
 use tokio_stream::StreamExt;
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
-mod llm;
 mod markdown;
 mod ui;
 use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
@@ -221,10 +221,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let client: Arc<dyn llm::LlmClient> = match args.provider {
-        Provider::Ollama => Arc::new(llm::ollama::OllamaClient::new(&args.host)?),
-        Provider::Openai => Arc::new(llm::openai::OpenAiClient::new(&args.host)),
-        Provider::Gemini => Arc::new(llm::gemini::GeminiClient::new(&args.host)),
+    let client: Arc<dyn LlmClient> = match args.provider {
+        Provider::Ollama => Arc::new(llm_core::ollama::OllamaClient::new(&args.host)?),
+        Provider::Openai => Arc::new(llm_core::openai::OpenAiClient::new(&args.host)),
+        Provider::Gemini => Arc::new(llm_core::gemini::GeminiClient::new(&args.host)),
     };
 
     let res = run_app(&mut terminal, client, args.model.clone()).await;
@@ -245,7 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
-    client: Arc<dyn llm::LlmClient>,
+    client: Arc<dyn LlmClient>,
     model: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
@@ -256,7 +256,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut last_max_scroll: i32 = 0;
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
-    let mut chat_stream: Option<llm::ChatStream> = None;
+    let mut chat_stream: Option<ChatStream> = None;
     let mut current_line = String::new();
     let mut tool_handles: JoinSet<(
         usize,

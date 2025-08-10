@@ -1423,6 +1423,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
+name = "llm-cli"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.29.0",
+ "llm-core",
+ "ratatui",
+ "tokio",
+ "tokio-stream",
+ "tui-realm-stdlib",
+ "tuirealm",
+ "tuirealm_derive",
+]
+
+[[package]]
+name = "llm-core"
+version = "0.1.0"
+dependencies = [
+ "async-openai",
+ "async-trait",
+ "gemini-rs",
+ "ollama-rs",
+ "serde",
+ "serde_json",
+ "tokio-stream",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1650,13 +1677,10 @@ dependencies = [
 name = "ollama-tui-test"
 version = "0.1.0"
 dependencies = [
- "async-openai",
- "async-trait",
  "clap",
  "crossterm 0.29.0",
- "gemini-rs",
  "insta",
- "ollama-rs",
+ "llm-core",
  "once_cell",
  "ratatui",
  "rmcp",
@@ -2915,6 +2939,42 @@ checksum = "911e93158bf80bbc94bad533b2b16e3d711e1132d69a6a6980c3920a63422c19"
 dependencies = [
  "crossterm 0.29.0",
  "unicode-width 0.2.0",
+]
+
+[[package]]
+name = "tui-realm-stdlib"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78a24d06b8403c57b32a3d3fdac795adf4ef8610e5f9650a3629efc8a9d6c0bb"
+dependencies = [
+ "textwrap",
+ "tuirealm",
+ "unicode-width 0.2.0",
+]
+
+[[package]]
+name = "tuirealm"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a99ea0862c0e946cd4e53ee8b6c9b301cdb740ed243d827f6d1fee2ad4268e25"
+dependencies = [
+ "bitflags",
+ "crossterm 0.29.0",
+ "lazy-regex",
+ "ratatui",
+ "thiserror 2.0.12",
+ "tuirealm_derive",
+]
+
+[[package]]
+name = "tuirealm_derive"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bad3c151090da5a036321776209b3d026df637d7f52c0984ff8d45927326ab4f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -4,14 +4,8 @@ Terminal chat interface to Ollama with MCP tool integration.
 ## Dependencies
 - clap
   - parse command-line arguments
-- ollama-rs (dstoc fork)
-  - communicate with Ollama using streaming and tools
-- async-openai
-  - connect to OpenAI models
-- gemini-rs
-  - connect to Gemini models
-- async-trait
-  - define async trait abstraction for model backends
+- llm-core
+  - LLM abstraction and providers
 - tokio
   - asynchronous runtime
   - streaming via `tokio-stream`

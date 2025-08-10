@@ -1,0 +1,15 @@
+[package]
+name = "llm-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+
+[dependencies]
+crossterm = "0.29.0"
+llm-core = { version = "0.1.0", path = "../llm-core" }
+ratatui = "0.29.0"
+tokio = { version = "1.47.1", features = ["full"] }
+tokio-stream = "0.1.17"
+tui-realm-stdlib = "2.0.1"
+tuirealm = "2.1.0"
+tuirealm_derive = "2.0.1"
