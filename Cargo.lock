@@ -1427,6 +1427,7 @@ name = "llm-cli"
 version = "0.1.0"
 dependencies = [
  "ratatui",
+ "textwrap",
  "tui-realm-stdlib",
  "tuirealm",
 ]

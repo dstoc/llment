@@ -7,19 +7,19 @@ use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
 use tuirealm::{Application, NoUserEvent, Update};
 
 mod components;
-use components::{History, Prompt};
+use components::{Conversation, Prompt};
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     AppClose,
-    FocusHistory,
+    FocusConversation,
     FocusInput,
     None,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
 pub enum Id {
-    History,
+    Conversation,
     Input,
 }
 
@@ -35,7 +35,7 @@ impl Default for Model {
             EventListenerCfg::default().crossterm_input_listener(Duration::from_millis(10), 10),
         );
         assert!(
-            app.mount(Id::History, Box::new(History::default()), vec![])
+            app.mount(Id::Conversation, Box::new(Conversation::default()), vec![])
                 .is_ok()
         );
         assert!(
@@ -59,7 +59,7 @@ impl Model {
                 .margin(1)
                 .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
                 .split(f.area());
-            self.app.view(&Id::History, f, chunks[0]);
+            self.app.view(&Id::Conversation, f, chunks[0]);
             self.app.view(&Id::Input, f, chunks[1]);
         });
     }
@@ -73,8 +73,8 @@ impl Update<Msg> for Model {
                 self.quit = true;
                 None
             }
-            Msg::FocusHistory => {
-                let _ = self.app.active(&Id::History);
+            Msg::FocusConversation => {
+                let _ = self.app.active(&Id::Conversation);
                 None
             }
             Msg::FocusInput => {

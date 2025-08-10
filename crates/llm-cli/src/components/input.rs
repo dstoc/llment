@@ -52,7 +52,9 @@ impl Component<Msg, NoUserEvent> for Prompt {
                 code: Key::Char(ch),
                 modifiers: KeyModifiers::NONE,
             }) => self.perform(Cmd::Type(ch)),
-            Event::Keyboard(KeyEvent { code: Key::Tab, .. }) => return Some(Msg::FocusHistory),
+            Event::Keyboard(KeyEvent { code: Key::Tab, .. }) => {
+                return Some(Msg::FocusConversation);
+            }
             Event::Keyboard(KeyEvent { code: Key::Esc, .. }) => return Some(Msg::AppClose),
             _ => CmdResult::None,
         };
