@@ -6,14 +6,14 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - terminal UI rendering
 - tuirealm
   - component-based TUI framework
-- tui-realm-stdlib
-  - prebuilt tuirealm components
 - textwrap
   - wrap conversation lines
 - unicode-width
   - measure display width for proper box padding
 - termimad
   - render markdown in assistant responses
+- tui-textarea
+  - multiline text input with standard editing
 
 ## Features, Requirements and Constraints
 - layout
@@ -21,6 +21,11 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
     - mouse wheel adjusts scroll
     - mouse clicks or scrolls in the conversation area focus it even when input is active
   - text input field at the bottom
+    - supports multi-line editing with wrapping
+    - Ctrl-J inserts a new line
+    - standard shortcuts: Ctrl-W delete previous word, Ctrl-L clears input
+    - paste inserts clipboard text
+    - clicking the field focuses it
   - Tab switches focus between conversation and input
   - Esc exits the application
 - conversation items

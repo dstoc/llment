@@ -50,8 +50,12 @@ impl Default for Model {
             .is_ok()
         );
         assert!(
-            app.mount(Id::Input, Box::new(Prompt::default()), vec![])
-                .is_ok()
+            app.mount(
+                Id::Input,
+                Box::new(Prompt::default()),
+                vec![Sub::new(SubEventClause::Any, SubClause::Always)],
+            )
+            .is_ok()
         );
         assert!(app.active(&Id::Input).is_ok());
         Self {
