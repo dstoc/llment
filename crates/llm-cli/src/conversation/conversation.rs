@@ -56,7 +56,17 @@ fn sample_items() -> Vec<Node> {
                     true,
                 )),
             ],
-            "Here's an example response after some thinking and a tool call.".into(),
+            r#"# Heading
+
+Here's an example response after some thinking and a tool call.
+
+**Bold text**, *italic text*, and `inline code`.
+
+```rust
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+```"#.into(),
         )),
         Node::User(UserBubble::new(
             "Can you show more details? Another long line is helpful.".into(),
@@ -80,7 +90,7 @@ fn sample_items() -> Vec<Node> {
         Node::Assistant(AssistantBlock::new(
             false,
             vec![Node::Thought(ThoughtStep::new("Wrapping things up".into()))],
-            "All done!".into(),
+            "All done!\n\n- Item one\n- Item two".into(),
         )),
     ]
 }
