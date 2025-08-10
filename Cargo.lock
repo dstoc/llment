@@ -1423,6 +1423,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
+name = "llm"
+version = "0.1.0"
+dependencies = [
+ "async-openai",
+ "async-trait",
+ "gemini-rs",
+ "ollama-rs",
+ "serde_json",
+ "tokio-stream",
+]
+
+[[package]]
 name = "llm-cli"
 version = "0.1.0"
 dependencies = [
@@ -1659,13 +1671,10 @@ dependencies = [
 name = "ollama-tui-test"
 version = "0.1.0"
 dependencies = [
- "async-openai",
- "async-trait",
  "clap",
  "crossterm 0.29.0",
- "gemini-rs",
  "insta",
- "ollama-rs",
+ "llm",
  "once_cell",
  "ratatui",
  "rmcp",

@@ -31,7 +31,6 @@ use tokio::{process::Command, sync::Mutex, task::JoinSet};
 use tokio_stream::StreamExt;
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
-mod llm;
 mod markdown;
 mod ui;
 use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};

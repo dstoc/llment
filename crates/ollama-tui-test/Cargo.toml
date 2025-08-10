@@ -6,7 +6,6 @@ rust-version.workspace = true
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-ollama-rs = { git = "https://github.com/dstoc/ollama-rs", branch = "RobJellinghaus/streaming-tools", features = ["macros", "stream"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 ratatui = "0.29"
@@ -19,9 +18,7 @@ textwrap = "0.16"
 termimad = "0.33.0"
 tui-input = { version = "0.14.0", default-features = false, features = ["crossterm"] }
 unicode-width = "0.2.0"
-async-openai = "0.29.0"
-async-trait = "0.1"
-gemini-rs = { git = "https://github.com/dstoc/gemini-rs", branch = "include-thoughts" }
+llm = { version = "0.1.0", path = "../llm" }
 
 [dev-dependencies]
 insta = "1.43.1"

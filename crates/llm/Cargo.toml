@@ -1,0 +1,13 @@
+[package]
+name = "llm"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-openai = "0.29.0"
+async-trait = "0.1.88"
+gemini-rs = { git = "https://github.com/dstoc/gemini-rs", branch = "include-thoughts", version = "2.0.0" }
+ollama-rs = { git = "https://github.com/dstoc/ollama-rs", branch = "RobJellinghaus/streaming-tools", version = "0.3.2", features = ["macros", "stream"] }
+serde_json = "1.0.142"
+tokio-stream = "0.1.17"
