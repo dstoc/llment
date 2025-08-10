@@ -1426,6 +1426,7 @@ checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 name = "llm-cli"
 version = "0.1.0"
 dependencies = [
+ "crossterm 0.29.0",
  "ratatui",
  "textwrap",
  "tui-realm-stdlib",

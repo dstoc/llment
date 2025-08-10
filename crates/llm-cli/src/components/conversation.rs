@@ -1,5 +1,5 @@
 use textwrap::wrap;
-use tuirealm::event::{Key, KeyEvent};
+use tuirealm::event::{Key, KeyEvent, MouseButton, MouseEventKind};
 use tuirealm::ratatui::Frame;
 use tuirealm::ratatui::layout::Rect;
 use tuirealm::ratatui::style::{Color, Style};
@@ -23,6 +23,9 @@ pub trait ConvNode {
     fn activate(&mut self) {}
     fn on_key(&mut self, _key: Key) -> bool {
         false
+    }
+    fn click(&mut self, _line: u16) {
+        self.activate();
     }
 }
 
@@ -468,6 +471,27 @@ impl ConvNode for AssistantBlock {
             _ => false,
         }
     }
+
+    fn click(&mut self, line: u16) {
+        if line == 0 {
+            self.selected = 0;
+        } else {
+            let mut pos = 1;
+            if !self.working_collapsed {
+                for (i, step) in self.steps.iter_mut().enumerate() {
+                    let h = step.height(self.cache_width);
+                    if line < pos + h {
+                        self.selected = i + 1;
+                        self.activate();
+                        return;
+                    }
+                    pos += h;
+                }
+            }
+            self.selected = self.total_items() - 1;
+        }
+        self.activate();
+    }
 }
 
 pub struct Conversation {
@@ -478,6 +502,7 @@ pub struct Conversation {
     width: u16,
     viewport: u16,
     dirty: bool,
+    area: Rect,
 }
 
 impl Default for Conversation {
@@ -490,6 +515,7 @@ impl Default for Conversation {
             width: 0,
             viewport: 0,
             dirty: true,
+            area: Rect::default(),
         }
     }
 }
@@ -585,6 +611,7 @@ impl MockComponent for Conversation {
         frame.render_widget(block, area);
 
         self.viewport = inner.height;
+        self.area = inner;
         self.ensure_layout(inner.width);
 
         for (idx, item) in self.items.iter_mut().enumerate() {
@@ -626,8 +653,8 @@ impl MockComponent for Conversation {
 
 impl Component<Msg, NoUserEvent> for Conversation {
     fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        if let Event::Keyboard(KeyEvent { code, .. }) = ev {
-            match code {
+        match ev {
+            Event::Keyboard(KeyEvent { code, .. }) => match code {
                 Key::Down => {
                     if !self.items[self.selected].on_key(Key::Down) {
                         if self.selected + 1 < self.items.len() {
@@ -673,7 +700,42 @@ impl Component<Msg, NoUserEvent> for Conversation {
                 Key::Tab => return Some(Msg::FocusInput),
                 Key::Esc => return Some(Msg::AppClose),
                 _ => {}
-            }
+            },
+            Event::Mouse(me) => match me.kind {
+                MouseEventKind::ScrollUp => {
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.total_height().saturating_sub(self.viewport);
+                    self.scroll = (self.scroll + 1).min(max);
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if me.column >= self.area.x
+                        && me.column < self.area.x + self.area.width
+                        && me.row >= self.area.y
+                        && me.row < self.area.y + self.area.height
+                    {
+                        let line = self.scroll + (me.row - self.area.y) as u16;
+                        let mut target: Option<(usize, u16)> = None;
+                        for (i, (start, h)) in self.layout.iter().enumerate() {
+                            if line >= *start && line < *start + *h {
+                                target = Some((i, *start));
+                                break;
+                            }
+                        }
+                        if let Some((idx, start)) = target {
+                            self.selected = idx;
+                            let rel = line - start;
+                            self.items[idx].click(rel);
+                            self.dirty = true;
+                            self.ensure_layout(self.width);
+                            self.ensure_visible();
+                        }
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
         }
         Some(Msg::None)
     }
