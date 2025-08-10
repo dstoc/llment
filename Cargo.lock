@@ -1443,7 +1443,7 @@ dependencies = [
  "ratatui",
  "termimad",
  "textwrap",
- "tui-realm-stdlib",
+ "tui-textarea",
  "tuirealm",
  "unicode-width 0.2.0",
 ]
@@ -2941,13 +2941,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "tui-realm-stdlib"
-version = "3.0.0"
+name = "tui-textarea"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83c5dd796e9ba2d0d2cfe26dc6a84d5a8287ec110ee1226a53d8cde9a24d67cf"
+checksum = "0a5318dd619ed73c52a9417ad19046724effc1287fb75cdcc4eca1d6ac1acbae"
 dependencies = [
- "textwrap",
- "tuirealm",
+ "crossterm 0.28.1",
+ "ratatui",
  "unicode-width 0.2.0",
 ]
 
