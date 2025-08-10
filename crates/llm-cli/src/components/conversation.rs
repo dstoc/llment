@@ -1,278 +1,560 @@
 use textwrap::wrap;
-use tui_realm_stdlib::Textarea;
-use tuirealm::command::{Cmd, CmdResult, Direction, Position};
 use tuirealm::event::{Key, KeyEvent};
-use tuirealm::props::{Alignment, BorderType, Borders, Color, TextSpan};
 use tuirealm::ratatui::Frame;
-use tuirealm::{AttrValue, Attribute, Component, Event, MockComponent, NoUserEvent, State};
+use tuirealm::ratatui::layout::Rect;
+use tuirealm::ratatui::style::{Color, Style};
+use tuirealm::ratatui::text::{Line, Span};
+use tuirealm::ratatui::widgets::{Block, Borders, Paragraph};
+use tuirealm::{Component, Event, MockComponent, NoUserEvent};
 
 use crate::Msg;
 
-pub enum ConversationItem {
-    User(String),
-    Assistant {
-        working: WorkingBlock,
-        response: String,
-    },
+pub trait ConvNode {
+    fn height(&mut self, width: u16) -> u16;
+    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool);
+    fn activate(&mut self) {}
+    fn on_key(&mut self, _key: Key) -> bool {
+        false
+    }
 }
 
-pub struct WorkingBlock {
-    steps: Vec<WorkingItem>,
+struct UserBubble {
+    text: String,
+    cache_width: u16,
+    lines: Vec<String>,
+}
+
+impl UserBubble {
+    fn new(text: String) -> Self {
+        Self {
+            text,
+            cache_width: 0,
+            lines: Vec::new(),
+        }
+    }
+
+    fn ensure_cache(&mut self, width: u16) {
+        if self.cache_width == width {
+            return;
+        }
+        self.cache_width = width;
+        let inner = width.saturating_sub(7) as usize;
+        let wrapped = wrap(&self.text, inner.max(1));
+        let box_width = wrapped.iter().map(|l| l.len()).max().unwrap_or(0);
+        let mut lines = Vec::new();
+        lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
+        for w in wrapped {
+            let mut line = w.into_owned();
+            line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
+            lines.push(format!("     │{}│", line));
+        }
+        lines.push(format!("     └{}┘", "─".repeat(box_width)));
+        lines.push(String::new());
+        self.lines = lines;
+    }
+}
+
+impl ConvNode for UserBubble {
+    fn height(&mut self, width: u16) -> u16 {
+        self.ensure_cache(width);
+        self.lines.len() as u16
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+        self.ensure_cache(area.width);
+        let style = if selected {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        };
+        let lines: Vec<Line> = self
+            .lines
+            .iter()
+            .map(|l| Line::from(Span::styled(l.clone(), style)))
+            .collect();
+        let para = Paragraph::new(lines);
+        frame.render_widget(para, area);
+    }
+}
+
+struct ThoughtStep {
+    text: String,
+    cache_width: u16,
+    lines: Vec<String>,
+}
+
+impl ThoughtStep {
+    fn new(text: String) -> Self {
+        Self {
+            text,
+            cache_width: 0,
+            lines: Vec::new(),
+        }
+    }
+
+    fn ensure_cache(&mut self, width: u16) {
+        if self.cache_width == width {
+            return;
+        }
+        self.cache_width = width;
+        let inner = width.saturating_sub(2) as usize;
+        let wrapped = wrap(&self.text, inner.max(1));
+        let mut lines = Vec::new();
+        for (i, w) in wrapped.into_iter().enumerate() {
+            if i == 0 {
+                lines.push(format!("· {}", w));
+            } else {
+                lines.push(format!("  {}", w));
+            }
+        }
+        self.lines = lines;
+    }
+}
+
+impl ConvNode for ThoughtStep {
+    fn height(&mut self, width: u16) -> u16 {
+        self.ensure_cache(width);
+        self.lines.len() as u16
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+        self.ensure_cache(area.width);
+        let style = if selected {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        };
+        let lines: Vec<Line> = self
+            .lines
+            .iter()
+            .map(|l| Line::from(Span::styled(l.clone(), style)))
+            .collect();
+        let para = Paragraph::new(lines);
+        frame.render_widget(para, area);
+    }
+}
+
+struct ToolStep {
+    name: String,
+    args: String,
+    result: String,
     collapsed: bool,
+    cache_width: u16,
+    lines: Vec<String>,
 }
 
-pub enum WorkingItem {
-    Thoughts(String),
-    Tool {
-        name: String,
-        args: String,
-        result: String,
-        collapsed: bool,
-    },
+impl ToolStep {
+    fn new(name: String, args: String, result: String, collapsed: bool) -> Self {
+        Self {
+            name,
+            args,
+            result,
+            collapsed,
+            cache_width: 0,
+            lines: Vec::new(),
+        }
+    }
+
+    fn ensure_cache(&mut self, width: u16) {
+        if self.cache_width == width {
+            return;
+        }
+        self.cache_width = width;
+        let mut lines = Vec::new();
+        let arrow = if self.collapsed { "›" } else { "⌄" };
+        lines.push(format!("· _{}_ {}", self.name, arrow));
+        if !self.collapsed {
+            let a_wrap = wrap(&self.args, width.saturating_sub(8) as usize);
+            for (i, w) in a_wrap.into_iter().enumerate() {
+                if i == 0 {
+                    lines.push(format!("  args: {}", w));
+                } else {
+                    lines.push(format!("        {}", w));
+                }
+            }
+            let r_wrap = wrap(&self.result, width.saturating_sub(10) as usize);
+            for (i, w) in r_wrap.into_iter().enumerate() {
+                if i == 0 {
+                    lines.push(format!("  result: {}", w));
+                } else {
+                    lines.push(format!("          {}", w));
+                }
+            }
+        }
+        self.lines = lines;
+    }
 }
 
-#[derive(Clone, Copy)]
-enum LineTarget {
-    None,
-    Working { item: usize },
-    Tool { item: usize, step: usize },
+impl ConvNode for ToolStep {
+    fn height(&mut self, width: u16) -> u16 {
+        self.ensure_cache(width);
+        self.lines.len() as u16
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+        self.ensure_cache(area.width);
+        let style = if selected {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        };
+        let lines: Vec<Line> = self
+            .lines
+            .iter()
+            .map(|l| Line::from(Span::styled(l.clone(), style)))
+            .collect();
+        let para = Paragraph::new(lines);
+        frame.render_widget(para, area);
+    }
+
+    fn activate(&mut self) {
+        self.collapsed = !self.collapsed;
+        self.cache_width = 0;
+    }
+}
+
+struct AssistantBlock {
+    working_collapsed: bool,
+    steps: Vec<Box<dyn ConvNode>>,
+    response: String,
+    cache_width: u16,
+    response_lines: Vec<String>,
+    selected: usize,
+}
+
+impl AssistantBlock {
+    fn new(working_collapsed: bool, steps: Vec<Box<dyn ConvNode>>, response: String) -> Self {
+        Self {
+            working_collapsed,
+            steps,
+            response,
+            cache_width: 0,
+            response_lines: Vec::new(),
+            selected: 0,
+        }
+    }
+
+    fn ensure_cache(&mut self, width: u16) {
+        if self.cache_width == width {
+            return;
+        }
+        self.cache_width = width;
+        let wrapped = wrap(&self.response, width as usize);
+        self.response_lines = wrapped.into_iter().map(|l| l.into_owned()).collect();
+        self.response_lines.push(String::new());
+    }
+
+    fn total_items(&self) -> usize {
+        let steps = if self.working_collapsed {
+            0
+        } else {
+            self.steps.len()
+        };
+        // working header + steps + response
+        1 + steps + 1
+    }
+}
+
+impl ConvNode for AssistantBlock {
+    fn height(&mut self, width: u16) -> u16 {
+        self.ensure_cache(width);
+        let mut h = 1; // working header
+        if !self.working_collapsed {
+            for step in &mut self.steps {
+                h += step.height(width);
+            }
+        }
+        h += self.response_lines.len() as u16;
+        h
+    }
+
+    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+        self.ensure_cache(area.width);
+        let arrow = if self.working_collapsed { "›" } else { "⌄" };
+        let mut y = area.y;
+        let sel_style = |is_sel| {
+            if selected && is_sel {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            }
+        };
+        // working header
+        let header = Paragraph::new(Line::from(Span::styled(
+            format!("Working {arrow}"),
+            sel_style(self.selected == 0),
+        )));
+        frame.render_widget(header, Rect { height: 1, ..area });
+        y += 1;
+        // steps
+        if !self.working_collapsed {
+            for (i, step) in self.steps.iter_mut().enumerate() {
+                let h = step.height(area.width);
+                let rect = Rect {
+                    x: area.x,
+                    y,
+                    width: area.width,
+                    height: h,
+                };
+                step.render(frame, rect, selected && self.selected == i + 1);
+                y += h;
+            }
+        }
+        // response
+        let resp_rect = Rect {
+            x: area.x,
+            y,
+            width: area.width,
+            height: self.response_lines.len() as u16,
+        };
+        let style = sel_style(self.selected == self.total_items() - 1);
+        let lines: Vec<Line> = self
+            .response_lines
+            .iter()
+            .map(|l| Line::from(Span::styled(l.clone(), style)))
+            .collect();
+        let para = Paragraph::new(lines);
+        frame.render_widget(para, resp_rect);
+    }
+
+    fn activate(&mut self) {
+        if self.selected == 0 {
+            self.working_collapsed = !self.working_collapsed;
+        } else {
+            let idx = self.selected - 1;
+            if idx < self.steps.len() {
+                self.steps[idx].activate();
+            }
+        }
+        self.cache_width = 0;
+    }
+
+    fn on_key(&mut self, key: Key) -> bool {
+        match key {
+            Key::Down => {
+                let max = self.total_items() - 1;
+                if self.selected < max {
+                    self.selected += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            Key::Up => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
 }
 
 pub struct Conversation {
-    component: Textarea,
-    items: Vec<ConversationItem>,
-    mapping: Vec<LineTarget>,
+    items: Vec<Box<dyn ConvNode>>,
+    selected: usize,
+    scroll: u16,
+    layout: Vec<(u16, u16)>,
     width: u16,
+    viewport: u16,
+    dirty: bool,
 }
 
 impl Default for Conversation {
     fn default() -> Self {
-        let items = sample_items();
         Self {
-            component: Textarea::default()
-                .borders(
-                    Borders::default()
-                        .modifiers(BorderType::Rounded)
-                        .color(Color::LightBlue),
-                )
-                .foreground(Color::LightBlue)
-                .title("Conversation", Alignment::Left)
-                .step(4),
-            items,
-            mapping: Vec::new(),
+            items: sample_items(),
+            selected: 0,
+            scroll: 0,
+            layout: Vec::new(),
             width: 0,
+            viewport: 0,
+            dirty: true,
         }
     }
 }
 
-fn sample_items() -> Vec<ConversationItem> {
+fn sample_items() -> Vec<Box<dyn ConvNode>> {
     vec![
-        ConversationItem::User(
+        Box::new(UserBubble::new(
             "Hello! I'm testing the conversation view. This message should be long enough to wrap and require scrolling.".into(),
-        ),
-        ConversationItem::Assistant {
-            working: WorkingBlock {
-                collapsed: false,
-                steps: vec![
-                    WorkingItem::Thoughts("Analyzing the request".into()),
-                    WorkingItem::Tool {
-                        name: "search".into(),
-                        args: "{\"query\":\"scrolling\"}".into(),
-                        result: "{\"answer\":42}".into(),
-                        collapsed: true,
-                    },
-                ],
-            },
-            response: "Here's an example response after some thinking and a tool call.".into(),
-        },
-        ConversationItem::User(
+        )),
+        Box::new(AssistantBlock::new(
+            false,
+            vec![
+                Box::new(ThoughtStep::new("Analyzing the request".into())),
+                Box::new(ToolStep::new(
+                    "search".into(),
+                    "{\"query\":\"scrolling\"}".into(),
+                    "{\"answer\":42}".into(),
+                    true,
+                )),
+            ],
+            "Here's an example response after some thinking and a tool call.".into(),
+        )),
+        Box::new(UserBubble::new(
             "Can you show more details? Another long line is helpful.".into(),
-        ),
-        ConversationItem::Assistant {
-            working: WorkingBlock {
-                collapsed: true,
-                steps: vec![
-                    WorkingItem::Thoughts("Another thought".into()),
-                    WorkingItem::Tool {
-                        name: "math".into(),
-                        args: "1+1".into(),
-                        result: "2".into(),
-                        collapsed: true,
-                    },
-                ],
-            },
-            response: "Yes, there's more to see.".into(),
-        },
-        ConversationItem::User(
+        )),
+        Box::new(AssistantBlock::new(
+            true,
+            vec![
+                Box::new(ThoughtStep::new("Another thought".into())),
+                Box::new(ToolStep::new(
+                    "math".into(),
+                    "1+1".into(),
+                    "2".into(),
+                    true,
+                )),
+            ],
+            "Yes, there's more to see.".into(),
+        )),
+        Box::new(UserBubble::new(
             "This is a final message to ensure scrolling works properly.".into(),
-        ),
-        ConversationItem::Assistant {
-            working: WorkingBlock {
-                collapsed: false,
-                steps: vec![WorkingItem::Thoughts("Wrapping things up".into())],
-            },
-            response: "All done!".into(),
-        },
+        )),
+        Box::new(AssistantBlock::new(
+            false,
+            vec![Box::new(ThoughtStep::new("Wrapping things up".into()))],
+            "All done!".into(),
+        )),
     ]
 }
 
 impl Conversation {
-    fn update(&mut self) {
-        let width = self.width as usize;
-        let (lines, mapping) = wrap_conversation_lines(&self.items, width.saturating_sub(2));
-        let spans = lines.into_iter().map(TextSpan::from);
-        let mut component = std::mem::take(&mut self.component);
-        component = component.text_rows(spans);
-        self.component = component;
-        self.mapping = mapping;
-    }
-}
-
-fn wrap_conversation_lines(
-    items: &[ConversationItem],
-    width: usize,
-) -> (Vec<String>, Vec<LineTarget>) {
-    let mut lines = Vec::new();
-    let mut mapping = Vec::new();
-    for (idx, item) in items.iter().enumerate() {
-        match item {
-            ConversationItem::User(text) => {
-                let inner_width = width.saturating_sub(7);
-                let wrapped = wrap(text, inner_width.max(1));
-                let box_width = wrapped.iter().map(|l| l.len()).max().unwrap_or(0);
-                lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
-                mapping.push(LineTarget::None);
-                for w in wrapped {
-                    let mut line = w.into_owned();
-                    line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
-                    lines.push(format!("     │{}│", line));
-                    mapping.push(LineTarget::None);
-                }
-                lines.push(format!("     └{}┘", "─".repeat(box_width)));
-                mapping.push(LineTarget::None);
-                lines.push(String::new());
-                mapping.push(LineTarget::None);
+    fn ensure_layout(&mut self, width: u16) {
+        if self.width != width || self.dirty {
+            self.width = width;
+            self.layout.clear();
+            let mut pos = 0;
+            for item in self.items.iter_mut() {
+                let h = item.height(width);
+                self.layout.push((pos, h));
+                pos += h;
             }
-            ConversationItem::Assistant { working, response } => {
-                let arrow = if working.collapsed { "›" } else { "⌄" };
-                lines.push(format!("Working {arrow}"));
-                mapping.push(LineTarget::Working { item: idx });
-                if !working.collapsed {
-                    for (s_idx, step) in working.steps.iter().enumerate() {
-                        match step {
-                            WorkingItem::Thoughts(t) => {
-                                lines.push(format!("· {t}"));
-                                mapping.push(LineTarget::None);
-                            }
-                            WorkingItem::Tool {
-                                name,
-                                args,
-                                result,
-                                collapsed,
-                            } => {
-                                let arrow = if *collapsed { "›" } else { "⌄" };
-                                lines.push(format!("· _{name}_ {arrow}"));
-                                mapping.push(LineTarget::Tool {
-                                    item: idx,
-                                    step: s_idx,
-                                });
-                                if !*collapsed {
-                                    lines.push(format!("  args: {args}"));
-                                    mapping.push(LineTarget::None);
-                                    lines.push(format!("  result: {result}"));
-                                    mapping.push(LineTarget::None);
-                                }
-                            }
-                        }
-                    }
-                }
-                lines.push(response.clone());
-                mapping.push(LineTarget::None);
-                lines.push(String::new());
-                mapping.push(LineTarget::None);
-            }
+            self.dirty = false;
         }
     }
-    (lines, mapping)
+
+    fn total_height(&self) -> u16 {
+        self.layout.last().map(|(s, h)| s + h).unwrap_or(0)
+    }
+
+    fn ensure_visible(&mut self) {
+        if self.layout.is_empty() {
+            return;
+        }
+        let (start, h) = self.layout[self.selected];
+        let end = start + h;
+        if start < self.scroll {
+            self.scroll = start;
+        } else if end > self.scroll + self.viewport {
+            self.scroll = end.saturating_sub(self.viewport);
+        }
+    }
 }
 
 impl MockComponent for Conversation {
-    fn view(&mut self, frame: &mut Frame, area: tuirealm::ratatui::layout::Rect) {
-        if area.width != self.width {
-            self.width = area.width;
-            self.update();
+    fn view(&mut self, frame: &mut Frame, area: Rect) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::LightBlue))
+            .title(Span::styled(
+                "Conversation",
+                Style::default().fg(Color::LightBlue),
+            ));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        self.viewport = inner.height;
+        self.ensure_layout(inner.width);
+
+        for (idx, item) in self.items.iter_mut().enumerate() {
+            let (start, h) = self.layout[idx];
+            if start + h <= self.scroll {
+                continue;
+            }
+            if start >= self.scroll + self.viewport {
+                break;
+            }
+            let y = inner.y + start.saturating_sub(self.scroll);
+            let rect = Rect {
+                x: inner.x,
+                y,
+                width: inner.width,
+                height: h.min(self.viewport),
+            };
+            item.render(frame, rect, idx == self.selected);
         }
-        self.component.view(frame, area);
     }
 
-    fn query(&self, attr: Attribute) -> Option<AttrValue> {
-        self.component.query(attr)
+    fn query(&self, _attr: tuirealm::Attribute) -> Option<tuirealm::AttrValue> {
+        None
     }
 
-    fn attr(&mut self, attr: Attribute, value: AttrValue) {
-        self.component.attr(attr, value);
+    fn attr(&mut self, _attr: tuirealm::Attribute, _value: tuirealm::AttrValue) {}
+
+    fn state(&self) -> tuirealm::State {
+        tuirealm::State::None
     }
 
-    fn state(&self) -> State {
-        self.component.state()
-    }
-
-    fn perform(&mut self, cmd: Cmd) -> CmdResult {
-        self.component.perform(cmd)
+    fn perform(&mut self, _cmd: tuirealm::command::Cmd) -> tuirealm::command::CmdResult {
+        tuirealm::command::CmdResult::None
     }
 }
 
 impl Component<Msg, NoUserEvent> for Conversation {
     fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        let _ = match ev {
-            Event::Keyboard(KeyEvent {
-                code: Key::Down, ..
-            }) => self.perform(Cmd::Move(Direction::Down)),
-            Event::Keyboard(KeyEvent { code: Key::Up, .. }) => {
-                self.perform(Cmd::Move(Direction::Up))
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::PageDown,
-                ..
-            }) => self.perform(Cmd::Scroll(Direction::Down)),
-            Event::Keyboard(KeyEvent {
-                code: Key::PageUp, ..
-            }) => self.perform(Cmd::Scroll(Direction::Up)),
-            Event::Keyboard(KeyEvent {
-                code: Key::Home, ..
-            }) => self.perform(Cmd::GoTo(Position::Begin)),
-            Event::Keyboard(KeyEvent { code: Key::End, .. }) => {
-                self.perform(Cmd::GoTo(Position::End))
-            }
-            Event::Keyboard(KeyEvent {
-                code: Key::Enter, ..
-            }) => {
-                let idx = self.component.states.list_index;
-                match self.mapping.get(idx) {
-                    Some(LineTarget::Working { item }) => {
-                        if let ConversationItem::Assistant { working, .. } = &mut self.items[*item]
-                        {
-                            working.collapsed = !working.collapsed;
-                            self.update();
+        if let Event::Keyboard(KeyEvent { code, .. }) = ev {
+            match code {
+                Key::Down => {
+                    if !self.items[self.selected].on_key(Key::Down) {
+                        if self.selected + 1 < self.items.len() {
+                            self.selected += 1;
                         }
                     }
-                    Some(LineTarget::Tool { item, step }) => {
-                        if let ConversationItem::Assistant { working, .. } = &mut self.items[*item]
-                        {
-                            if let WorkingItem::Tool { collapsed, .. } = &mut working.steps[*step] {
-                                *collapsed = !*collapsed;
-                                self.update();
-                            }
-                        }
-                    }
-                    _ => {}
+                    self.ensure_visible();
                 }
-                CmdResult::None
+                Key::Up => {
+                    if !self.items[self.selected].on_key(Key::Up) {
+                        if self.selected > 0 {
+                            self.selected -= 1;
+                        }
+                    }
+                    self.ensure_visible();
+                }
+                Key::PageDown => {
+                    self.scroll = self.scroll.saturating_add(self.viewport);
+                    let max = self.total_height().saturating_sub(self.viewport);
+                    if self.scroll > max {
+                        self.scroll = max;
+                    }
+                }
+                Key::PageUp => {
+                    self.scroll = self.scroll.saturating_sub(self.viewport);
+                }
+                Key::Home => {
+                    self.selected = 0;
+                    self.scroll = 0;
+                }
+                Key::End => {
+                    if !self.items.is_empty() {
+                        self.selected = self.items.len() - 1;
+                        self.scroll = self.total_height().saturating_sub(self.viewport);
+                    }
+                }
+                Key::Enter => {
+                    self.items[self.selected].activate();
+                    self.dirty = true;
+                    self.ensure_layout(self.width);
+                    self.ensure_visible();
+                }
+                Key::Tab => return Some(Msg::FocusInput),
+                Key::Esc => return Some(Msg::AppClose),
+                _ => {}
             }
-            Event::Keyboard(KeyEvent { code: Key::Tab, .. }) => return Some(Msg::FocusInput),
-            Event::Keyboard(KeyEvent { code: Key::Esc, .. }) => return Some(Msg::AppClose),
-            _ => CmdResult::None,
-        };
+        }
         Some(Msg::None)
     }
 }

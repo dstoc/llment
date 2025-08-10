@@ -21,3 +21,5 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - user messages render inside a boxed region
   - assistant messages show working steps and final response
     - working and tool sections toggle with Enter
+  - items are independent components implementing `ConvNode`
+    - selection moves between components, not individual lines
