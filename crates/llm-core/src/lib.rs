@@ -17,14 +17,14 @@ pub mod gemini;
 pub mod ollama;
 pub mod openai;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResponseMessage {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
     pub thinking: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResponseChunk {
     pub message: ResponseMessage,
     pub done: bool,

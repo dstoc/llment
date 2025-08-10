@@ -1,13 +1,14 @@
 use tuirealm::{
     Component, Frame, MockComponent, State,
     command::{Cmd, CmdResult},
-    event::{Event, NoUserEvent},
+    event::Event,
     props::{AttrValue, Attribute, Props},
     ratatui::layout::Rect,
 };
 
+use crate::event::ChatEvent;
+
 use super::chat::{Chat, ChatMsg};
-use super::history_item::HistoryKind;
 
 pub struct App {
     chat: Chat,
@@ -20,9 +21,6 @@ impl App {
             chat: Chat::new(),
             props: Props::default(),
         }
-    }
-    pub fn push_assistant(&mut self, text: String) {
-        self.chat.history.push(HistoryKind::Assistant(text));
     }
 }
 
@@ -48,8 +46,8 @@ pub enum AppMsg {
     None,
 }
 
-impl Component<AppMsg, NoUserEvent> for App {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<AppMsg> {
+impl Component<AppMsg, ChatEvent> for App {
+    fn on(&mut self, ev: Event<ChatEvent>) -> Option<AppMsg> {
         if let Some(msg) = self.chat.on(ev) {
             if let ChatMsg::InputSubmitted(s) = msg {
                 return Some(AppMsg::Send(s));

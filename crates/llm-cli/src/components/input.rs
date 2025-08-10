@@ -2,13 +2,15 @@ use tuirealm::event::{Key, KeyEvent};
 use tuirealm::{
     Component, Frame, MockComponent, State,
     command::{Cmd, CmdResult},
-    event::{Event, NoUserEvent},
+    event::Event,
     props::{AttrValue, Attribute, Props},
     ratatui::{
         layout::Rect,
         widgets::{Block, Borders, Paragraph as TuiParagraph},
     },
 };
+
+use crate::event::ChatEvent;
 
 pub struct InputComponent {
     value: String,
@@ -48,8 +50,8 @@ pub enum InputMsg {
     None,
 }
 
-impl Component<InputMsg, NoUserEvent> for InputComponent {
-    fn on(&mut self, ev: Event<NoUserEvent>) -> Option<InputMsg> {
+impl Component<InputMsg, ChatEvent> for InputComponent {
+    fn on(&mut self, ev: Event<ChatEvent>) -> Option<InputMsg> {
         if let Event::Keyboard(KeyEvent { code, .. }) = ev {
             match code {
                 Key::Enter => {

@@ -1,4 +1,5 @@
 use std::io::stdout;
+use std::sync::Arc;
 
 use crossterm::{
     event::Event as CrosEvent,
@@ -6,77 +7,74 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::Terminal;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 use tokio_stream::StreamExt;
-use tuirealm::{
-    Component, MockComponent,
-    event::{Event, NoUserEvent},
-    ratatui::backend::CrosstermBackend,
-};
+use tuirealm::{Component, MockComponent, event::Event, ratatui::backend::CrosstermBackend};
 
-use llm_core::{ResponseChunk, ResponseMessage};
+use llm_core::ollama::OllamaClient;
+use llm_core::{ChatMessage, ChatMessageRequest, LlmClient};
 
 mod components;
-use components::{App, AppMsg};
+mod event;
 
-enum EventMessage {
-    Ui(Event<NoUserEvent>),
-    Llm(ResponseChunk),
-}
+use components::{App, AppMsg};
+use event::ChatEvent;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let (tx, mut rx) = mpsc::unbounded_channel::<EventMessage>();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Event<ChatEvent>>();
 
     let tx_term = tx.clone();
     tokio::spawn(async move {
         let mut reader = crossterm::event::EventStream::new();
         while let Some(Ok(ev)) = reader.next().await {
             if let CrosEvent::Key(key) = ev {
-                if tx_term
-                    .send(EventMessage::Ui(Event::Keyboard(key.into())))
-                    .is_err()
-                {
+                if tx_term.send(Event::Keyboard(key.into())).is_err() {
                     break;
                 }
             }
         }
     });
 
+    let client: Arc<dyn LlmClient> = Arc::new(OllamaClient::new("http://localhost:11434")?);
+    let messages = Arc::new(Mutex::new(Vec::<ChatMessage>::new()));
     let mut app = App::new();
 
-    while let Some(msg) = rx.recv().await {
-        match msg {
-            EventMessage::Ui(ev) => {
-                if let Some(app_msg) = app.on(ev) {
-                    if let AppMsg::Send(text) = app_msg {
-                        let tx_llm = tx.clone();
-                        tokio::spawn(async move {
-                            let chunk = ResponseChunk {
-                                message: ResponseMessage {
-                                    content: format!("Echo: {}", text),
-                                    tool_calls: Vec::new(),
-                                    thinking: None,
-                                },
-                                done: true,
-                            };
-                            let _ = tx_llm.send(EventMessage::Llm(chunk));
-                        });
+    while let Some(ev) = rx.recv().await {
+        if let Some(app_msg) = app.on(ev) {
+            if let AppMsg::Send(text) = app_msg {
+                let tx_llm = tx.clone();
+                let client = client.clone();
+                let msgs = messages.clone();
+                tokio::spawn(async move {
+                    {
+                        let mut locked = msgs.lock().await;
+                        locked.push(ChatMessage::user(text.clone()));
+                        let request =
+                            ChatMessageRequest::new("llama3.1:8b".to_string(), locked.clone());
+                        drop(locked);
+                        if let Ok(mut stream) = client.send_chat_messages_stream(request).await {
+                            let mut assistant = String::new();
+                            while let Some(chunk) = stream.next().await {
+                                if let Ok(chunk) = chunk {
+                                    assistant.push_str(&chunk.message.content);
+                                    let _ = tx_llm.send(Event::User(ChatEvent::Chunk(chunk)));
+                                }
+                            }
+                            let mut locked = msgs.lock().await;
+                            locked.push(ChatMessage::assistant(assistant));
+                        }
                     }
-                }
-                terminal.draw(|f| app.view(f, f.size()))?;
-            }
-            EventMessage::Llm(chunk) => {
-                app.push_assistant(chunk.message.content);
-                terminal.draw(|f| app.view(f, f.size()))?;
+                });
             }
         }
+        terminal.draw(|f| app.view(f, f.area()))?;
     }
 
     disable_raw_mode()?;

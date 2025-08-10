@@ -1,10 +1,12 @@
 use tuirealm::{
     Component, Frame, MockComponent, State,
     command::{Cmd, CmdResult},
-    event::{Event, NoUserEvent},
+    event::Event,
     props::{AttrValue, Attribute, Props},
     ratatui::{layout::Rect, widgets::Paragraph as TuiParagraph},
 };
+
+use crate::event::ChatEvent;
 
 #[derive(Clone)]
 pub enum HistoryKind {
@@ -23,6 +25,28 @@ impl HistoryItemComponent {
         Self {
             kind,
             props: Props::default(),
+        }
+    }
+
+    pub fn kind(&self) -> &HistoryKind {
+        &self.kind
+    }
+
+    pub fn kind_mut(&mut self) -> &mut HistoryKind {
+        &mut self.kind
+    }
+
+    pub fn push_text(&mut self, text: &str) {
+        match &mut self.kind {
+            HistoryKind::Assistant(t) => t.push_str(text),
+            HistoryKind::Thinking { content, .. } => content.push_str(text),
+            _ => {}
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        if let HistoryKind::Thinking { collapsed, .. } = &mut self.kind {
+            *collapsed = !*collapsed;
         }
     }
 }
@@ -61,8 +85,8 @@ pub enum HistoryItemMsg {
     None,
 }
 
-impl Component<HistoryItemMsg, NoUserEvent> for HistoryItemComponent {
-    fn on(&mut self, _ev: Event<NoUserEvent>) -> Option<HistoryItemMsg> {
+impl Component<HistoryItemMsg, ChatEvent> for HistoryItemComponent {
+    fn on(&mut self, _ev: Event<ChatEvent>) -> Option<HistoryItemMsg> {
         None
     }
 }
