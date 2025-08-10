@@ -6,12 +6,20 @@ use tuirealm::ratatui::style::{Color, Style};
 use tuirealm::ratatui::text::{Line, Span};
 use tuirealm::ratatui::widgets::{Block, Borders, Paragraph};
 use tuirealm::{Component, Event, MockComponent, NoUserEvent};
+use unicode_width::UnicodeWidthStr;
 
 use crate::Msg;
 
 pub trait ConvNode {
     fn height(&mut self, width: u16) -> u16;
-    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool);
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: bool,
+        start: u16,
+        max_height: u16,
+    );
     fn activate(&mut self) {}
     fn on_key(&mut self, _key: Key) -> bool {
         false
@@ -21,6 +29,8 @@ pub trait ConvNode {
 struct UserBubble {
     text: String,
     cache_width: u16,
+    cache_rev: u64,
+    content_rev: u64,
     lines: Vec<String>,
 }
 
@@ -29,23 +39,31 @@ impl UserBubble {
         Self {
             text,
             cache_width: 0,
+            cache_rev: 0,
+            content_rev: 0,
             lines: Vec::new(),
         }
     }
 
     fn ensure_cache(&mut self, width: u16) {
-        if self.cache_width == width {
+        if self.cache_width == width && self.cache_rev == self.content_rev {
             return;
         }
         self.cache_width = width;
+        self.cache_rev = self.content_rev;
         let inner = width.saturating_sub(7) as usize;
         let wrapped = wrap(&self.text, inner.max(1));
-        let box_width = wrapped.iter().map(|l| l.len()).max().unwrap_or(0);
+        let box_width = wrapped
+            .iter()
+            .map(|l| UnicodeWidthStr::width(l.as_ref()))
+            .max()
+            .unwrap_or(0);
         let mut lines = Vec::new();
         lines.push(format!("     ┌{}┐", "─".repeat(box_width)));
         for w in wrapped {
             let mut line = w.into_owned();
-            line.push_str(&" ".repeat(box_width.saturating_sub(line.len())));
+            let width = UnicodeWidthStr::width(line.as_str());
+            line.push_str(&" ".repeat(box_width.saturating_sub(width)));
             lines.push(format!("     │{}│", line));
         }
         lines.push(format!("     └{}┘", "─".repeat(box_width)));
@@ -60,15 +78,23 @@ impl ConvNode for UserBubble {
         self.lines.len() as u16
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: bool,
+        start: u16,
+        max_height: u16,
+    ) {
         self.ensure_cache(area.width);
         let style = if selected {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default()
         };
-        let lines: Vec<Line> = self
-            .lines
+        let start = start as usize;
+        let end = (start + max_height as usize).min(self.lines.len());
+        let lines: Vec<Line> = self.lines[start..end]
             .iter()
             .map(|l| Line::from(Span::styled(l.clone(), style)))
             .collect();
@@ -80,6 +106,8 @@ impl ConvNode for UserBubble {
 struct ThoughtStep {
     text: String,
     cache_width: u16,
+    cache_rev: u64,
+    content_rev: u64,
     lines: Vec<String>,
 }
 
@@ -88,15 +116,18 @@ impl ThoughtStep {
         Self {
             text,
             cache_width: 0,
+            cache_rev: 0,
+            content_rev: 0,
             lines: Vec::new(),
         }
     }
 
     fn ensure_cache(&mut self, width: u16) {
-        if self.cache_width == width {
+        if self.cache_width == width && self.cache_rev == self.content_rev {
             return;
         }
         self.cache_width = width;
+        self.cache_rev = self.content_rev;
         let inner = width.saturating_sub(2) as usize;
         let wrapped = wrap(&self.text, inner.max(1));
         let mut lines = Vec::new();
@@ -117,15 +148,23 @@ impl ConvNode for ThoughtStep {
         self.lines.len() as u16
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: bool,
+        start: u16,
+        max_height: u16,
+    ) {
         self.ensure_cache(area.width);
         let style = if selected {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default()
         };
-        let lines: Vec<Line> = self
-            .lines
+        let start = start as usize;
+        let end = (start + max_height as usize).min(self.lines.len());
+        let lines: Vec<Line> = self.lines[start..end]
             .iter()
             .map(|l| Line::from(Span::styled(l.clone(), style)))
             .collect();
@@ -140,6 +179,8 @@ struct ToolStep {
     result: String,
     collapsed: bool,
     cache_width: u16,
+    cache_rev: u64,
+    content_rev: u64,
     lines: Vec<String>,
 }
 
@@ -151,15 +192,18 @@ impl ToolStep {
             result,
             collapsed,
             cache_width: 0,
+            cache_rev: 0,
+            content_rev: 0,
             lines: Vec::new(),
         }
     }
 
     fn ensure_cache(&mut self, width: u16) {
-        if self.cache_width == width {
+        if self.cache_width == width && self.cache_rev == self.content_rev {
             return;
         }
         self.cache_width = width;
+        self.cache_rev = self.content_rev;
         let mut lines = Vec::new();
         let arrow = if self.collapsed { "›" } else { "⌄" };
         lines.push(format!("· _{}_ {}", self.name, arrow));
@@ -191,15 +235,23 @@ impl ConvNode for ToolStep {
         self.lines.len() as u16
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: bool,
+        start: u16,
+        max_height: u16,
+    ) {
         self.ensure_cache(area.width);
         let style = if selected {
             Style::default().fg(Color::Yellow)
         } else {
             Style::default()
         };
-        let lines: Vec<Line> = self
-            .lines
+        let start = start as usize;
+        let end = (start + max_height as usize).min(self.lines.len());
+        let lines: Vec<Line> = self.lines[start..end]
             .iter()
             .map(|l| Line::from(Span::styled(l.clone(), style)))
             .collect();
@@ -209,7 +261,7 @@ impl ConvNode for ToolStep {
 
     fn activate(&mut self) {
         self.collapsed = !self.collapsed;
-        self.cache_width = 0;
+        self.content_rev += 1;
     }
 }
 
@@ -218,6 +270,8 @@ struct AssistantBlock {
     steps: Vec<Box<dyn ConvNode>>,
     response: String,
     cache_width: u16,
+    cache_rev: u64,
+    content_rev: u64,
     response_lines: Vec<String>,
     selected: usize,
 }
@@ -229,16 +283,19 @@ impl AssistantBlock {
             steps,
             response,
             cache_width: 0,
+            cache_rev: 0,
+            content_rev: 0,
             response_lines: Vec::new(),
             selected: 0,
         }
     }
 
     fn ensure_cache(&mut self, width: u16) {
-        if self.cache_width == width {
+        if self.cache_width == width && self.cache_rev == self.content_rev {
             return;
         }
         self.cache_width = width;
+        self.cache_rev = self.content_rev;
         let wrapped = wrap(&self.response, width as usize);
         self.response_lines = wrapped.into_iter().map(|l| l.into_owned()).collect();
         self.response_lines.push(String::new());
@@ -268,10 +325,16 @@ impl ConvNode for AssistantBlock {
         h
     }
 
-    fn render(&mut self, frame: &mut Frame, area: Rect, selected: bool) {
+    fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        selected: bool,
+        start: u16,
+        max_height: u16,
+    ) {
         self.ensure_cache(area.width);
         let arrow = if self.working_collapsed { "›" } else { "⌄" };
-        let mut y = area.y;
         let sel_style = |is_sel| {
             if selected && is_sel {
                 Style::default().fg(Color::Yellow)
@@ -279,42 +342,96 @@ impl ConvNode for AssistantBlock {
                 Style::default()
             }
         };
+
+        let mut y = area.y;
+        let mut remaining = max_height;
+        let mut line_idx = 0u16;
+
         // working header
-        let header = Paragraph::new(Line::from(Span::styled(
-            format!("Working {arrow}"),
-            sel_style(self.selected == 0),
-        )));
-        frame.render_widget(header, Rect { height: 1, ..area });
-        y += 1;
+        if start == 0 && remaining > 0 {
+            let header = Paragraph::new(Line::from(Span::styled(
+                format!("Working {arrow}"),
+                sel_style(self.selected == 0),
+            )));
+            frame.render_widget(header, Rect { height: 1, ..area });
+            y += 1;
+            remaining -= 1;
+        }
+        line_idx += 1;
+        if remaining == 0 {
+            return;
+        }
+
         // steps
         if !self.working_collapsed {
             for (i, step) in self.steps.iter_mut().enumerate() {
                 let h = step.height(area.width);
+                if line_idx + h <= start {
+                    line_idx += h;
+                    continue;
+                }
+                let offset = if start > line_idx {
+                    start - line_idx
+                } else {
+                    0
+                };
+                let avail = remaining.min(h - offset);
                 let rect = Rect {
                     x: area.x,
                     y,
                     width: area.width,
-                    height: h,
+                    height: avail,
                 };
-                step.render(frame, rect, selected && self.selected == i + 1);
-                y += h;
+                step.render(
+                    frame,
+                    rect,
+                    selected && self.selected == i + 1,
+                    offset,
+                    avail,
+                );
+                y += avail;
+                remaining -= avail;
+                line_idx += h;
+                if remaining == 0 {
+                    return;
+                }
             }
+        } else {
+            line_idx += self
+                .steps
+                .iter_mut()
+                .map(|s| s.height(area.width))
+                .sum::<u16>();
         }
+
         // response
-        let resp_rect = Rect {
-            x: area.x,
-            y,
-            width: area.width,
-            height: self.response_lines.len() as u16,
-        };
-        let style = sel_style(self.selected == self.total_items() - 1);
-        let lines: Vec<Line> = self
-            .response_lines
-            .iter()
-            .map(|l| Line::from(Span::styled(l.clone(), style)))
-            .collect();
-        let para = Paragraph::new(lines);
-        frame.render_widget(para, resp_rect);
+        if remaining > 0 {
+            let resp_total = self.response_lines.len() as u16;
+            if line_idx + resp_total <= start {
+                return;
+            }
+            let offset = if start > line_idx {
+                start - line_idx
+            } else {
+                0
+            };
+            let visible = remaining.min(resp_total - offset);
+            let style = sel_style(self.selected == self.total_items() - 1);
+            let start_idx = offset as usize;
+            let end_idx = (start_idx + visible as usize).min(self.response_lines.len());
+            let lines: Vec<Line> = self.response_lines[start_idx..end_idx]
+                .iter()
+                .map(|l| Line::from(Span::styled(l.clone(), style)))
+                .collect();
+            let rect = Rect {
+                x: area.x,
+                y,
+                width: area.width,
+                height: visible,
+            };
+            let para = Paragraph::new(lines);
+            frame.render_widget(para, rect);
+        }
     }
 
     fn activate(&mut self) {
@@ -326,7 +443,7 @@ impl ConvNode for AssistantBlock {
                 self.steps[idx].activate();
             }
         }
-        self.cache_width = 0;
+        self.content_rev += 1;
     }
 
     fn on_key(&mut self, key: Key) -> bool {
@@ -478,14 +595,17 @@ impl MockComponent for Conversation {
             if start >= self.scroll + self.viewport {
                 break;
             }
+            let offset = self.scroll.saturating_sub(start);
             let y = inner.y + start.saturating_sub(self.scroll);
+            let remaining = self.viewport.saturating_sub(y - inner.y);
+            let max_height = remaining.min(h - offset);
             let rect = Rect {
                 x: inner.x,
                 y,
                 width: inner.width,
-                height: h.min(self.viewport),
+                height: max_height,
             };
-            item.render(frame, rect, idx == self.selected);
+            item.render(frame, rect, idx == self.selected, offset, max_height);
         }
     }
 
