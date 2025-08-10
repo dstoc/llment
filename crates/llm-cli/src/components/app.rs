@@ -43,14 +43,17 @@ impl MockComponent for App {
 #[derive(PartialEq)]
 pub enum AppMsg {
     Send(String),
+    Quit,
     None,
 }
 
 impl Component<AppMsg, ChatEvent> for App {
     fn on(&mut self, ev: Event<ChatEvent>) -> Option<AppMsg> {
         if let Some(msg) = self.chat.on(ev) {
-            if let ChatMsg::InputSubmitted(s) = msg {
-                return Some(AppMsg::Send(s));
+            match msg {
+                ChatMsg::InputSubmitted(s) => return Some(AppMsg::Send(s)),
+                ChatMsg::Exit => return Some(AppMsg::Quit),
+                ChatMsg::None => {}
             }
         }
         None

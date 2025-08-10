@@ -20,3 +20,11 @@ Parallel reimplementation of the LLM terminal UI using tui-realm components.
 - thinking blocks collapse/expand logic lives in history item component
 - event producers forward into a single channel using custom `ChatEvent` carrying LLM `ResponseChunk`s
 - chat history appends streamed assistant/thinking content; pressing `t` toggles the last thinking block
+- `Ctrl-D` exits the application
+
+## Remaining features to port from `ollama-tui-test`
+- Scrollable, wrapped chat history with scrollbar and mouse support
+- Markdown rendering for assistant messages
+- Multi-line input with `tui-input` including paste, clear, and newline shortcuts
+- MCP tool integration and follow-up requests after tool calls
+- CLI options for selecting LLM providers and hosts

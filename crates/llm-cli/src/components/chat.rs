@@ -53,6 +53,7 @@ impl MockComponent for Chat {
 #[derive(PartialEq)]
 pub enum ChatMsg {
     InputSubmitted(String),
+    Exit,
     None,
 }
 
@@ -74,9 +75,13 @@ impl Component<ChatMsg, ChatEvent> for Chat {
         }
 
         if let Some(msg) = self.input.on(ev.clone()) {
-            if let InputMsg::Submit(s) = msg {
-                self.history.push(HistoryKind::User(s.clone()));
-                return Some(ChatMsg::InputSubmitted(s));
+            match msg {
+                InputMsg::Submit(s) => {
+                    self.history.push(HistoryKind::User(s.clone()));
+                    return Some(ChatMsg::InputSubmitted(s));
+                }
+                InputMsg::Exit => return Some(ChatMsg::Exit),
+                InputMsg::None => {}
             }
         }
         self.history.on(ev);

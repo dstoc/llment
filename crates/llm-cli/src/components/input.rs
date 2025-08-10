@@ -1,4 +1,4 @@
-use tuirealm::event::{Key, KeyEvent};
+use tuirealm::event::{Key, KeyEvent, KeyModifiers};
 use tuirealm::{
     Component, Frame, MockComponent, State,
     command::{Cmd, CmdResult},
@@ -47,20 +47,27 @@ impl MockComponent for InputComponent {
 #[derive(PartialEq)]
 pub enum InputMsg {
     Submit(String),
+    Exit,
     None,
 }
 
 impl Component<InputMsg, ChatEvent> for InputComponent {
     fn on(&mut self, ev: Event<ChatEvent>) -> Option<InputMsg> {
-        if let Event::Keyboard(KeyEvent { code, .. }) = ev {
-            match code {
-                Key::Enter => {
+        if let Event::Keyboard(KeyEvent {
+            code, modifiers, ..
+        }) = ev
+        {
+            match (code, modifiers) {
+                (Key::Enter, _) => {
                     let val = self.value.clone();
                     self.value.clear();
                     return Some(InputMsg::Submit(val));
                 }
-                Key::Char(c) => self.value.push(c),
-                Key::Backspace => {
+                (Key::Char('d'), KeyModifiers::CONTROL) => {
+                    return Some(InputMsg::Exit);
+                }
+                (Key::Char(c), _) => self.value.push(c),
+                (Key::Backspace, _) => {
                     self.value.pop();
                 }
                 _ => {}
