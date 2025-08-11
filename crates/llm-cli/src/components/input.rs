@@ -35,16 +35,42 @@ impl Prompt {
         ta
     }
 
+    fn wrap_with_trailing(line: &str, width: usize) -> Vec<String> {
+        let mut wrapped: Vec<String> = wrap(line, width)
+            .into_iter()
+            .map(|c| c.into_owned())
+            .collect();
+        if wrapped.is_empty() {
+            wrapped.push(String::new());
+        }
+        let trailing = line.chars().rev().take_while(|c| *c == ' ').count();
+        if trailing > 0 {
+            let mut remaining = trailing;
+            loop {
+                let last_idx = wrapped.len() - 1;
+                let current_width = UnicodeWidthStr::width(wrapped[last_idx].as_str());
+                if current_width >= width {
+                    wrapped.push(String::new());
+                    continue;
+                }
+                let avail = width - current_width;
+                let take = remaining.min(avail);
+                wrapped[last_idx].push_str(&" ".repeat(take));
+                remaining -= take;
+                if remaining == 0 {
+                    break;
+                }
+                wrapped.push(String::new());
+            }
+        }
+        wrapped
+    }
+
     fn wrapped_lines(&self, width: usize) -> Vec<String> {
         let mut display = Vec::new();
         for line in self.textarea.lines() {
-            let wrapped = wrap(line, width);
-            if wrapped.is_empty() {
-                display.push(String::new());
-            }
-            for part in wrapped {
-                display.push(part.into_owned());
-            }
+            let wrapped = Self::wrap_with_trailing(line, width);
+            display.extend(wrapped);
         }
         display
     }
@@ -56,17 +82,16 @@ impl Prompt {
         let mut cursor_y = 0usize;
 
         for (idx, line) in self.textarea.lines().iter().enumerate() {
-            let wrapped = wrap(line, width);
+            let wrapped = Self::wrap_with_trailing(line, width);
             if idx < row {
                 cursor_y += wrapped.len();
                 continue;
             }
             let mut remaining = col;
             for (widx, part) in wrapped.iter().enumerate() {
-                let part_str = part.to_string();
-                let chars = part_str.chars().count();
+                let chars = part.chars().count();
                 if remaining <= chars {
-                    let prefix: String = part_str.chars().take(remaining).collect();
+                    let prefix: String = part.chars().take(remaining).collect();
                     cursor_x = UnicodeWidthStr::width(prefix.as_str());
                     cursor_y += widx;
                     return (
