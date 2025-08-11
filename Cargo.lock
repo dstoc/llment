@@ -1443,10 +1443,14 @@ name = "llm-cli"
 version = "0.1.0"
 dependencies = [
  "crossterm 0.29.0",
+ "futures",
  "insta",
+ "llm",
  "ratatui",
  "termimad",
  "textwrap",
+ "tokio",
+ "tokio-stream",
  "tui-textarea",
  "tuirealm",
  "unicode-width 0.2.0",

@@ -10,7 +10,7 @@ use tuirealm::{Component, Event, MockComponent, NoUserEvent};
 
 use crate::Msg;
 
-use super::{AssistantBlock, Node, ThoughtStep, ToolStep, UserBubble, node::ConvNode};
+use super::{Node, node::ConvNode};
 
 pub struct Conversation {
     pub(crate) items: Vec<Node>,
@@ -24,10 +24,10 @@ pub struct Conversation {
     pub(crate) focused: bool,
 }
 
-impl Default for Conversation {
-    fn default() -> Self {
+impl Conversation {
+    pub fn new() -> Self {
         Self {
-            items: sample_items(),
+            items: Vec::new(),
             selected: 0,
             scroll: 0,
             layout: Vec::new(),
@@ -40,59 +40,10 @@ impl Default for Conversation {
     }
 }
 
-fn sample_items() -> Vec<Node> {
-    vec![
-        Node::User(UserBubble::new(
-            "Hello! I'm testing the conversation view. This message should be long enough to wrap and require scrolling.".into(),
-        )),
-        Node::Assistant(AssistantBlock::new(
-            false,
-            vec![
-                Node::Thought(ThoughtStep::new("Analyzing the request".into())),
-                Node::Tool(ToolStep::new(
-                    "search".into(),
-                    "{\"query\":\"scrolling\"}".into(),
-                    "{\"answer\":42}".into(),
-                    true,
-                )),
-            ],
-            r#"# Heading
-
-Here's an example response after some thinking and a tool call.
-
-**Bold text**, *italic text*, and `inline code`.
-
-```rust
-fn add(a: i32, b: i32) -> i32 {
-    a + b
-}
-```"#.into(),
-        )),
-        Node::User(UserBubble::new(
-            "Can you show more details? Another long line is helpful.".into(),
-        )),
-        Node::Assistant(AssistantBlock::new(
-            true,
-            vec![
-                Node::Thought(ThoughtStep::new("Another thought".into())),
-                Node::Tool(ToolStep::new(
-                    "math".into(),
-                    "1+1".into(),
-                    "2".into(),
-                    true,
-                )),
-            ],
-            "Yes, there's more to see.".into(),
-        )),
-        Node::User(UserBubble::new(
-            "This is a final message to ensure scrolling works properly.".into(),
-        )),
-        Node::Assistant(AssistantBlock::new(
-            false,
-            vec![Node::Thought(ThoughtStep::new("Wrapping things up".into()))],
-            "All done!\n\n- Item one\n- Item two".into(),
-        )),
-    ]
+impl Default for Conversation {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Conversation {
