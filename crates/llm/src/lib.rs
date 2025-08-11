@@ -14,6 +14,7 @@ pub use ollama_rs::{
 };
 
 pub mod gemini;
+pub mod mcp;
 pub mod ollama;
 pub mod openai;
 pub mod tools;
