@@ -14,6 +14,8 @@ Trait-based LLM client implementations for multiple providers.
   - connect to OpenAI models
 - gemini-rs
   - connect to Gemini models
+- rmcp
+  - connect to MCP servers
 
 ## Features, Requirements and Constraints
 - LLM clients
@@ -26,5 +28,6 @@ Trait-based LLM client implementations for multiple providers.
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
+  - `McpContext` stores MCP tool mappings and metadata
     - tool call chunks insert assistant messages immediately before execution
     - accumulated streamed content is appended as an assistant message after the stream completes

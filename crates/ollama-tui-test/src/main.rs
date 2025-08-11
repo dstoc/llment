@@ -14,11 +14,10 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use llm::mcp::McpContext;
 use llm::tools::{self, ToolEvent, ToolExecutor};
 use llm::{ChatMessage, ChatMessageRequest, Schema, ToolFunctionInfo, ToolInfo, ToolType};
-use once_cell::sync::Lazy;
 use ratatui::{Terminal, backend::CrosstermBackend};
-use rmcp::service::ServerSink;
 use rmcp::{
     model::{CallToolRequestParam, RawContent},
     service::{RoleClient, RunningService, ServiceExt},
@@ -26,22 +25,13 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::{
-    process::Command,
-    sync::{Mutex, mpsc::unbounded_channel},
-    task::JoinHandle,
-};
+use tokio::{process::Command, sync::mpsc::unbounded_channel, task::JoinHandle};
 use tokio_stream::StreamExt;
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
 mod markdown;
 mod ui;
 use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
-
-static MCP_TOOLS: Lazy<Mutex<HashMap<String, ServerSink>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
-static MCP_TOOL_INFOS: Lazy<Mutex<Vec<ToolInfo>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 #[derive(Deserialize)]
 struct McpConfig {
@@ -60,6 +50,7 @@ struct McpServer {
 
 async fn load_mcp_servers(
     path: &str,
+    ctx: Arc<McpContext>,
 ) -> Result<Vec<RunningService<RoleClient, ()>>, Box<dyn std::error::Error + Send + Sync>> {
     let data = tokio::fs::read_to_string(path).await?;
     let config: McpConfig = serde_json::from_str(&data)?;
@@ -74,8 +65,8 @@ async fn load_mcp_servers(
         let service = ().serve(process).await?;
         let tools = service.list_tools(Default::default()).await?;
         {
-            let mut map = MCP_TOOLS.lock().await;
-            let mut infos = MCP_TOOL_INFOS.lock().await;
+            let mut map = ctx.tools.lock().await;
+            let mut infos = ctx.tool_infos.lock().await;
             for tool in tools.tools {
                 map.insert(tool.name.to_string(), service.peer().clone());
                 let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
@@ -117,7 +108,9 @@ fn ensure_thinking_item(items: &mut Vec<HistoryItem>) -> usize {
     return items.len() - 1;
 }
 
-struct McpToolExecutor;
+struct McpToolExecutor {
+    ctx: Arc<McpContext>,
+}
 
 #[async_trait::async_trait]
 impl ToolExecutor for McpToolExecutor {
@@ -127,7 +120,7 @@ impl ToolExecutor for McpToolExecutor {
         args: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let peer = {
-            let map = MCP_TOOLS.lock().await;
+            let map = self.ctx.tools.lock().await;
             map.get(name).cloned()
         }
         .ok_or_else(|| format!("Tool {name} not found"))?;
@@ -182,9 +175,10 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
+    let mcp_ctx = Arc::new(McpContext::default());
 
     let _services = if let Some(path) = &args.mcp {
-        load_mcp_servers(path).await?
+        load_mcp_servers(path, mcp_ctx.clone()).await?
     } else {
         Vec::new()
     };
@@ -206,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Provider::Gemini => Arc::new(llm::gemini::GeminiClient::new(&args.host)),
     };
 
-    let res = run_app(&mut terminal, client, args.model.clone()).await;
+    let res = run_app(&mut terminal, client, args.model.clone(), mcp_ctx.clone()).await;
 
     disable_raw_mode()?;
     execute!(
@@ -226,8 +220,9 @@ async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     client: Arc<dyn llm::LlmClient>,
     model: String,
+    mcp_ctx: Arc<McpContext>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let tool_infos = { MCP_TOOL_INFOS.lock().await.clone() };
+    let tool_infos = { mcp_ctx.tool_infos.lock().await.clone() };
     let mut items: Vec<HistoryItem> = Vec::new();
     let mut input = Input::default();
     let mut chat_history: Vec<ChatMessage> = Vec::new();
@@ -241,7 +236,9 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut tool_task: Option<
         JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>,
     > = None;
-    let tool_executor = Arc::new(McpToolExecutor);
+    let tool_executor = Arc::new(McpToolExecutor {
+        ctx: mcp_ctx.clone(),
+    });
 
     loop {
         terminal.draw(|f| {

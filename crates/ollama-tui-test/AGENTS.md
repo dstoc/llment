@@ -17,8 +17,6 @@ Terminal chat interface to Ollama with MCP tool integration.
 - serde
   - load MCP server configuration
     - `serde_json` handles JSON parsing
-- once_cell
-  - shared state for loaded tools
 - textwrap
   - wrap chat history
 - termimad
