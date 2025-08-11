@@ -54,63 +54,48 @@ impl AssistantBlock {
     }
 
     fn summary(&mut self) -> String {
-        let mut parts: Vec<String> = Vec::new();
-        if let (Some(start), Some(end)) = (self.started, self.last_update) {
-            let secs = end.duration_since(start).as_secs();
-            if secs > 0 {
-                parts.push(format!("Thought for {secs}s"));
+        if self.response.is_empty() {
+            let mut parts = vec!["Thinking".to_string()];
+            let used = self
+                .steps
+                .iter()
+                .filter(|s| matches!(s, Node::Tool(t) if t.done))
+                .count();
+            if used > 0 {
+                parts.push(format!(
+                    "used {used} tool{}",
+                    if used == 1 { "" } else { "s" }
+                ));
             }
-        }
-        let used = self
-            .steps
-            .iter()
-            .filter(|s| matches!(s, Node::Tool(t) if t.done))
-            .count();
-        if used > 0 {
-            let text = if parts.is_empty() {
-                format!("Used {used} tool{}", if used == 1 { "" } else { "s" })
-            } else {
-                format!("used {used} tool{}", if used == 1 { "" } else { "s" })
-            };
-            parts.push(text);
-        }
-        let mut active = false;
-        if let Some(last) = self.steps.last() {
-            match last {
-                Node::Tool(t) if !t.done => {
-                    let text = if parts.is_empty() {
-                        format!("Using {}", t.name)
-                    } else {
-                        format!("using {}", t.name)
-                    };
-                    parts.push(text);
-                    active = true;
-                }
-                Node::Thought(_) if self.response.is_empty() => {
-                    let text = if parts.is_empty() {
-                        "Thinking".to_string()
-                    } else {
-                        "thinking".to_string()
-                    };
-                    parts.push(text);
-                    active = true;
-                }
-                _ => {}
+            if let Some(t) = self.steps.last().and_then(|s| match s {
+                Node::Tool(t) if !t.done => Some(t),
+                _ => None,
+            }) {
+                parts.push(format!("using {}", t.name));
             }
-        } else if self.response.is_empty() {
-            parts.push("Thinking".to_string());
-            active = true;
-        }
-        if parts.is_empty() {
-            parts.push("Thinking".to_string());
-            active = true;
-        }
-        let mut summary = parts.join(", ");
-        if active {
+            let mut summary = parts.join(", ");
             summary.push(' ');
             summary.push(self.spinner.step());
+            summary
+        } else {
+            let mut parts = Vec::new();
+            if let (Some(start), Some(end)) = (self.started, self.last_update) {
+                let secs = end.duration_since(start).as_secs();
+                parts.push(format!("Thought for {secs}s"));
+            }
+            let used = self
+                .steps
+                .iter()
+                .filter(|s| matches!(s, Node::Tool(t) if t.done))
+                .count();
+            if used > 0 {
+                parts.push(format!(
+                    "used {used} tool{}",
+                    if used == 1 { "" } else { "s" }
+                ));
+            }
+            parts.join(", ")
         }
-        summary
     }
 
     fn ensure_cache(&mut self, width: u16) {
