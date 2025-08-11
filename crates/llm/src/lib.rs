@@ -20,7 +20,7 @@ pub mod tools;
 
 #[derive(Debug)]
 pub struct ResponseMessage {
-    pub content: String,
+    pub content: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     pub thinking: Option<String>,
 }

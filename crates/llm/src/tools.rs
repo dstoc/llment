@@ -38,17 +38,21 @@ pub async fn run_tool_loop(
         let mut stream = client.send_chat_messages_stream(request.clone()).await?;
         let mut handles: JoinSet<(usize, String, Result<String, Box<dyn Error + Send + Sync>>)> =
             JoinSet::new();
-        let mut assistant_content = String::new();
+        let mut assistant_content: Option<String> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            assistant_content.push_str(&chunk.message.content);
+            if let Some(ref c) = chunk.message.content {
+                assistant_content
+                    .get_or_insert_with(String::new)
+                    .push_str(c);
+            }
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
                 let mut msg = ChatMessage::assistant(String::new());
                 msg.tool_calls = tool_calls.clone();
                 chat_history.push(msg);
-                assistant_content.clear();
+                assistant_content = None;
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
@@ -72,8 +76,10 @@ pub async fn run_tool_loop(
                 break;
             }
         }
-        if !assistant_content.is_empty() {
-            chat_history.push(ChatMessage::assistant(assistant_content));
+        if let Some(content) = assistant_content {
+            if !content.is_empty() {
+                chat_history.push(ChatMessage::assistant(content));
+            }
         }
         if handles.is_empty() {
             break;
@@ -120,7 +126,7 @@ mod tests {
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
                 1 => vec![Ok(ResponseChunk {
                     message: crate::ResponseMessage {
-                        content: String::new(),
+                        content: None,
                         thinking: None,
                         tool_calls: vec![crate::ToolCall {
                             function: crate::ToolCallFunction {
@@ -133,7 +139,7 @@ mod tests {
                 })],
                 2 => vec![Ok(ResponseChunk {
                     message: crate::ResponseMessage {
-                        content: "final".into(),
+                        content: Some("final".into()),
                         thinking: None,
                         tool_calls: vec![],
                     },
@@ -186,7 +192,9 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 ToolEvent::ToolResult { .. } => saw_tool = true,
-                ToolEvent::Chunk(c) if c.message.content == "final" => saw_final = true,
+                ToolEvent::Chunk(c) if c.message.content.as_deref() == Some("final") => {
+                    saw_final = true
+                }
                 _ => {}
             }
         }

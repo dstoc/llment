@@ -94,11 +94,11 @@ impl LlmClient for OpenAiClient {
         let stream = self.inner.chat().create_stream(req).await?;
         let mapped = stream.map(|res| {
             res.map(|chunk| {
-                let mut content = String::new();
+                let mut content_acc = String::new();
                 let mut tool_calls = Vec::new();
                 for choice in &chunk.choices {
                     if let Some(c) = choice.delta.content.as_deref() {
-                        content.push_str(c);
+                        content_acc.push_str(c);
                     }
                     if let Some(calls) = &choice.delta.tool_calls {
                         for tc in calls {
@@ -118,6 +118,11 @@ impl LlmClient for OpenAiClient {
                         }
                     }
                 }
+                let content = if content_acc.is_empty() {
+                    None
+                } else {
+                    Some(content_acc)
+                };
                 let done = chunk.choices.iter().any(|c| c.finish_reason.is_some());
                 ResponseChunk {
                     message: ResponseMessage {
