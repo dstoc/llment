@@ -1,3 +1,4 @@
+use ratatui::layout::{Constraint, Direction, Layout};
 use tui_textarea::{Input as TaInput, Key as TaKey, TextArea};
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::event::{Key, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -5,11 +6,9 @@ use tuirealm::props::{AttrValue, Attribute};
 use tuirealm::ratatui::{
     layout::Rect,
     style::{Color, Style},
-    text::Text,
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
 };
 use tuirealm::{Component, Event, Frame, MockComponent, NoUserEvent, State, StateValue};
-use unicode_width::UnicodeWidthStr;
 
 use crate::Msg;
 
@@ -23,28 +22,9 @@ pub struct Prompt {
 impl Prompt {
     fn new_textarea() -> TextArea<'static> {
         let mut ta = TextArea::default();
-        ta.set_block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(Color::LightBlue))
-                .title("Input"),
-        );
         ta.set_style(Style::default().fg(Color::LightBlue));
+        ta.set_cursor_line_style(Style::default());
         ta
-    }
-
-    fn cursor_position(&self, inner: Rect) -> (u16, u16, u16) {
-        let (row, col) = self.textarea.cursor();
-        let line = self
-            .textarea
-            .lines()
-            .get(row)
-            .map(String::as_str)
-            .unwrap_or("");
-        let prefix: String = line.chars().take(col).collect();
-        let cursor_x = UnicodeWidthStr::width(prefix.as_str());
-        (inner.x + cursor_x as u16, inner.y + row as u16, row as u16)
     }
 
     fn set_block(&mut self) {
@@ -136,34 +116,20 @@ impl Component<Msg, NoUserEvent> for Prompt {
 
 impl MockComponent for Prompt {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-        self.area = area;
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::LightBlue))
-            .title("Input");
-        let inner = block.inner(area);
-        let text = self.textarea.lines().join("\n");
-        let mut paragraph = Paragraph::new(Text::raw(text))
-            .block(block)
-            .style(Style::default().fg(Color::LightBlue));
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(2), Constraint::Min(0)].as_ref())
+            .split(area);
 
-        // scroll to keep cursor visible
-        let (_, _, cursor_y) = self.cursor_position(inner);
-        let scroll_y = cursor_y.saturating_sub(inner.height.saturating_sub(1));
-        paragraph = paragraph.scroll((scroll_y, 0));
-        frame.render_widget(paragraph, area);
-        if self.focused {
-            let (cx, cy, _) = self.cursor_position(inner);
-            frame.set_cursor_position(tuirealm::ratatui::prelude::Position { x: cx, y: cy });
-        }
+        frame.render_widget(Paragraph::new("> "), chunks[0]);
+        frame.render_widget(&self.textarea, chunks[1]);
     }
 
     fn query(&self, attr: Attribute) -> Option<AttrValue> {
         match attr {
             Attribute::Height => {
                 let lines = self.textarea.lines().len().max(1);
-                Some(AttrValue::Length(lines + 2))
+                Some(AttrValue::Length(lines))
             }
             _ => None,
         }

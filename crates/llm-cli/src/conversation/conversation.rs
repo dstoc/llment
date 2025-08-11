@@ -64,19 +64,9 @@ impl Conversation {
 
 impl MockComponent for Conversation {
     fn view(&mut self, frame: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::LightBlue))
-            .title(Span::styled(
-                "Conversation",
-                Style::default().fg(Color::LightBlue),
-            ));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        self.viewport = inner.height;
-        self.area = inner;
-        self.ensure_layout(inner.width);
+        self.viewport = area.height;
+        self.area = area;
+        self.ensure_layout(area.width);
 
         for (idx, item) in self.items.iter_mut().enumerate() {
             let (start, h) = self.layout[idx];
@@ -87,13 +77,13 @@ impl MockComponent for Conversation {
                 break;
             }
             let offset = self.scroll.saturating_sub(start);
-            let y = inner.y + start.saturating_sub(self.scroll);
-            let remaining = self.viewport.saturating_sub(y - inner.y);
+            let y = area.y + start.saturating_sub(self.scroll);
+            let remaining = self.viewport.saturating_sub(y - area.y);
             let max_height = remaining.min(h - offset);
             let rect = Rect {
-                x: inner.x,
+                x: area.x,
                 y,
-                width: inner.width,
+                width: area.width,
                 height: max_height,
             };
             item.render(frame, rect, false, offset, max_height);
