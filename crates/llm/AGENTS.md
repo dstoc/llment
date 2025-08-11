@@ -33,6 +33,9 @@ Trait-based LLM client implementations for multiple providers.
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
-  - `McpContext` stores MCP tool mappings and metadata
-    - tool call chunks insert assistant messages immediately before execution
-    - accumulated streamed content is appended as an assistant message after the stream completes
+  - `mcp` module
+    - `load_mcp_servers` starts configured MCP servers and collects tool schemas
+    - `McpToolExecutor` implements `ToolExecutor` for MCP calls
+    - `McpContext` stores MCP tool mappings and metadata
+      - tool call chunks insert assistant messages immediately before execution
+      - accumulated streamed content is appended as an assistant message after the stream completes
