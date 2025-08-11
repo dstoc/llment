@@ -44,13 +44,13 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
       - trailing spaces do not move the cursor to the next line
     - Esc exits the application
     - conversation pane has no keyboard interaction
-  - conversation items
-    - initialized with empty history
-    - user messages render inside a boxed region
-    - assistant messages show working steps and final response
-      - working and tool sections toggle with mouse click
-      - final responses render markdown via termimad
-      - streaming updates append thinking text, tool calls, and tool results
+    - conversation items
+      - initialized with empty history
+      - user messages render inside a right-aligned rounded block
+      - assistant messages show working steps and final response
+        - working and tool sections toggle with mouse click
+        - final responses render markdown via termimad
+        - streaming updates append thinking text, tool calls, and tool results
     - items stored as a strongly typed `Node` enum implementing `ConvNode`
       - helper methods append items and steps, bumping `content_rev` for caching
     - partial items are clipped when scrolled
