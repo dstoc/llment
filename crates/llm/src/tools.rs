@@ -5,7 +5,7 @@ use serde_json::Value;
 use tokio::{sync::mpsc::UnboundedSender, task::JoinSet};
 use tokio_stream::StreamExt;
 
-use crate::{ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk, ToolCall};
+use crate::{ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk};
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -39,13 +39,17 @@ pub async fn run_tool_loop(
         let mut handles: JoinSet<(usize, String, Result<String, Box<dyn Error + Send + Sync>>)> =
             JoinSet::new();
         let mut assistant_content = String::new();
-        let mut assistant_tool_calls: Vec<ToolCall> = Vec::new();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             assistant_content.push_str(&chunk.message.content);
             let done = chunk.done;
-            assistant_tool_calls.extend(chunk.message.tool_calls.clone());
             let tool_calls = chunk.message.tool_calls.clone();
+            if !tool_calls.is_empty() {
+                let mut msg = ChatMessage::assistant(assistant_content.clone());
+                msg.tool_calls = tool_calls.clone();
+                chat_history.push(msg);
+                assistant_content.clear();
+            }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
                 let id = next_id;
@@ -68,10 +72,8 @@ pub async fn run_tool_loop(
                 break;
             }
         }
-        if !assistant_content.is_empty() || !assistant_tool_calls.is_empty() {
-            let mut msg = ChatMessage::assistant(assistant_content);
-            msg.tool_calls = assistant_tool_calls;
-            chat_history.push(msg);
+        if !assistant_content.is_empty() {
+            chat_history.push(ChatMessage::assistant(assistant_content));
         }
         if handles.is_empty() {
             break;
