@@ -38,8 +38,10 @@ pub async fn run_tool_loop(
         let mut stream = client.send_chat_messages_stream(request.clone()).await?;
         let mut handles: JoinSet<(usize, String, Result<String, Box<dyn Error + Send + Sync>>)> =
             JoinSet::new();
+        let mut assistant_content = String::new();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
+            assistant_content.push_str(&chunk.message.content);
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             tx.send(ToolEvent::Chunk(chunk)).ok();
@@ -63,6 +65,9 @@ pub async fn run_tool_loop(
             if done {
                 break;
             }
+        }
+        if !assistant_content.is_empty() {
+            chat_history.push(ChatMessage::assistant(assistant_content));
         }
         if handles.is_empty() {
             break;
@@ -158,8 +163,9 @@ mod tests {
         let updated = run_tool_loop(client, request, exec, history, tx)
             .await
             .unwrap();
-        // ensure tool result added to history
-        assert_eq!(updated.len(), 2);
+        // ensure tool result and assistant response added to history
+        assert_eq!(updated.len(), 3);
+        assert_eq!(updated.last().unwrap().content, "final");
         // collect events
         let mut saw_final = false;
         let mut saw_tool = false;
