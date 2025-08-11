@@ -48,7 +48,6 @@ struct Args {
 #[derive(Debug, PartialEq)]
 pub enum Msg {
     AppClose,
-    FocusConversation,
     FocusInput,
     Submit(String),
     None,
@@ -212,10 +211,6 @@ impl Update<Msg> for Model {
         match msg.unwrap_or(Msg::None) {
             Msg::AppClose => {
                 self.quit = true;
-                None
-            }
-            Msg::FocusConversation => {
-                let _ = self.app.active(&Id::Conversation);
                 None
             }
             Msg::FocusInput => {

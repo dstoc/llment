@@ -1,4 +1,3 @@
-use textwrap::wrap;
 use tui_textarea::{Input as TaInput, Key as TaKey, TextArea};
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::event::{Key, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -7,7 +6,7 @@ use tuirealm::ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::Text,
-    widgets::{Block, BorderType, Borders, Paragraph, Wrap as RtWrap},
+    widgets::{Block, BorderType, Borders, Paragraph},
 };
 use tuirealm::{Component, Event, Frame, MockComponent, NoUserEvent, State, StateValue};
 use unicode_width::UnicodeWidthStr;
@@ -35,81 +34,17 @@ impl Prompt {
         ta
     }
 
-    fn wrap_with_trailing(line: &str, width: usize) -> Vec<String> {
-        let mut wrapped: Vec<String> = wrap(line, width)
-            .into_iter()
-            .map(|c| c.into_owned())
-            .collect();
-        if wrapped.is_empty() {
-            wrapped.push(String::new());
-        }
-        let trailing = line.chars().rev().take_while(|c| *c == ' ').count();
-        if trailing > 0 {
-            let mut remaining = trailing;
-            loop {
-                let last_idx = wrapped.len() - 1;
-                let current_width = UnicodeWidthStr::width(wrapped[last_idx].as_str());
-                if current_width >= width {
-                    wrapped.push(String::new());
-                    continue;
-                }
-                let avail = width - current_width;
-                let take = remaining.min(avail);
-                wrapped[last_idx].push_str(&" ".repeat(take));
-                remaining -= take;
-                if remaining == 0 {
-                    break;
-                }
-                wrapped.push(String::new());
-            }
-        }
-        wrapped
-    }
-
-    fn wrapped_lines(&self, width: usize) -> Vec<String> {
-        let mut display = Vec::new();
-        for line in self.textarea.lines() {
-            let wrapped = Self::wrap_with_trailing(line, width);
-            display.extend(wrapped);
-        }
-        display
-    }
-
     fn cursor_position(&self, inner: Rect) -> (u16, u16, u16) {
         let (row, col) = self.textarea.cursor();
-        let width = inner.width as usize;
-        let mut cursor_x = 0usize;
-        let mut cursor_y = 0usize;
-
-        for (idx, line) in self.textarea.lines().iter().enumerate() {
-            let wrapped = Self::wrap_with_trailing(line, width);
-            if idx < row {
-                cursor_y += wrapped.len();
-                continue;
-            }
-            let mut remaining = col;
-            for (widx, part) in wrapped.iter().enumerate() {
-                let chars = part.chars().count();
-                if remaining <= chars {
-                    let prefix: String = part.chars().take(remaining).collect();
-                    cursor_x = UnicodeWidthStr::width(prefix.as_str());
-                    cursor_y += widx;
-                    return (
-                        inner.x + cursor_x as u16,
-                        inner.y + cursor_y as u16,
-                        cursor_y as u16,
-                    );
-                }
-                remaining -= chars;
-                cursor_y += 1;
-            }
-            break;
-        }
-        (
-            inner.x + cursor_x as u16,
-            inner.y + cursor_y as u16,
-            cursor_y as u16,
-        )
+        let line = self
+            .textarea
+            .lines()
+            .get(row)
+            .map(String::as_str)
+            .unwrap_or("");
+        let prefix: String = line.chars().take(col).collect();
+        let cursor_x = UnicodeWidthStr::width(prefix.as_str());
+        (inner.x + cursor_x as u16, inner.y + row as u16, row as u16)
     }
 
     fn set_block(&mut self) {
@@ -170,7 +105,6 @@ impl Component<Msg, NoUserEvent> for Prompt {
                     }
                     return Some(Msg::Submit(trimmed));
                 }
-                (Key::Tab, _) => return Some(Msg::FocusConversation),
                 (Key::Esc, _) => return Some(Msg::AppClose),
                 _ => {
                     let input = to_input(key);
@@ -209,13 +143,10 @@ impl MockComponent for Prompt {
             .border_style(Style::default().fg(Color::LightBlue))
             .title("Input");
         let inner = block.inner(area);
-        let width = inner.width as usize;
-        let display = self.wrapped_lines(width);
-        let text = display.join("\n");
+        let text = self.textarea.lines().join("\n");
         let mut paragraph = Paragraph::new(Text::raw(text))
             .block(block)
-            .style(Style::default().fg(Color::LightBlue))
-            .wrap(RtWrap { trim: false });
+            .style(Style::default().fg(Color::LightBlue));
 
         // scroll to keep cursor visible
         let (_, _, cursor_y) = self.cursor_position(inner);
@@ -231,13 +162,8 @@ impl MockComponent for Prompt {
     fn query(&self, attr: Attribute) -> Option<AttrValue> {
         match attr {
             Attribute::Height => {
-                let inner_width = self.area.width.saturating_sub(2) as usize;
-                if inner_width == 0 {
-                    Some(AttrValue::Length(3))
-                } else {
-                    let lines = self.wrapped_lines(inner_width).len().max(1);
-                    Some(AttrValue::Length(lines + 2))
-                }
+                let lines = self.textarea.lines().len().max(1);
+                Some(AttrValue::Length(lines + 2))
             }
             _ => None,
         }
