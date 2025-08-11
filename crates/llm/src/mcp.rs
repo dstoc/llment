@@ -7,14 +7,14 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::{process::Command, sync::Mutex};
+use tokio::process::Command;
 
 use crate::{Schema, ToolFunctionInfo, ToolInfo, ToolType, tools::ToolExecutor};
 
 #[derive(Default)]
 pub struct McpContext {
-    pub tools: Mutex<HashMap<String, ServerSink>>,
-    pub tool_infos: Mutex<Vec<ToolInfo>>,
+    pub tools: HashMap<String, ServerSink>,
+    pub tool_infos: Vec<ToolInfo>,
 }
 
 #[derive(Deserialize)]
@@ -41,7 +41,7 @@ pub async fn load_mcp_servers(
     let data = tokio::fs::read_to_string(path).await?;
     let config: McpConfig = serde_json::from_str(&data)?;
     let mut services = Vec::new();
-    let ctx = McpContext::default();
+    let mut ctx = McpContext::default();
     for server in config.mcp_servers.values() {
         let mut cmd = Command::new(&server.command);
         cmd.args(&server.args);
@@ -52,13 +52,12 @@ pub async fn load_mcp_servers(
         let service = ().serve(process).await?;
         let tools = service.list_tools(Default::default()).await?;
         {
-            let mut map = ctx.tools.lock().await;
-            let mut infos = ctx.tool_infos.lock().await;
             for tool in tools.tools {
-                map.insert(tool.name.to_string(), service.peer().clone());
+                ctx.tools
+                    .insert(tool.name.to_string(), service.peer().clone());
                 let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
                 let description = tool.description.clone().unwrap_or_default().to_string();
-                infos.push(ToolInfo {
+                ctx.tool_infos.push(ToolInfo {
                     tool_type: ToolType::Function,
                     function: ToolFunctionInfo {
                         name: tool.name.to_string(),
@@ -90,11 +89,8 @@ impl ToolExecutor for McpToolExecutor {
         name: &str,
         args: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let peer = {
-            let map = self.ctx.tools.lock().await;
-            map.get(name).cloned()
-        }
-        .ok_or_else(|| format!("Tool {name} not found"))?;
+        let peer = { self.ctx.tools.get(name).cloned() }
+            .ok_or_else(|| format!("Tool {name} not found"))?;
 
         let result = peer
             .call_tool(CallToolRequestParam {

@@ -192,7 +192,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     model: String,
     mcp_ctx: Arc<McpContext>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let tool_infos = { mcp_ctx.tool_infos.lock().await.clone() };
+    let tool_infos = mcp_ctx.tool_infos.clone();
     let mut items: Vec<HistoryItem> = Vec::new();
     let mut input = Input::default();
     let mut chat_history: Vec<ChatMessage> = Vec::new();
