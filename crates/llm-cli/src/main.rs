@@ -10,7 +10,6 @@ use crossterm::execute;
 
 use clap::Parser;
 use futures::FutureExt;
-use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
 use tokio_stream::{Stream, StreamExt};
 use tuirealm::application::PollStrategy;
@@ -109,7 +108,6 @@ struct Model {
     tool_task:
         Option<JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>>,
     pending_tools: HashMap<usize, usize>,
-    runtime: Runtime,
 }
 
 impl Model {
@@ -119,7 +117,6 @@ impl Model {
         tool_executor: Arc<dyn ToolExecutor>,
         mcp_ctx: Arc<McpContext>,
     ) -> Self {
-        let runtime = Runtime::new().expect("runtime");
         let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
             EventListenerCfg::default().crossterm_input_listener(Duration::from_millis(10), 10),
         );
@@ -154,7 +151,6 @@ impl Model {
             tool_stream: None,
             tool_task: None,
             pending_tools: HashMap::new(),
-            runtime,
         }
     }
 
@@ -230,16 +226,13 @@ impl Update<Msg> for Model {
                 self.conversation.borrow_mut().push_user(text.clone());
                 self.chat_history.push(ChatMessage::user(text));
                 self.conversation.borrow_mut().push_assistant_block();
-                let tool_infos = self
-                    .runtime
-                    .block_on(async { self.mcp_ctx.tool_infos.lock().await.clone() });
+                let tool_infos = self.mcp_ctx.tool_infos.clone();
                 let request =
                     ChatMessageRequest::new(self.model_name.clone(), self.chat_history.clone())
                         .tools(tool_infos)
                         .think(true);
                 let history = std::mem::take(&mut self.chat_history);
                 let (stream, handle) = {
-                    let _guard = self.runtime.enter();
                     tools::tool_event_stream(
                         self.client.clone(),
                         request,
@@ -275,6 +268,7 @@ async fn main() {
     let _ = execute!(stdout(), EnableMouseCapture);
 
     while !model.quit {
+        tokio::task::yield_now().await;
         if let Ok(messages) = model.app.tick(PollStrategy::Once) {
             for msg in messages {
                 let mut current = Some(msg);
@@ -284,16 +278,14 @@ async fn main() {
             }
         }
         if let Some(stream) = &mut model.tool_stream {
-            if let Some(ev) = model
-                .runtime
-                .block_on(async { stream.next().now_or_never() })
-                .flatten()
-            {
-                model.handle_tool_event(ev);
+            if let Some(maybe) = stream.next().now_or_never() {
+                match maybe {
+                    Some(event) => model.handle_tool_event(event),
+                    None => model.tool_stream = None,
+                }
             }
-        }
-        if let Some(handle) = &mut model.tool_task {
-            if let Some(res) = model.runtime.block_on(async { handle.now_or_never() }) {
+        } else if let Some(handle) = &mut model.tool_task {
+            if let Some(res) = handle.now_or_never() {
                 match res {
                     Ok(Ok(history)) => model.chat_history = history,
                     Ok(Err(err)) => model
@@ -304,11 +296,6 @@ async fn main() {
                         .conversation
                         .borrow_mut()
                         .append_response(&format!("Error: {}", err)),
-                }
-                if let Some(mut stream) = model.tool_stream.take() {
-                    while let Some(ev) = model.runtime.block_on(stream.next()) {
-                        model.handle_tool_event(ev);
-                    }
                 }
                 model.tool_task = None;
                 model.redraw = true;
