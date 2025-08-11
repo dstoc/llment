@@ -24,6 +24,11 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - utility traits for non-blocking polling
 
 ## Features, Requirements and Constraints
+- CLI arguments
+  - `--provider` selects LLM backend
+  - `--model` sets the model identifier
+  - `--host` configures the LLM host URL
+  - `--mcp` loads MCP server configuration
 - layout
   - scrollable conversation pane
     - mouse wheel adjusts scroll
