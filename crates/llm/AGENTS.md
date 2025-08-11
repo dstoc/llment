@@ -27,3 +27,4 @@ Trait-based LLM client implementations for multiple providers.
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
   - streamed content and tool calls are stored as assistant messages before follow-up requests
+    - tool call chunks insert assistant messages immediately before execution
