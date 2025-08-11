@@ -45,7 +45,7 @@ pub async fn run_tool_loop(
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
-                let mut msg = ChatMessage::assistant(assistant_content.clone());
+                let mut msg = ChatMessage::assistant(String::new());
                 msg.tool_calls = tool_calls.clone();
                 chat_history.push(msg);
                 assistant_content.clear();
@@ -176,7 +176,10 @@ mod tests {
         assert_eq!(call_msg.role, MessageRole::Assistant);
         assert_eq!(call_msg.tool_calls.len(), 1);
         assert_eq!(call_msg.tool_calls[0].function.name, "test");
-        assert_eq!(updated.last().unwrap().content, "final");
+        assert!(call_msg.content.is_empty());
+        let final_msg = updated.last().unwrap();
+        assert_eq!(final_msg.role, MessageRole::Assistant);
+        assert_eq!(final_msg.content, "final");
         // collect events
         let mut saw_final = false;
         let mut saw_tool = false;
