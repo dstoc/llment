@@ -48,6 +48,90 @@ fn ensure_thinking_item(items: &mut Vec<HistoryItem>) -> usize {
     return items.len() - 1;
 }
 
+fn handle_tool_event(
+    ev: ToolEvent,
+    items: &mut Vec<HistoryItem>,
+    pending_tools: &mut HashMap<usize, (usize, usize)>,
+    current_line: &mut String,
+) {
+    match ev {
+        ToolEvent::Chunk(chunk) => {
+            if let Some(thinking) = chunk.message.thinking.as_ref() {
+                let idx = ensure_thinking_item(items);
+                if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                    if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
+                        t.push_str(thinking);
+                    } else {
+                        steps.push(ThinkingStep::Thought(thinking.to_string()));
+                    }
+                }
+            }
+            if let Some(content) = chunk.message.content.as_ref() {
+                if !content.is_empty() {
+                    current_line.push_str(content);
+                    let assistant_index = ensure_assistant_item(items);
+                    if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
+                        *line = current_line.clone();
+                    }
+                }
+            }
+            if chunk.done && pending_tools.is_empty() {
+                for item in items.iter_mut().rev() {
+                    match item {
+                        HistoryItem::Separator => break,
+                        HistoryItem::Thinking {
+                            collapsed,
+                            start,
+                            duration,
+                            done,
+                            ..
+                        } => {
+                            *collapsed = true;
+                            *duration = start.elapsed();
+                            *done = true;
+                        }
+                        _ => {}
+                    }
+                }
+                items.push(HistoryItem::Separator);
+                current_line.clear();
+            }
+        }
+        ToolEvent::ToolStarted { id, name, args } => {
+            let idx = ensure_thinking_item(items);
+            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                steps.push(ThinkingStep::ToolCall {
+                    name: name.clone(),
+                    args: args.to_string(),
+                    result: String::new(),
+                    success: true,
+                    collapsed: true,
+                });
+                let step_idx = steps.len() - 1;
+                pending_tools.insert(id, (idx, step_idx));
+            }
+        }
+        ToolEvent::ToolResult { id, result, .. } => {
+            if let Some((t_idx, s_idx)) = pending_tools.remove(&id) {
+                if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
+                    if let Some(ThinkingStep::ToolCall {
+                        result: r, success, ..
+                    }) = steps.get_mut(s_idx)
+                    {
+                        match result {
+                            Ok(text) => *r = text,
+                            Err(err) => {
+                                *r = format!("Tool Failed: {}", err);
+                                *success = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(long, value_enum, default_value_t = Provider::Ollama)]
@@ -211,71 +295,9 @@ async fn run_app<B: ratatui::backend::Backend>(
                     std::future::pending().await
                 }
             }, if tool_stream.is_some() => {
-                if let Some(ev) = tool_event {
-                    match ev {
-                        ToolEvent::Chunk(chunk) => {
-                            if let Some(thinking) = chunk.message.thinking.as_ref() {
-                                let idx = ensure_thinking_item(&mut items);
-                                if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                                    if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
-                                        t.push_str(thinking);
-                                    } else {
-                                        steps.push(ThinkingStep::Thought(thinking.to_string()));
-                                    }
-                                }
-                            }
-                            if let Some(content) = chunk.message.content.as_ref() {
-                                if !content.is_empty() {
-                                    current_line.push_str(content);
-                                    let assistant_index = ensure_assistant_item(&mut items);
-                                    if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
-                                        *line = current_line.clone();
-                                    }
-                                }
-                            }
-                            if chunk.done && pending_tools.is_empty() {
-                                for item in items.iter_mut().rev() {
-                                    match item {
-                                        HistoryItem::Separator => break,
-                                        HistoryItem::Thinking { collapsed, start, duration, done, .. } => {
-                                            *collapsed = true;
-                                            *duration = start.elapsed();
-                                            *done = true;
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                items.push(HistoryItem::Separator);
-                                current_line.clear();
-                            }
-                        }
-                        ToolEvent::ToolStarted { id, name, args } => {
-                            let idx = ensure_thinking_item(&mut items);
-                            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                                steps.push(ThinkingStep::ToolCall {
-                                    name: name.clone(),
-                                    args: args.to_string(),
-                                    result: String::new(),
-                                    success: true,
-                                    collapsed: true,
-                                });
-                                let step_idx = steps.len() - 1;
-                                pending_tools.insert(id, (idx, step_idx));
-                            }
-                        }
-                        ToolEvent::ToolResult { id, result, .. } => {
-                            if let Some((t_idx, s_idx)) = pending_tools.remove(&id) {
-                                if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
-                                    if let Some(ThinkingStep::ToolCall { result: r, success, .. }) = steps.get_mut(s_idx) {
-                                        match result {
-                                            Ok(text) => *r = text,
-                                            Err(err) => { *r = format!("Tool Failed: {}", err); *success = false; }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                match tool_event {
+                    Some(ev) => handle_tool_event(ev, &mut items, &mut pending_tools, &mut current_line),
+                    None => { tool_stream = None; }
                 }
             }
             res = async { if let Some(handle) = &mut tool_task { handle.await } else { std::future::pending().await } }, if tool_task.is_some() => {
@@ -283,6 +305,11 @@ async fn run_app<B: ratatui::backend::Backend>(
                     Ok(Ok(history)) => chat_history = history,
                     Ok(Err(err)) => items.push(HistoryItem::Error(err.to_string())),
                     Err(err) => items.push(HistoryItem::Error(err.to_string())),
+                }
+                if let Some(stream) = &mut tool_stream {
+                    while let Some(ev) = stream.next().await {
+                        handle_tool_event(ev, &mut items, &mut pending_tools, &mut current_line);
+                    }
                 }
                 tool_stream = None;
                 tool_task = None;

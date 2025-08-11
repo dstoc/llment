@@ -101,3 +101,4 @@ Terminal chat interface to Ollama with MCP tool integration.
   - tool orchestration delegated to `llm::tools::tool_event_stream`
     - uses `ToolExecutor` for MCP calls
     - consumes a stream of `ToolEvent`s while awaiting updated history
+    - drains remaining tool events after request completion before clearing state
