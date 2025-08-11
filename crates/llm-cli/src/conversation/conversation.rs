@@ -1,4 +1,4 @@
-use tuirealm::event::{Key, KeyEvent, MouseButton, MouseEventKind};
+use tuirealm::event::{MouseButton, MouseEventKind};
 use tuirealm::ratatui::{
     Frame,
     layout::Rect,
@@ -14,28 +14,24 @@ use super::{Node, node::ConvNode};
 
 pub struct Conversation {
     pub(crate) items: Vec<Node>,
-    pub(crate) selected: usize,
     pub(crate) scroll: u16,
     pub(crate) layout: Vec<(u16, u16)>,
     pub(crate) width: u16,
     pub(crate) viewport: u16,
     pub(crate) dirty: bool,
     pub(crate) area: Rect,
-    pub(crate) focused: bool,
 }
 
 impl Conversation {
     pub fn new() -> Self {
         Self {
             items: Vec::new(),
-            selected: 0,
             scroll: 0,
             layout: Vec::new(),
             width: 0,
             viewport: 0,
             dirty: true,
             area: Rect::default(),
-            focused: false,
         }
     }
 }
@@ -63,19 +59,6 @@ impl Conversation {
 
     pub(crate) fn total_height(&self) -> u16 {
         self.layout.last().map(|(s, h)| s + h).unwrap_or(0)
-    }
-
-    pub(crate) fn ensure_visible(&mut self) {
-        if self.layout.is_empty() {
-            return;
-        }
-        let (start, h) = self.layout[self.selected];
-        let end = start + h;
-        if start < self.scroll {
-            self.scroll = start;
-        } else if end > self.scroll + self.viewport {
-            self.scroll = end.saturating_sub(self.viewport);
-        }
     }
 }
 
@@ -113,7 +96,7 @@ impl MockComponent for Conversation {
                 width: inner.width,
                 height: max_height,
             };
-            item.render(frame, rect, idx == self.selected, offset, max_height);
+            item.render(frame, rect, false, offset, max_height);
         }
     }
 
@@ -121,13 +104,7 @@ impl MockComponent for Conversation {
         None
     }
 
-    fn attr(&mut self, attr: tuirealm::Attribute, value: tuirealm::AttrValue) {
-        if let tuirealm::Attribute::Focus = attr {
-            if let tuirealm::AttrValue::Flag(f) = value {
-                self.focused = f;
-            }
-        }
-    }
+    fn attr(&mut self, _attr: tuirealm::Attribute, _value: tuirealm::AttrValue) {}
 
     fn state(&self) -> tuirealm::State {
         tuirealm::State::None
@@ -140,95 +117,47 @@ impl MockComponent for Conversation {
 
 impl Component<Msg, NoUserEvent> for Conversation {
     fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
-        match ev {
-            Event::Keyboard(KeyEvent { code, .. }) if self.focused => match code {
-                Key::Down => {
-                    if !self.items[self.selected].on_key(Key::Down) {
-                        if self.selected + 1 < self.items.len() {
-                            self.selected += 1;
+        if let Event::Mouse(me) = ev {
+            if me.column >= self.area.x
+                && me.column < self.area.x + self.area.width
+                && me.row >= self.area.y
+                && me.row < self.area.y + self.area.height
+            {
+                match me.kind {
+                    MouseEventKind::ScrollUp => {
+                        self.scroll = self.scroll.saturating_sub(1);
+                        let max = self.total_height().saturating_sub(self.viewport);
+                        if self.scroll > max {
+                            self.scroll = max;
                         }
                     }
-                    self.ensure_visible();
-                }
-                Key::Up => {
-                    if !self.items[self.selected].on_key(Key::Up) {
-                        if self.selected > 0 {
-                            self.selected -= 1;
+                    MouseEventKind::ScrollDown => {
+                        let max = self.total_height().saturating_sub(self.viewport);
+                        self.scroll = (self.scroll + 1).min(max);
+                    }
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        let line = self.scroll + (me.row - self.area.y) as u16;
+                        let mut target: Option<(usize, u16)> = None;
+                        for (i, (start, h)) in self.layout.iter().enumerate() {
+                            if line >= *start && line < *start + *h {
+                                target = Some((i, *start));
+                                break;
+                            }
                         }
-                    }
-                    self.ensure_visible();
-                }
-                Key::PageDown => {
-                    self.scroll = self.scroll.saturating_add(self.viewport);
-                    let max = self.total_height().saturating_sub(self.viewport);
-                    if self.scroll > max {
-                        self.scroll = max;
-                    }
-                }
-                Key::PageUp => {
-                    self.scroll = self.scroll.saturating_sub(self.viewport);
-                }
-                Key::Home => {
-                    self.selected = 0;
-                    self.scroll = 0;
-                }
-                Key::End => {
-                    if !self.items.is_empty() {
-                        self.selected = self.items.len() - 1;
-                        self.scroll = self.total_height().saturating_sub(self.viewport);
-                    }
-                }
-                Key::Enter => {
-                    self.items[self.selected].activate();
-                    self.dirty = true;
-                    self.ensure_layout(self.width);
-                    self.ensure_visible();
-                }
-                Key::Tab => return Some(Msg::FocusInput),
-                Key::Esc => return Some(Msg::AppClose),
-                _ => {}
-            },
-            Event::Keyboard(_) => {}
-            Event::Mouse(me) => {
-                if me.column >= self.area.x
-                    && me.column < self.area.x + self.area.width
-                    && me.row >= self.area.y
-                    && me.row < self.area.y + self.area.height
-                {
-                    match me.kind {
-                        MouseEventKind::ScrollUp => {
-                            self.scroll = self.scroll.saturating_sub(1);
-                            return Some(Msg::FocusConversation);
-                        }
-                        MouseEventKind::ScrollDown => {
+                        if let Some((idx, start)) = target {
+                            let rel = line - start;
+                            self.items[idx].click(rel);
+                            self.dirty = true;
+                            self.ensure_layout(self.width);
                             let max = self.total_height().saturating_sub(self.viewport);
-                            self.scroll = (self.scroll + 1).min(max);
-                            return Some(Msg::FocusConversation);
-                        }
-                        MouseEventKind::Down(MouseButton::Left) => {
-                            let line = self.scroll + (me.row - self.area.y) as u16;
-                            let mut target: Option<(usize, u16)> = None;
-                            for (i, (start, h)) in self.layout.iter().enumerate() {
-                                if line >= *start && line < *start + *h {
-                                    target = Some((i, *start));
-                                    break;
-                                }
+                            if self.scroll > max {
+                                self.scroll = max;
                             }
-                            if let Some((idx, start)) = target {
-                                self.selected = idx;
-                                let rel = line - start;
-                                self.items[idx].click(rel);
-                                self.dirty = true;
-                                self.ensure_layout(self.width);
-                                self.ensure_visible();
-                            }
-                            return Some(Msg::FocusConversation);
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
-            _ => {}
         }
         Some(Msg::None)
     }
