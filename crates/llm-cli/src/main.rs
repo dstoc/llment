@@ -163,6 +163,33 @@ impl Model {
             self.app.view(&Id::Input, f, chunks[1]);
         });
     }
+
+    fn handle_tool_event(&mut self, ev: ToolEvent) {
+        match ev {
+            ToolEvent::Chunk(chunk) => {
+                if let Some(thinking) = chunk.message.thinking.as_ref() {
+                    self.conversation.borrow_mut().append_thinking(thinking);
+                }
+                if let Some(content) = chunk.message.content.as_ref() {
+                    if !content.is_empty() {
+                        self.conversation.borrow_mut().append_response(content);
+                    }
+                }
+            }
+            ToolEvent::ToolStarted { id, name, args } => {
+                let step = Node::Tool(ToolStep::new(name, args.to_string(), String::new(), true));
+                let idx = self.conversation.borrow_mut().add_step(step);
+                self.pending_tools.insert(id, idx);
+            }
+            ToolEvent::ToolResult { id, result, .. } => {
+                if let Some(idx) = self.pending_tools.remove(&id) {
+                    let text = result.unwrap_or_else(|e| format!("Tool Failed: {}", e));
+                    self.conversation.borrow_mut().update_tool_result(idx, text);
+                }
+            }
+        }
+        self.redraw = true;
+    }
 }
 
 impl Update<Msg> for Model {
@@ -230,34 +257,7 @@ fn main() {
                 .block_on(async { stream.next().now_or_never() })
                 .flatten()
             {
-                match ev {
-                    ToolEvent::Chunk(chunk) => {
-                        if let Some(thinking) = chunk.message.thinking.as_ref() {
-                            model.conversation.borrow_mut().append_thinking(thinking);
-                        }
-                        if let Some(content) = chunk.message.content.as_ref() {
-                            if !content.is_empty() {
-                                model.conversation.borrow_mut().append_response(content);
-                            }
-                        }
-                    }
-                    ToolEvent::ToolStarted { id, name, args } => {
-                        let step =
-                            Node::Tool(ToolStep::new(name, args.to_string(), String::new(), true));
-                        let idx = model.conversation.borrow_mut().add_step(step);
-                        model.pending_tools.insert(id, idx);
-                    }
-                    ToolEvent::ToolResult { id, result, .. } => {
-                        if let Some(idx) = model.pending_tools.remove(&id) {
-                            let text = result.unwrap_or_else(|e| format!("Tool Failed: {}", e));
-                            model
-                                .conversation
-                                .borrow_mut()
-                                .update_tool_result(idx, text);
-                        }
-                    }
-                }
-                model.redraw = true;
+                model.handle_tool_event(ev);
             }
         }
         if let Some(handle) = &mut model.tool_task {
@@ -273,7 +273,11 @@ fn main() {
                         .borrow_mut()
                         .append_response(&format!("Error: {}", err)),
                 }
-                model.tool_stream = None;
+                if let Some(mut stream) = model.tool_stream.take() {
+                    while let Some(ev) = model.runtime.block_on(stream.next()) {
+                        model.handle_tool_event(ev);
+                    }
+                }
                 model.tool_task = None;
                 model.redraw = true;
             }
