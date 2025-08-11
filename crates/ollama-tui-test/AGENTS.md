@@ -104,8 +104,6 @@ Terminal chat interface to Ollama with MCP tool integration.
 - main loop
   - handles terminal events and async updates concurrently
   - UI remains interactive while requests stream or tools execute
-  - tool calls may arrive before streaming completes
-    - spawn immediately and run in parallel
-    - after streaming ends, waits for all tool calls before continuing
-  - after tool calls complete, sends a follow-up request with results for the final assistant response
-    - inserts a new assistant placeholder before streaming the final response
+  - tool orchestration delegated to `llm::tools::run_tool_loop`
+    - uses `ToolExecutor` for MCP calls
+    - emits streamed chunks and tool results via callbacks

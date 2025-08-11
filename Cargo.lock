@@ -1431,6 +1431,7 @@ dependencies = [
  "gemini-rs",
  "ollama-rs",
  "serde_json",
+ "tokio",
  "tokio-stream",
 ]
 
@@ -1676,6 +1677,7 @@ dependencies = [
 name = "ollama-tui-test"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "clap",
  "crossterm 0.29.0",
  "insta",

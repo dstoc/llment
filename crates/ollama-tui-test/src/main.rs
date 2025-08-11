@@ -14,9 +14,8 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use llm::{
-    ChatMessage, ChatMessageRequest, Schema, ToolCall, ToolFunctionInfo, ToolInfo, ToolType,
-};
+use llm::tools::{self, ToolEvent, ToolExecutor};
+use llm::{ChatMessage, ChatMessageRequest, Schema, ToolFunctionInfo, ToolInfo, ToolType};
 use once_cell::sync::Lazy;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use rmcp::service::ServerSink;
@@ -27,7 +26,11 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::{process::Command, sync::Mutex, task::JoinSet};
+use tokio::{
+    process::Command,
+    sync::{Mutex, mpsc::unbounded_channel},
+    task::JoinHandle,
+};
 use tokio_stream::StreamExt;
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
@@ -92,40 +95,6 @@ async fn load_mcp_servers(
     Ok(services)
 }
 
-async fn call_mcp_tool(
-    name: &str,
-    args: Value,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let peer = {
-        let map = MCP_TOOLS.lock().await;
-        map.get(name).cloned()
-    }
-    .ok_or_else(|| format!("Tool {name} not found"))?;
-
-    let result = peer
-        .call_tool(CallToolRequestParam {
-            name: name.to_string().into(),
-            arguments: args.as_object().cloned(),
-        })
-        .await?;
-
-    if let Some(content) = result.content {
-        let text = content
-            .into_iter()
-            .filter_map(|c| match c.raw {
-                RawContent::Text(t) => Some(t.text),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        Ok(text)
-    } else if let Some(value) = result.structured_content {
-        Ok(value.to_string())
-    } else {
-        Ok(String::new())
-    }
-}
-
 fn ensure_assistant_item(items: &mut Vec<HistoryItem>) -> usize {
     if let Some(HistoryItem::Assistant(..)) = items.last() {
         return items.len() - 1;
@@ -148,32 +117,43 @@ fn ensure_thinking_item(items: &mut Vec<HistoryItem>) -> usize {
     return items.len() - 1;
 }
 
-fn spawn_tool_call(
-    call: ToolCall,
-    items: &mut Vec<HistoryItem>,
-    thinking_idx: usize,
-    handles: &mut JoinSet<(
-        usize,
-        usize,
-        String,
-        Result<String, Box<dyn std::error::Error + Send + Sync>>,
-    )>,
-) {
-    if let HistoryItem::Thinking { steps, .. } = &mut items[thinking_idx] {
-        steps.push(ThinkingStep::ToolCall {
-            name: call.function.name.clone(),
-            args: call.function.arguments.to_string(),
-            result: String::new(),
-            success: true,
-            collapsed: true,
-        });
-        let step_idx = steps.len() - 1;
-        let name = call.function.name.clone();
-        let args = call.function.arguments.clone();
-        handles.spawn(async move {
-            let res = call_mcp_tool(&name, args).await;
-            (thinking_idx, step_idx, name, res)
-        });
+struct McpToolExecutor;
+
+#[async_trait::async_trait]
+impl ToolExecutor for McpToolExecutor {
+    async fn call(
+        &self,
+        name: &str,
+        args: Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let peer = {
+            let map = MCP_TOOLS.lock().await;
+            map.get(name).cloned()
+        }
+        .ok_or_else(|| format!("Tool {name} not found"))?;
+
+        let result = peer
+            .call_tool(CallToolRequestParam {
+                name: name.to_string().into(),
+                arguments: args.as_object().cloned(),
+            })
+            .await?;
+
+        if let Some(content) = result.content {
+            let text = content
+                .into_iter()
+                .filter_map(|c| match c.raw {
+                    RawContent::Text(t) => Some(t.text),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            Ok(text)
+        } else if let Some(value) = result.structured_content {
+            Ok(value.to_string())
+        } else {
+            Ok(String::new())
+        }
     }
 }
 
@@ -255,16 +235,13 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut last_max_scroll: i32 = 0;
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
-    let mut chat_stream: Option<llm::ChatStream> = None;
     let mut current_line = String::new();
-    let mut tool_handles: JoinSet<(
-        usize,
-        usize,
-        String,
-        Result<String, Box<dyn std::error::Error + Send + Sync>>,
-    )> = JoinSet::new();
-    let mut saw_tool_call = false;
-    let mut request_done = false;
+    let (tool_tx, mut tool_rx) = unbounded_channel();
+    let mut pending_tools: HashMap<usize, (usize, usize)> = HashMap::new();
+    let mut tool_task: Option<
+        JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>,
+    > = None;
+    let tool_executor = Arc::new(McpToolExecutor);
 
     loop {
         terminal.draw(|f| {
@@ -278,9 +255,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                         Event::Key(key) => {
                             match (key.code, key.modifiers) {
                                 (KeyCode::Char('d'), m) if m.contains(KeyModifiers::CONTROL) => break,
-                                (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => {
-                                    input.reset();
-                                }
+                                (KeyCode::Char('l'), m) if m.contains(KeyModifiers::CONTROL) => { input.reset(); }
                                 (KeyCode::Char('j'), m) if m.contains(KeyModifiers::CONTROL) => {
                                     input.handle(InputRequest::InsertChar('\n'));
                                 }
@@ -290,34 +265,29 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         input.reset();
                                         continue;
                                     }
-                                    if query == "/quit" {
-                                        break;
-                                    }
-                                    if chat_stream.is_some() || !tool_handles.is_empty() {
-                                        continue;
-                                    }
+                                    if query == "/quit" { break; }
+                                    if tool_task.is_some() { continue; }
                                     items.push(HistoryItem::User(query.clone()));
                                     input.reset();
                                     chat_history.push(ChatMessage::user(query.clone()));
                                     current_line.clear();
-                                    let request = ChatMessageRequest::new(
-                                        model.clone(),
-                                        chat_history.clone(),
-                                    )
-                                    .tools(tool_infos.clone())
-                                    .think(true);
-                                    chat_stream = Some(client.send_chat_messages_stream(request).await?);
+                                    let request = ChatMessageRequest::new(model.clone(), chat_history.clone())
+                                        .tools(tool_infos.clone())
+                                        .think(true);
+                                    let history = std::mem::take(&mut chat_history);
+                                    let tx = tool_tx.clone();
+                                    let client = client.clone();
+                                    let exec = tool_executor.clone();
+                                    tool_task = Some(tokio::spawn(async move {
+                                        tools::run_tool_loop(client, request, exec, history, tx).await
+                                    }));
                                 }
                                 (KeyCode::Esc, _) => break,
-                                _ => {
-                                        input.handle_event(&Event::Key(key));
-                                }
+                                _ => { input.handle_event(&Event::Key(key)); },
                             }
                         }
                         Event::Paste(data) => {
-                            for c in data.chars() {
-                                input.handle(InputRequest::InsertChar(c));
-                            }
+                            for c in data.chars() { input.handle(InputRequest::InsertChar(c)); }
                         }
                         Event::Mouse(m) => match m.kind {
                             MouseEventKind::ScrollUp => scroll_offset += 1,
@@ -353,109 +323,79 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                 }
             }
-            chat_chunk = async {
-                if let Some(stream) = &mut chat_stream {
-                    stream.next().await
-                } else {
-                    None
-                }
-            }, if chat_stream.is_some() => {
-                if let Some(Ok(chunk)) = chat_chunk {
-                    if let Some(thinking) = chunk.message.thinking.as_ref() {
-                        let idx = ensure_thinking_item(&mut items);
-                        if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
-                            if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
-                                t.push_str(thinking);
-                            } else {
-                                steps.push(ThinkingStep::Thought(thinking.to_string()));
-                            }
-                        }
-                    }
-                    if !chunk.message.content.is_empty() {
-                        current_line.push_str(&chunk.message.content);
-                        let assistant_index = ensure_assistant_item(&mut items);
-                        if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
-                            *line = current_line.clone();
-                        }
-                    }
-                    if !chunk.message.tool_calls.is_empty() {
-                        let idx = ensure_thinking_item(&mut items);
-                        for call in chunk.message.tool_calls {
-                            spawn_tool_call(call, &mut items, idx, &mut tool_handles);
-                            saw_tool_call = true;
-                        }
-                    }
-                    if chunk.done {
-                        chat_stream = None;
-                        request_done = true;
-
-                        if !saw_tool_call {
-                            // Collapse all thinking blocks part of this assistant flow
-                            for item in items.iter_mut().rev() {
-                                match item {
-                                    HistoryItem::Separator => break,
-                                    HistoryItem::Thinking { collapsed, start, duration, done, .. } => {
-                                        *collapsed = true;
-                                        // TODO: should we rather update this when we complete the tool calls?
-                                        *duration = start.elapsed();
-                                        *done = true;
+            tool_event = tool_rx.recv() => {
+                if let Some(ev) = tool_event {
+                    match ev {
+                        ToolEvent::Chunk(chunk) => {
+                            if let Some(thinking) = chunk.message.thinking.as_ref() {
+                                let idx = ensure_thinking_item(&mut items);
+                                if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                                    if let Some(ThinkingStep::Thought(t)) = steps.last_mut() {
+                                        t.push_str(thinking);
+                                    } else {
+                                        steps.push(ThinkingStep::Thought(thinking.to_string()));
                                     }
-                                    _ => {}
                                 }
                             }
-                            items.push(HistoryItem::Separator);
-                            request_done = false;
-                        } else if tool_handles.is_empty() {
-                            current_line.clear();
-                            let request = ChatMessageRequest::new(
-                                model.clone(),
-                                chat_history.clone(),
-                            )
-                            .tools(tool_infos.clone())
-                            .think(true);
-                            chat_stream = Some(client.send_chat_messages_stream(request).await?);
-                            saw_tool_call = false;
-                            request_done = false;
+                            if !chunk.message.content.is_empty() {
+                                current_line.push_str(&chunk.message.content);
+                                let assistant_index = ensure_assistant_item(&mut items);
+                                if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
+                                    *line = current_line.clone();
+                                }
+                            }
+                            if chunk.done && pending_tools.is_empty() {
+                                for item in items.iter_mut().rev() {
+                                    match item {
+                                        HistoryItem::Separator => break,
+                                        HistoryItem::Thinking { collapsed, start, duration, done, .. } => {
+                                            *collapsed = true;
+                                            *duration = start.elapsed();
+                                            *done = true;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                items.push(HistoryItem::Separator);
+                                current_line.clear();
+                            }
+                        }
+                        ToolEvent::ToolStarted { id, name, args } => {
+                            let idx = ensure_thinking_item(&mut items);
+                            if let HistoryItem::Thinking { steps, .. } = &mut items[idx] {
+                                steps.push(ThinkingStep::ToolCall {
+                                    name: name.clone(),
+                                    args: args.to_string(),
+                                    result: String::new(),
+                                    success: true,
+                                    collapsed: true,
+                                });
+                                let step_idx = steps.len() - 1;
+                                pending_tools.insert(id, (idx, step_idx));
+                            }
+                        }
+                        ToolEvent::ToolResult { id, result, .. } => {
+                            if let Some((t_idx, s_idx)) = pending_tools.remove(&id) {
+                                if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
+                                    if let Some(ThinkingStep::ToolCall { result: r, success, .. }) = steps.get_mut(s_idx) {
+                                        match result {
+                                            Ok(text) => *r = text,
+                                            Err(err) => { *r = format!("Tool Failed: {}", err); *success = false; }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                } else if let Some(Err(msg)) = chat_chunk {
-                    // TODO: remove when we validate Error history items
-                    println!("{:}", msg.to_string());
-                    items.push(HistoryItem::Error(msg.to_string()));
-                    chat_stream = None;
-                    request_done = false;
                 }
             }
-            tool_res = tool_handles.join_next(), if !tool_handles.is_empty() => {
-                if let Some(Ok((t_idx, s_idx, name, res))) = tool_res {
-                    if let HistoryItem::Thinking { steps, .. } = &mut items[t_idx] {
-                        if let Some(ThinkingStep::ToolCall { result, success, .. }) = steps.get_mut(s_idx) {
-                            match res {
-                                Ok(text) => {
-                                    *result = text.clone();
-                                    chat_history.push(ChatMessage::tool(text, name));
-                                }
-                                Err(err) => {
-                                    *result = format!("Tool Failed: {}", err);
-                                    chat_history.push(ChatMessage::tool(result.clone(), name));
-                                    *success = false;
-                                }
-                            }
-                        }
-                    }
+            res = async { if let Some(handle) = &mut tool_task { handle.await } else { std::future::pending().await } }, if tool_task.is_some() => {
+                match res {
+                    Ok(Ok(history)) => chat_history = history,
+                    Ok(Err(err)) => items.push(HistoryItem::Error(err.to_string())),
+                    Err(err) => items.push(HistoryItem::Error(err.to_string())),
                 }
-                if tool_handles.is_empty() && request_done && saw_tool_call {
-                    current_line.clear();
-                    let request = ChatMessageRequest::new(
-                        model.clone(),
-                        chat_history.clone(),
-                    )
-                    .tools(tool_infos.clone())
-                    .think(true);
-                    chat_stream = Some(client.send_chat_messages_stream(request).await?);
-                    saw_tool_call = false;
-                    request_done = false;
-                }
+                tool_task = None;
             }
             _ = tokio::time::sleep(Duration::from_millis(50)) => {}
         }
