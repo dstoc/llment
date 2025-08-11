@@ -92,18 +92,20 @@ impl Conversation {
         idx
     }
 
-    pub fn update_tool_result(&mut self, step_idx: usize, result: String) {
+    pub fn update_tool_result(&mut self, step_idx: usize, result: String, failed: bool) {
         let at_bottom = self.is_at_bottom();
         let block = self.ensure_last_assistant();
         if let Some(Node::Tool(ToolStep {
             result: r,
             done,
+            failed: f,
             content_rev,
             ..
         })) = block.steps.get_mut(step_idx)
         {
             *r = result;
             *done = true;
+            *f = failed;
             *content_rev += 1;
             block.record_activity();
             block.content_rev += 1;

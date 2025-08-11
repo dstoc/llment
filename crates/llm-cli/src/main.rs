@@ -196,8 +196,13 @@ impl Model {
             }
             ToolEvent::ToolResult { id, result, .. } => {
                 if let Some(idx) = self.pending_tools.remove(&id) {
-                    let text = result.unwrap_or_else(|e| format!("Tool Failed: {}", e));
-                    self.conversation.borrow_mut().update_tool_result(idx, text);
+                    let (text, failed) = match result {
+                        Ok(t) => (t, false),
+                        Err(e) => (format!("Tool Failed: {}", e), true),
+                    };
+                    self.conversation
+                        .borrow_mut()
+                        .update_tool_result(idx, text, failed);
                 }
             }
         }
