@@ -1,5 +1,6 @@
 use crate::markdown::markdown_to_lines;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
+use tui_realm_stdlib::states::SpinnerStates;
 use tuirealm::event::Key;
 use tuirealm::ratatui::{
     Frame,
@@ -22,10 +23,13 @@ pub struct AssistantBlock {
     pub(crate) selected: usize,
     started: Option<Instant>,
     last_update: Option<Instant>,
+    spinner: SpinnerStates,
 }
 
 impl AssistantBlock {
     pub fn new(working_collapsed: bool, steps: Vec<Node>, response: String) -> Self {
+        let mut spinner = SpinnerStates::default();
+        spinner.reset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
         Self {
             working_collapsed,
             steps,
@@ -37,6 +41,7 @@ impl AssistantBlock {
             selected: 0,
             started: None,
             last_update: None,
+            spinner,
         }
     }
 
@@ -48,16 +53,7 @@ impl AssistantBlock {
         self.last_update = Some(now);
     }
 
-    fn spinner() -> char {
-        const SPIN: &[char] = &['|', '/', '-', '\\'];
-        let ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        SPIN[(ms / 100) as usize % SPIN.len()]
-    }
-
-    fn summary(&self) -> String {
+    fn summary(&mut self) -> String {
         let mut parts: Vec<String> = Vec::new();
         if let (Some(start), Some(end)) = (self.started, self.last_update) {
             let secs = end.duration_since(start).as_secs();
@@ -112,7 +108,7 @@ impl AssistantBlock {
         let mut summary = parts.join(", ");
         if active {
             summary.push(' ');
-            summary.push(Self::spinner());
+            summary.push(self.spinner.step());
         }
         summary
     }
