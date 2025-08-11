@@ -19,6 +19,7 @@ termimad = "0.33.0"
 tui-input = { version = "0.14.0", default-features = false, features = ["crossterm"] }
 unicode-width = "0.2.0"
 llm = { version = "0.1.0", path = "../llm" }
+async-trait = "0.1.88"
 
 [dev-dependencies]
 insta = "1.43.1"

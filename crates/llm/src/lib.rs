@@ -16,6 +16,7 @@ pub use ollama_rs::{
 pub mod gemini;
 pub mod ollama;
 pub mod openai;
+pub mod tools;
 
 #[derive(Debug)]
 pub struct ResponseMessage {
