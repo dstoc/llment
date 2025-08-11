@@ -98,6 +98,6 @@ Terminal chat interface to Ollama with MCP tool integration.
 - main loop
   - handles terminal events and async updates concurrently
   - UI remains interactive while requests stream or tools execute
-  - tool orchestration delegated to `llm::tools::run_tool_loop`
+  - tool orchestration delegated to `llm::tools::tool_event_stream`
     - uses `ToolExecutor` for MCP calls
-    - emits streamed chunks and tool results via callbacks
+    - consumes a stream of `ToolEvent`s while awaiting updated history

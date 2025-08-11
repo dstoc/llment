@@ -18,8 +18,8 @@ use llm::mcp::{McpContext, McpToolExecutor, load_mcp_servers};
 use llm::tools::{self, ToolEvent, ToolExecutor};
 use llm::{self, ChatMessage, ChatMessageRequest, Provider};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use tokio::{sync::mpsc::unbounded_channel, task::JoinHandle};
-use tokio_stream::StreamExt;
+use tokio::task::JoinHandle;
+use tokio_stream::{Stream, StreamExt};
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
 mod markdown;
@@ -117,7 +117,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut draw_state = DrawState::default();
     let mut events = EventStream::new();
     let mut current_line = String::new();
-    let (tool_tx, mut tool_rx) = unbounded_channel();
+    let mut tool_stream: Option<Box<dyn Stream<Item = ToolEvent> + Unpin + Send>> = None;
     let mut pending_tools: HashMap<usize, (usize, usize)> = HashMap::new();
     let mut tool_task: Option<
         JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>,
@@ -156,12 +156,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                                         .tools(tool_infos.clone())
                                         .think(true);
                                     let history = std::mem::take(&mut chat_history);
-                                    let tx = tool_tx.clone();
                                     let client = client.clone();
                                     let exec = tool_executor.clone();
-                                    tool_task = Some(tokio::spawn(async move {
-                                        tools::run_tool_loop(client, request, exec, history, tx).await
-                                    }));
+                                    let (stream, handle) =
+                                        tools::tool_event_stream(client, request, exec, history);
+                                    tool_stream = Some(Box::new(stream));
+                                    tool_task = Some(handle);
                                 }
                                 (KeyCode::Esc, _) => break,
                                 _ => { input.handle_event(&Event::Key(key)); },
@@ -204,7 +204,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                     }
                 }
             }
-            tool_event = tool_rx.recv() => {
+            tool_event = async {
+                if let Some(stream) = &mut tool_stream {
+                    stream.next().await
+                } else {
+                    std::future::pending().await
+                }
+            }, if tool_stream.is_some() => {
                 if let Some(ev) = tool_event {
                     match ev {
                         ToolEvent::Chunk(chunk) => {
@@ -278,6 +284,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                     Ok(Err(err)) => items.push(HistoryItem::Error(err.to_string())),
                     Err(err) => items.push(HistoryItem::Error(err.to_string())),
                 }
+                tool_stream = None;
                 tool_task = None;
             }
             _ = tokio::time::sleep(Duration::from_millis(50)) => {}

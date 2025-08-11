@@ -2,8 +2,12 @@ use std::{error::Error, sync::Arc};
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::{sync::mpsc::UnboundedSender, task::JoinSet};
-use tokio_stream::StreamExt;
+use tokio::{
+    sync::mpsc::UnboundedSender,
+    task::{JoinHandle, JoinSet},
+};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::{ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk};
 
@@ -24,6 +28,26 @@ pub enum ToolEvent {
         name: String,
         result: Result<String, Box<dyn Error + Send + Sync>>,
     },
+}
+
+pub fn tool_event_stream(
+    client: Arc<dyn LlmClient>,
+    request: ChatMessageRequest,
+    tool_executor: Arc<dyn ToolExecutor>,
+    chat_history: Vec<ChatMessage>,
+) -> (
+    impl Stream<Item = ToolEvent>,
+    JoinHandle<Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>>>,
+) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let handle = tokio::spawn(run_tool_loop(
+        client,
+        request,
+        tool_executor,
+        chat_history,
+        tx,
+    ));
+    (UnboundedReceiverStream::new(rx), handle)
 }
 
 pub async fn run_tool_loop(
