@@ -1,7 +1,9 @@
 use std::error::Error;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use clap::ValueEnum;
 use serde_json::{Value, to_value};
 use tokio_stream::Stream;
 
@@ -18,6 +20,24 @@ pub mod mcp;
 pub mod ollama;
 pub mod openai;
 pub mod tools;
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum Provider {
+    Ollama,
+    Openai,
+    Gemini,
+}
+
+pub fn client_from(
+    provider: Provider,
+    host: &str,
+) -> Result<Arc<dyn LlmClient>, Box<dyn Error + Send + Sync>> {
+    match provider {
+        Provider::Ollama => Ok(Arc::new(ollama::OllamaClient::new(host)?)),
+        Provider::Openai => Ok(Arc::new(openai::OpenAiClient::new(host))),
+        Provider::Gemini => Ok(Arc::new(gemini::GeminiClient::new(host))),
+    }
+}
 
 #[derive(Debug)]
 pub struct ResponseMessage {

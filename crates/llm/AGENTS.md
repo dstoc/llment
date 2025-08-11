@@ -8,6 +8,8 @@ Trait-based LLM client implementations for multiple providers.
   - schema sanitization and parsing
 - tokio-stream
   - stream response handling
+- clap
+  - parse provider enum for CLI usage
 - ollama-rs (dstoc fork)
   - communicate with Ollama using streaming and tools
 - async-openai
@@ -21,6 +23,9 @@ Trait-based LLM client implementations for multiple providers.
 - LLM clients
   - `LlmClient` trait streams chat responses
   - implementations for Ollama, OpenAI, and Gemini
+- Provider selection
+  - `Provider` enum lists supported backends
+  - `client_from` builds a client for the given provider
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Responses

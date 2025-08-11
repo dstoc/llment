@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use crossterm::{
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -16,7 +16,9 @@ use crossterm::{
 };
 use llm::mcp::McpContext;
 use llm::tools::{self, ToolEvent, ToolExecutor};
-use llm::{ChatMessage, ChatMessageRequest, Schema, ToolFunctionInfo, ToolInfo, ToolType};
+use llm::{
+    self, ChatMessage, ChatMessageRequest, Provider, Schema, ToolFunctionInfo, ToolInfo, ToolType,
+};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use rmcp::{
     model::{CallToolRequestParam, RawContent},
@@ -150,13 +152,6 @@ impl ToolExecutor for McpToolExecutor {
     }
 }
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
-enum Provider {
-    Ollama,
-    Openai,
-    Gemini,
-}
-
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(long, value_enum, default_value_t = Provider::Ollama)]
@@ -194,11 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let client: Arc<dyn llm::LlmClient> = match args.provider {
-        Provider::Ollama => Arc::new(llm::ollama::OllamaClient::new(&args.host)?),
-        Provider::Openai => Arc::new(llm::openai::OpenAiClient::new(&args.host)),
-        Provider::Gemini => Arc::new(llm::gemini::GeminiClient::new(&args.host)),
-    };
+    let client = llm::client_from(args.provider, &args.host)?;
 
     let res = run_app(&mut terminal, client, args.model.clone(), mcp_ctx.clone()).await;
 
