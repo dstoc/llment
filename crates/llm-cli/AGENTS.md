@@ -32,6 +32,8 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - layout
     - scrollable conversation pane
       - mouse wheel adjusts scroll
+      - items snap to bottom with blank space above when short
+      - auto-scrolls when at bottom or after user sends a message
     - text input field at the bottom
       - supports multi-line editing without wrapping
       - height expands to fit content

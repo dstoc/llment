@@ -1,11 +1,5 @@
 use tuirealm::event::{MouseButton, MouseEventKind};
-use tuirealm::ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    text::Span,
-    widgets::{Block, Borders},
-};
+use tuirealm::ratatui::{Frame, layout::Rect};
 use tuirealm::{Component, Event, MockComponent, NoUserEvent};
 
 use crate::Msg;
@@ -54,11 +48,25 @@ impl Conversation {
                 pos += h;
             }
             self.dirty = false;
+            let max = self.total_height().saturating_sub(self.viewport);
+            if self.scroll > max {
+                self.scroll = max;
+            }
         }
     }
 
     pub(crate) fn total_height(&self) -> u16 {
         self.layout.last().map(|(s, h)| s + h).unwrap_or(0)
+    }
+
+    pub(crate) fn is_at_bottom(&self) -> bool {
+        let max = self.total_height().saturating_sub(self.viewport);
+        self.scroll >= max
+    }
+
+    pub(crate) fn scroll_to_bottom(&mut self) {
+        let max = self.total_height().saturating_sub(self.viewport);
+        self.scroll = max;
     }
 }
 
@@ -67,6 +75,8 @@ impl MockComponent for Conversation {
         self.viewport = area.height;
         self.area = area;
         self.ensure_layout(area.width);
+        let total = self.total_height();
+        let snap = self.viewport.saturating_sub(total);
 
         for (idx, item) in self.items.iter_mut().enumerate() {
             let (start, h) = self.layout[idx];
@@ -77,8 +87,8 @@ impl MockComponent for Conversation {
                 break;
             }
             let offset = self.scroll.saturating_sub(start);
-            let y = area.y + start.saturating_sub(self.scroll);
-            let remaining = self.viewport.saturating_sub(y - area.y);
+            let y = area.y + snap + start.saturating_sub(self.scroll);
+            let remaining = (area.y + self.viewport).saturating_sub(y);
             let max_height = remaining.min(h - offset);
             let rect = Rect {
                 x: area.x,
@@ -126,22 +136,25 @@ impl Component<Msg, NoUserEvent> for Conversation {
                         self.scroll = (self.scroll + 1).min(max);
                     }
                     MouseEventKind::Down(MouseButton::Left) => {
-                        let line = self.scroll + (me.row - self.area.y) as u16;
-                        let mut target: Option<(usize, u16)> = None;
-                        for (i, (start, h)) in self.layout.iter().enumerate() {
-                            if line >= *start && line < *start + *h {
-                                target = Some((i, *start));
-                                break;
+                        let snap = self.viewport.saturating_sub(self.total_height());
+                        if me.row >= self.area.y + snap {
+                            let line = self.scroll + (me.row - self.area.y - snap) as u16;
+                            let mut target: Option<(usize, u16)> = None;
+                            for (i, (start, h)) in self.layout.iter().enumerate() {
+                                if line >= *start && line < *start + *h {
+                                    target = Some((i, *start));
+                                    break;
+                                }
                             }
-                        }
-                        if let Some((idx, start)) = target {
-                            let rel = line - start;
-                            self.items[idx].click(rel);
-                            self.dirty = true;
-                            self.ensure_layout(self.width);
-                            let max = self.total_height().saturating_sub(self.viewport);
-                            if self.scroll > max {
-                                self.scroll = max;
+                            if let Some((idx, start)) = target {
+                                let rel = line - start;
+                                self.items[idx].click(rel);
+                                self.dirty = true;
+                                self.ensure_layout(self.width);
+                                let max = self.total_height().saturating_sub(self.viewport);
+                                if self.scroll > max {
+                                    self.scroll = max;
+                                }
                             }
                         }
                     }
