@@ -14,79 +14,17 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use llm::mcp::McpContext;
+use llm::mcp::{McpContext, McpToolExecutor, load_mcp_servers};
 use llm::tools::{self, ToolEvent, ToolExecutor};
-use llm::{
-    self, ChatMessage, ChatMessageRequest, Provider, Schema, ToolFunctionInfo, ToolInfo, ToolType,
-};
+use llm::{self, ChatMessage, ChatMessageRequest, Provider};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use rmcp::{
-    model::{CallToolRequestParam, RawContent},
-    service::{RoleClient, RunningService, ServiceExt},
-    transport::TokioChildProcess,
-};
-use serde::Deserialize;
-use serde_json::Value;
-use tokio::{process::Command, sync::mpsc::unbounded_channel, task::JoinHandle};
+use tokio::{sync::mpsc::unbounded_channel, task::JoinHandle};
 use tokio_stream::StreamExt;
 use tui_input::{Input, InputRequest, backend::crossterm::EventHandler as _};
 
 mod markdown;
 mod ui;
 use ui::{DrawState, HistoryItem, LineMapping, ThinkingStep, draw_ui};
-
-#[derive(Deserialize)]
-struct McpConfig {
-    #[serde(rename = "mcpServers")]
-    mcp_servers: HashMap<String, McpServer>,
-}
-
-#[derive(Deserialize)]
-struct McpServer {
-    command: String,
-    #[serde(default)]
-    args: Vec<String>,
-    #[serde(default)]
-    env: HashMap<String, String>,
-}
-
-async fn load_mcp_servers(
-    path: &str,
-    ctx: Arc<McpContext>,
-) -> Result<Vec<RunningService<RoleClient, ()>>, Box<dyn std::error::Error + Send + Sync>> {
-    let data = tokio::fs::read_to_string(path).await?;
-    let config: McpConfig = serde_json::from_str(&data)?;
-    let mut services = Vec::new();
-    for server in config.mcp_servers.values() {
-        let mut cmd = Command::new(&server.command);
-        cmd.args(&server.args);
-        for (k, v) in &server.env {
-            cmd.env(k, v);
-        }
-        let process = TokioChildProcess::new(cmd)?;
-        let service = ().serve(process).await?;
-        let tools = service.list_tools(Default::default()).await?;
-        {
-            let mut map = ctx.tools.lock().await;
-            let mut infos = ctx.tool_infos.lock().await;
-            for tool in tools.tools {
-                map.insert(tool.name.to_string(), service.peer().clone());
-                let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
-                let description = tool.description.clone().unwrap_or_default().to_string();
-                infos.push(ToolInfo {
-                    tool_type: ToolType::Function,
-                    function: ToolFunctionInfo {
-                        name: tool.name.to_string(),
-                        description,
-                        parameters: schema,
-                    },
-                });
-            }
-        }
-        services.push(service);
-    }
-    Ok(services)
-}
 
 fn ensure_assistant_item(items: &mut Vec<HistoryItem>) -> usize {
     if let Some(HistoryItem::Assistant(..)) = items.last() {
@@ -110,48 +48,6 @@ fn ensure_thinking_item(items: &mut Vec<HistoryItem>) -> usize {
     return items.len() - 1;
 }
 
-struct McpToolExecutor {
-    ctx: Arc<McpContext>,
-}
-
-#[async_trait::async_trait]
-impl ToolExecutor for McpToolExecutor {
-    async fn call(
-        &self,
-        name: &str,
-        args: Value,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let peer = {
-            let map = self.ctx.tools.lock().await;
-            map.get(name).cloned()
-        }
-        .ok_or_else(|| format!("Tool {name} not found"))?;
-
-        let result = peer
-            .call_tool(CallToolRequestParam {
-                name: name.to_string().into(),
-                arguments: args.as_object().cloned(),
-            })
-            .await?;
-
-        if let Some(content) = result.content {
-            let text = content
-                .into_iter()
-                .filter_map(|c| match c.raw {
-                    RawContent::Text(t) => Some(t.text),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            Ok(text)
-        } else if let Some(value) = result.structured_content {
-            Ok(value.to_string())
-        } else {
-            Ok(String::new())
-        }
-    }
-}
-
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(long, value_enum, default_value_t = Provider::Ollama)]
@@ -170,13 +66,12 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
-    let mcp_ctx = Arc::new(McpContext::default());
-
-    let _services = if let Some(path) = &args.mcp {
-        load_mcp_servers(path, mcp_ctx.clone()).await?
+    let (mcp_ctx, _services) = if let Some(path) = &args.mcp {
+        load_mcp_servers(path).await?
     } else {
-        Vec::new()
+        (McpContext::default(), Vec::new())
     };
+    let mcp_ctx = Arc::new(mcp_ctx);
 
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -227,9 +122,7 @@ async fn run_app<B: ratatui::backend::Backend>(
     let mut tool_task: Option<
         JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>,
     > = None;
-    let tool_executor = Arc::new(McpToolExecutor {
-        ctx: mcp_ctx.clone(),
-    });
+    let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx.clone()));
 
     loop {
         terminal.draw(|f| {
