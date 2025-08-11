@@ -35,6 +35,20 @@ impl Prompt {
         ta
     }
 
+    fn wrapped_lines(&self, width: usize) -> Vec<String> {
+        let mut display = Vec::new();
+        for line in self.textarea.lines() {
+            let wrapped = wrap(line, width);
+            if wrapped.is_empty() {
+                display.push(String::new());
+            }
+            for part in wrapped {
+                display.push(part.into_owned());
+            }
+        }
+        display
+    }
+
     fn cursor_position(&self, inner: Rect) -> (u16, u16, u16) {
         let (row, col) = self.textarea.cursor();
         let width = inner.width as usize;
@@ -162,16 +176,7 @@ impl MockComponent for Prompt {
             .title("Input");
         let inner = block.inner(area);
         let width = inner.width as usize;
-        let mut display = Vec::new();
-        for line in self.textarea.lines() {
-            let wrapped = wrap(line, width);
-            if wrapped.is_empty() {
-                display.push(String::new());
-            }
-            for part in wrapped {
-                display.push(part.into_owned());
-            }
-        }
+        let display = self.wrapped_lines(width);
         let text = display.join("\n");
         let mut paragraph = Paragraph::new(Text::raw(text))
             .block(block)
@@ -189,8 +194,19 @@ impl MockComponent for Prompt {
         }
     }
 
-    fn query(&self, _attr: Attribute) -> Option<AttrValue> {
-        None
+    fn query(&self, attr: Attribute) -> Option<AttrValue> {
+        match attr {
+            Attribute::Height => {
+                let inner_width = self.area.width.saturating_sub(2) as usize;
+                if inner_width == 0 {
+                    Some(AttrValue::Length(3))
+                } else {
+                    let lines = self.wrapped_lines(inner_width).len().max(1);
+                    Some(AttrValue::Length(lines + 2))
+                }
+            }
+            _ => None,
+        }
     }
 
     fn attr(&mut self, attr: Attribute, value: AttrValue) {

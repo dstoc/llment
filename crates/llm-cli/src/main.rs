@@ -4,14 +4,11 @@ use std::time::Duration;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 
-use textwrap::wrap;
-use tuirealm::EventListenerCfg;
 use tuirealm::application::PollStrategy;
 use tuirealm::ratatui::layout::{Constraint, Direction as LayoutDirection, Layout};
 use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
-use tuirealm::{
-    Application, NoUserEvent, State, StateValue, Sub, SubClause, SubEventClause, Update,
-};
+use tuirealm::{Application, NoUserEvent, Sub, SubClause, SubEventClause, Update};
+use tuirealm::{Attribute, EventListenerCfg, props::AttrValue};
 
 mod components;
 mod conversation;
@@ -81,24 +78,17 @@ impl Model {
     fn view(&mut self, terminal: &mut TerminalBridge<CrosstermTerminalAdapter>) {
         let _ = terminal.raw_mut().draw(|f| {
             let area = f.area();
-            let width = area.width.saturating_sub(2); // account for margin
-            let inner_width = width.saturating_sub(2); // account for borders
-            let mut lines = 1usize;
-            if let Ok(State::One(StateValue::String(s))) = self.app.state(&Id::Input) {
-                lines = 0;
-                for line in s.split('\n') {
-                    let wrapped = wrap(line, inner_width as usize);
-                    if wrapped.is_empty() {
-                        lines += 1;
-                    } else {
-                        lines += wrapped.len();
-                    }
-                }
-                if lines == 0 {
-                    lines = 1;
-                }
-            }
-            let input_height = lines as u16 + 2; // add borders
+            let input_height = self
+                .app
+                .query(&Id::Input, Attribute::Height)
+                .ok()
+                .flatten()
+                .and_then(|v| match v {
+                    AttrValue::Length(l) => Some(l as u16),
+                    AttrValue::Size(s) => Some(s),
+                    _ => None,
+                })
+                .unwrap_or(3);
             let chunks = Layout::default()
                 .direction(LayoutDirection::Vertical)
                 .margin(1)
