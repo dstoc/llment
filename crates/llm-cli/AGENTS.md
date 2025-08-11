@@ -22,6 +22,8 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - poll `ToolEvent` updates
 - futures
   - utility traits for non-blocking polling
+- tui-realm-stdlib
+  - spinner for status indicators
 
 ## Features, Requirements and Constraints
 - CLI arguments
@@ -54,6 +56,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
         - final responses render markdown via termimad
         - streaming updates append thinking text, tool calls, and tool results
         - header summarizes thinking duration and completed tool usage
+          - shows spinner while assistant is active
     - items stored as a strongly typed `Node` enum implementing `ConvNode`
       - helper methods append items and steps, bumping `content_rev` for caching
     - partial items are clipped when scrolled

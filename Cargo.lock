@@ -1452,8 +1452,9 @@ dependencies = [
  "textwrap",
  "tokio",
  "tokio-stream",
+ "tui-realm-stdlib",
  "tui-textarea",
- "tuirealm",
+ "tuirealm 3.0.1",
  "unicode-width 0.2.0",
 ]
 
@@ -2946,6 +2947,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tui-realm-stdlib"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78a24d06b8403c57b32a3d3fdac795adf4ef8610e5f9650a3629efc8a9d6c0bb"
+dependencies = [
+ "textwrap",
+ "tuirealm 2.2.0",
+ "unicode-width 0.2.0",
+]
+
+[[package]]
 name = "tui-textarea"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2954,6 +2966,20 @@ dependencies = [
  "crossterm 0.28.1",
  "ratatui",
  "unicode-width 0.2.0",
+]
+
+[[package]]
+name = "tuirealm"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a99ea0862c0e946cd4e53ee8b6c9b301cdb740ed243d827f6d1fee2ad4268e25"
+dependencies = [
+ "bitflags",
+ "crossterm 0.29.0",
+ "lazy-regex",
+ "ratatui",
+ "thiserror 2.0.12",
+ "tuirealm_derive",
 ]
 
 [[package]]
