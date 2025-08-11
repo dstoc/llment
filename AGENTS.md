@@ -9,11 +9,11 @@
 
 # Crates
 The project is divided into crates:
-* crates/mcp-hello
-* crates/mcp-edit
-* crates/ollama-tui-test
-* crates/llm
-* crates/llm-cli
+* [crates/mcp-hello](crates/mcp-hello/AGENTS.md)
+* [crates/mcp-edit](crates/mcp-edit/AGENTS.md)
+* [crates/ollama-tui-test](crates/ollama-tui-test/AGENTS.md)
+* [crates/llm](crates/llm/AGENTS.md)
+* [crates/llm-cli](crates/llm-cli/AGENTS.md)
 
 # Glossary
 MCP: Model Context Protocol
