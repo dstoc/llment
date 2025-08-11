@@ -1,4 +1,5 @@
 use crate::markdown::markdown_to_lines;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tuirealm::event::Key;
 use tuirealm::ratatui::{
     Frame,
@@ -19,6 +20,8 @@ pub struct AssistantBlock {
     pub(crate) content_rev: u64,
     response_lines: Vec<Line<'static>>,
     pub(crate) selected: usize,
+    started: Option<Instant>,
+    last_update: Option<Instant>,
 }
 
 impl AssistantBlock {
@@ -32,7 +35,86 @@ impl AssistantBlock {
             content_rev: 0,
             response_lines: Vec::new(),
             selected: 0,
+            started: None,
+            last_update: None,
         }
+    }
+
+    pub(crate) fn record_activity(&mut self) {
+        let now = Instant::now();
+        if self.started.is_none() {
+            self.started = Some(now);
+        }
+        self.last_update = Some(now);
+    }
+
+    fn spinner() -> char {
+        const SPIN: &[char] = &['|', '/', '-', '\\'];
+        let ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        SPIN[(ms / 100) as usize % SPIN.len()]
+    }
+
+    fn summary(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let (Some(start), Some(end)) = (self.started, self.last_update) {
+            let secs = end.duration_since(start).as_secs();
+            if secs > 0 {
+                parts.push(format!("Thought for {secs}s"));
+            }
+        }
+        let used = self
+            .steps
+            .iter()
+            .filter(|s| matches!(s, Node::Tool(t) if t.done))
+            .count();
+        if used > 0 {
+            let text = if parts.is_empty() {
+                format!("Used {used} tool{}", if used == 1 { "" } else { "s" })
+            } else {
+                format!("used {used} tool{}", if used == 1 { "" } else { "s" })
+            };
+            parts.push(text);
+        }
+        let mut active = false;
+        if let Some(last) = self.steps.last() {
+            match last {
+                Node::Tool(t) if !t.done => {
+                    let text = if parts.is_empty() {
+                        format!("Using {}", t.name)
+                    } else {
+                        format!("using {}", t.name)
+                    };
+                    parts.push(text);
+                    active = true;
+                }
+                Node::Thought(_) if self.response.is_empty() => {
+                    let text = if parts.is_empty() {
+                        "Thinking".to_string()
+                    } else {
+                        "thinking".to_string()
+                    };
+                    parts.push(text);
+                    active = true;
+                }
+                _ => {}
+            }
+        } else if self.response.is_empty() {
+            parts.push("Thinking".to_string());
+            active = true;
+        }
+        if parts.is_empty() {
+            parts.push("Thinking".to_string());
+            active = true;
+        }
+        let mut summary = parts.join(", ");
+        if active {
+            summary.push(' ');
+            summary.push(Self::spinner());
+        }
+        summary
     }
 
     fn ensure_cache(&mut self, width: u16) {
@@ -92,7 +174,7 @@ impl ConvNode for AssistantBlock {
 
         if start == 0 && remaining > 0 {
             let header = Paragraph::new(Line::from(Span::styled(
-                format!("Working {arrow}"),
+                format!("{} {arrow}", self.summary()),
                 sel_style(self.selected == 0),
             )));
             frame.render_widget(header, Rect { height: 1, ..area });

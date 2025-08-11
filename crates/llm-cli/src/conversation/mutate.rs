@@ -42,6 +42,7 @@ impl Conversation {
     pub fn append_thinking(&mut self, text: &str) {
         let at_bottom = self.is_at_bottom();
         let block = self.ensure_last_assistant();
+        block.record_activity();
         if let Some(Node::Thought(t)) = block.steps.last_mut() {
             t.text.push_str(text);
             t.content_rev += 1;
@@ -61,6 +62,7 @@ impl Conversation {
     pub fn append_response(&mut self, text: &str) {
         let at_bottom = self.is_at_bottom();
         let block = self.ensure_last_assistant();
+        block.record_activity();
         block.response.push_str(text);
         block.content_rev += 1;
         self.dirty = true;
@@ -78,6 +80,7 @@ impl Conversation {
             _ => {}
         }
         let block = self.ensure_last_assistant();
+        block.record_activity();
         block.steps.push(step);
         block.content_rev += 1;
         let idx = block.steps.len() - 1;
@@ -94,12 +97,15 @@ impl Conversation {
         let block = self.ensure_last_assistant();
         if let Some(Node::Tool(ToolStep {
             result: r,
+            done,
             content_rev,
             ..
         })) = block.steps.get_mut(step_idx)
         {
             *r = result;
+            *done = true;
             *content_rev += 1;
+            block.record_activity();
             block.content_rev += 1;
             self.dirty = true;
             self.ensure_layout(self.width);
