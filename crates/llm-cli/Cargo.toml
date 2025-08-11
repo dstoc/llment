@@ -12,6 +12,10 @@ textwrap = "0.16.2"
 tui-textarea = "0.7.0"
 tuirealm = "3.0.1"
 unicode-width = "0.2.0"
+llm = { path = "../llm" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio-stream = "0.1"
+futures = "0.3"
 
 [dev-dependencies]
 insta = "1.43.1"

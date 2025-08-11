@@ -161,6 +161,15 @@ impl Component<Msg, NoUserEvent> for Prompt {
                 (Key::Char('l'), KeyModifiers::CONTROL) => {
                     self.set_block();
                 }
+                (Key::Enter, KeyModifiers::NONE) => {
+                    let text = self.textarea.lines().join("\n");
+                    let trimmed = text.trim().to_string();
+                    self.set_block();
+                    if trimmed.is_empty() {
+                        return Some(Msg::None);
+                    }
+                    return Some(Msg::Submit(trimmed));
+                }
                 (Key::Tab, _) => return Some(Msg::FocusConversation),
                 (Key::Esc, _) => return Some(Msg::AppClose),
                 _ => {

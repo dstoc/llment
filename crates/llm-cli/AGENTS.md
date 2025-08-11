@@ -14,6 +14,14 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - render markdown in assistant responses
 - tui-textarea
   - multiline text input with standard editing
+- llm
+  - send chat messages and handle tool orchestration
+- tokio
+  - runtime for asynchronous tool streaming
+- tokio-stream
+  - poll `ToolEvent` updates
+- futures
+  - utility traits for non-blocking polling
 
 ## Features, Requirements and Constraints
 - layout
@@ -23,6 +31,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - text input field at the bottom
     - supports multi-line editing with wrapping
     - height expands to fit content
+    - Enter submits the message
     - Ctrl-J inserts a new line
     - standard shortcuts: Ctrl-W delete previous word, Ctrl-L clears input
     - paste inserts clipboard text
@@ -32,10 +41,12 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - Tab switches focus between conversation and input
   - Esc exits the application
 - conversation items
+  - initialized with empty history
   - user messages render inside a boxed region
   - assistant messages show working steps and final response
     - working and tool sections toggle with Enter or mouse click
     - final responses render markdown via termimad
+    - streaming updates append thinking text, tool calls, and tool results
   - items stored as a strongly typed `Node` enum implementing `ConvNode`
     - selection moves between components, not individual lines
     - helper methods append items and steps, bumping `content_rev` for caching

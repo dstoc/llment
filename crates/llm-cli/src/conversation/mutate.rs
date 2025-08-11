@@ -1,6 +1,8 @@
-use super::{Conversation, Node, ThoughtStep, UserBubble, assistant_block::AssistantBlock};
+use super::{
+    Conversation, Node, ThoughtStep, UserBubble, assistant_block::AssistantBlock,
+    tool_step::ToolStep,
+};
 
-#[allow(dead_code)]
 impl Conversation {
     fn ensure_last_assistant(&mut self) -> &mut AssistantBlock {
         if !matches!(self.items.last(), Some(Node::Assistant(_))) {
@@ -51,7 +53,7 @@ impl Conversation {
         self.dirty = true;
     }
 
-    pub fn add_step(&mut self, mut step: Node) {
+    pub fn add_step(&mut self, mut step: Node) -> usize {
         match &mut step {
             Node::Thought(t) => t.content_rev += 1,
             Node::Tool(t) => t.content_rev += 1,
@@ -60,6 +62,23 @@ impl Conversation {
         let block = self.ensure_last_assistant();
         block.steps.push(step);
         block.content_rev += 1;
+        let idx = block.steps.len() - 1;
         self.dirty = true;
+        idx
+    }
+
+    pub fn update_tool_result(&mut self, step_idx: usize, result: String) {
+        let block = self.ensure_last_assistant();
+        if let Some(Node::Tool(ToolStep {
+            result: r,
+            content_rev,
+            ..
+        })) = block.steps.get_mut(step_idx)
+        {
+            *r = result;
+            *content_rev += 1;
+            block.content_rev += 1;
+            self.dirty = true;
+        }
     }
 }

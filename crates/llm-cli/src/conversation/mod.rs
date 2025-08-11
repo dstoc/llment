@@ -6,6 +6,7 @@ mod thought_step;
 mod tool_step;
 mod user_bubble;
 
+#[allow(unused_imports)]
 pub use assistant_block::AssistantBlock;
 pub use conversation::Conversation;
 pub use node::Node;
