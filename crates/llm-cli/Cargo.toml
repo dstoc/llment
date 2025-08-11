@@ -16,6 +16,7 @@ llm = { path = "../llm" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-stream = "0.1"
 futures = "0.3"
+clap = { version = "4.5.43", features = ["derive"] }
 
 [dev-dependencies]
 insta = "1.43.1"

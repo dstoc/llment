@@ -8,6 +8,7 @@ use std::time::Duration;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 
+use clap::Parser;
 use futures::FutureExt;
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
@@ -26,9 +27,24 @@ mod markdown;
 use components::Prompt;
 use conversation::{Conversation, Node, ToolStep};
 
-use llm::mcp::{McpContext, McpToolExecutor};
+use llm::mcp::{McpContext, McpToolExecutor, load_mcp_servers};
 use llm::tools::{self, ToolEvent, ToolExecutor};
 use llm::{self, ChatMessage, ChatMessageRequest, Provider};
+
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(long, value_enum, default_value_t = Provider::Ollama)]
+    provider: Provider,
+    /// Model identifier to use
+    #[arg(long, default_value = "gpt-oss:20b")]
+    model: String,
+    /// LLM host URL, e.g. http://localhost:11434 for Ollama
+    #[arg(long, default_value = "http://127.0.0.1:11434")]
+    host: String,
+    /// Path to MCP configuration JSON
+    #[arg(long)]
+    mcp: Option<String>,
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Msg {
@@ -95,8 +111,12 @@ struct Model {
     runtime: Runtime,
 }
 
-impl Default for Model {
-    fn default() -> Self {
+impl Model {
+    fn new(
+        client: Arc<dyn llm::LlmClient>,
+        model_name: String,
+        tool_executor: Arc<dyn ToolExecutor>,
+    ) -> Self {
         let runtime = Runtime::new().expect("runtime");
         let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
             EventListenerCfg::default().crossterm_input_listener(Duration::from_millis(10), 10),
@@ -119,9 +139,6 @@ impl Default for Model {
             .is_ok()
         );
         assert!(app.active(&Id::Input).is_ok());
-        let client = llm::client_from(Provider::Ollama, "http://127.0.0.1:11434").expect("client");
-        let mcp_ctx = Arc::new(McpContext::default());
-        let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx));
         Self {
             app,
             quit: false,
@@ -129,7 +146,7 @@ impl Default for Model {
             conversation,
             chat_history: Vec::new(),
             client,
-            model_name: "gpt-oss:20b".into(),
+            model_name,
             tool_executor,
             tool_stream: None,
             tool_task: None,
@@ -137,9 +154,7 @@ impl Default for Model {
             runtime,
         }
     }
-}
 
-impl Model {
     fn view(&mut self, terminal: &mut TerminalBridge<CrosstermTerminalAdapter>) {
         let _ = terminal.raw_mut().draw(|f| {
             let area = f.area();
@@ -236,7 +251,19 @@ impl Update<Msg> for Model {
 }
 
 fn main() {
-    let mut model = Model::default();
+    let args = Args::parse();
+    let client = llm::client_from(args.provider, &args.host).expect("client");
+    let (mcp_ctx, _services) = if let Some(path) = &args.mcp {
+        Runtime::new()
+            .expect("runtime")
+            .block_on(load_mcp_servers(path))
+            .expect("mcp")
+    } else {
+        (McpContext::default(), Vec::new())
+    };
+    let mcp_ctx = Arc::new(mcp_ctx);
+    let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx));
+    let mut model = Model::new(client, args.model, tool_executor);
     let mut terminal = TerminalBridge::init_crossterm().expect("Cannot create terminal bridge");
     let _ = terminal.enable_raw_mode();
     let _ = terminal.enter_alternate_screen();
