@@ -104,6 +104,7 @@ struct Model {
     client: Arc<dyn llm::LlmClient>,
     model_name: String,
     tool_executor: Arc<dyn ToolExecutor>,
+    mcp_ctx: Arc<McpContext>,
     tool_stream: Option<Box<dyn Stream<Item = ToolEvent> + Unpin + Send>>,
     tool_task:
         Option<JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>>,
@@ -116,6 +117,7 @@ impl Model {
         client: Arc<dyn llm::LlmClient>,
         model_name: String,
         tool_executor: Arc<dyn ToolExecutor>,
+        mcp_ctx: Arc<McpContext>,
     ) -> Self {
         let runtime = Runtime::new().expect("runtime");
         let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
@@ -148,6 +150,7 @@ impl Model {
             client,
             model_name,
             tool_executor,
+            mcp_ctx,
             tool_stream: None,
             tool_task: None,
             pending_tools: HashMap::new(),
@@ -227,8 +230,12 @@ impl Update<Msg> for Model {
                 self.conversation.borrow_mut().push_user(text.clone());
                 self.chat_history.push(ChatMessage::user(text));
                 self.conversation.borrow_mut().push_assistant_block();
+                let tool_infos = self
+                    .runtime
+                    .block_on(async { self.mcp_ctx.tool_infos.lock().await.clone() });
                 let request =
                     ChatMessageRequest::new(self.model_name.clone(), self.chat_history.clone())
+                        .tools(tool_infos)
                         .think(true);
                 let history = std::mem::take(&mut self.chat_history);
                 let (stream, handle) = {
@@ -262,8 +269,8 @@ fn main() {
         (McpContext::default(), Vec::new())
     };
     let mcp_ctx = Arc::new(mcp_ctx);
-    let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx));
-    let mut model = Model::new(client, args.model, tool_executor);
+    let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx.clone()));
+    let mut model = Model::new(client, args.model, tool_executor, mcp_ctx);
     let mut terminal = TerminalBridge::init_crossterm().expect("Cannot create terminal bridge");
     let _ = terminal.enable_raw_mode();
     let _ = terminal.enter_alternate_screen();

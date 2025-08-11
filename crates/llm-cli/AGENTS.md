@@ -62,3 +62,5 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - conversation resides under `src/conversation` with modules for nodes and mutation helpers
 - tool streaming
   - drains remaining events after request completes before clearing state
+- MCP integration
+  - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
