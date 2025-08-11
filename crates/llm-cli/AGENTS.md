@@ -28,6 +28,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
     - paste inserts clipboard text
     - clicking the field focuses it
     - cursor hidden when unfocused
+    - trailing spaces do not move the cursor to the next line
   - Tab switches focus between conversation and input
   - Esc exits the application
 - conversation items
