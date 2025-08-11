@@ -257,14 +257,12 @@ impl Update<Msg> for Model {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
     let client = llm::client_from(args.provider, &args.host).expect("client");
     let (mcp_ctx, _services) = if let Some(path) = &args.mcp {
-        Runtime::new()
-            .expect("runtime")
-            .block_on(load_mcp_servers(path))
-            .expect("mcp")
+        load_mcp_servers(path).await.expect("mcp")
     } else {
         (McpContext::default(), Vec::new())
     };
