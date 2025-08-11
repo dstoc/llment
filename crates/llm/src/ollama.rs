@@ -30,7 +30,11 @@ impl LlmClient for OllamaClient {
         let mapped = stream.map(|res| match res {
             Ok(r) => Ok(ResponseChunk {
                 message: ResponseMessage {
-                    content: r.message.content,
+                    content: if r.message.content.is_empty() {
+                        None
+                    } else {
+                        Some(r.message.content)
+                    },
                     tool_calls: r.message.tool_calls,
                     thinking: r.message.thinking,
                 },

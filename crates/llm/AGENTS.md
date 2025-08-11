@@ -22,7 +22,7 @@ Trait-based LLM client implementations for multiple providers.
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Responses
-  - chunks include content, tool calls, and optional thinking text
+  - chunks include optional content, tool calls, and optional thinking text
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests

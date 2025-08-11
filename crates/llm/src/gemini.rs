@@ -136,7 +136,7 @@ impl LlmClient for GeminiClient {
         let mapped = stream.filter_map(move |res| {
             match res {
                 Ok(chunk) => {
-                    let mut content = String::new();
+                    let mut content_acc = String::new();
                     let mut tool_calls = Vec::new();
                     let mut thinking: Option<String> = None;
 
@@ -153,14 +153,18 @@ impl LlmClient for GeminiClient {
                                 if part.thought == Some(true) {
                                     thinking.get_or_insert_with(String::new).push_str(text);
                                 } else {
-                                    content.push_str(text);
+                                    content_acc.push_str(text);
                                 }
                             }
                         }
                     }
 
-                    let is_empty =
-                        content.is_empty() && tool_calls.is_empty() && thinking.is_none();
+                    let content = if content_acc.is_empty() {
+                        None
+                    } else {
+                        Some(content_acc)
+                    };
+                    let is_empty = content.is_none() && tool_calls.is_empty() && thinking.is_none();
                     let done = chunk.candidates.iter().any(|c| c.finish_reason.is_some());
 
                     if done || !is_empty {

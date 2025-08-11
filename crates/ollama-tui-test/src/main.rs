@@ -337,11 +337,13 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     }
                                 }
                             }
-                            if !chunk.message.content.is_empty() {
-                                current_line.push_str(&chunk.message.content);
-                                let assistant_index = ensure_assistant_item(&mut items);
-                                if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
-                                    *line = current_line.clone();
+                            if let Some(content) = chunk.message.content.as_ref() {
+                                if !content.is_empty() {
+                                    current_line.push_str(content);
+                                    let assistant_index = ensure_assistant_item(&mut items);
+                                    if let HistoryItem::Assistant(line) = &mut items[assistant_index] {
+                                        *line = current_line.clone();
+                                    }
                                 }
                             }
                             if chunk.done && pending_tools.is_empty() {
