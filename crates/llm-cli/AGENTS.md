@@ -55,6 +55,8 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
         - working and tool sections toggle with mouse click
         - final responses render markdown via termimad
         - streaming updates append thinking text, tool calls, and tool results
+        - tool step headers show tool name italic and underlined
+          - failed tools display the name in red
         - header displays status line summarizing assistant progress
           - before response: "Thinking" plus completed tool count and current tool with spinner
           - after response: "Thought for Ns" with completed tool count
