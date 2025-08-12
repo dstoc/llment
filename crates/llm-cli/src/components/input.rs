@@ -6,17 +6,21 @@ use tuirealm::props::{AttrValue, Attribute};
 use tuirealm::ratatui::{
     layout::Rect,
     style::{Color, Style},
-    widgets::Paragraph,
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 use tuirealm::{Component, Event, Frame, MockComponent, NoUserEvent, State, StateValue};
 
-use crate::Msg;
+use crate::{
+    Msg,
+    commands::{self, SlashCommand},
+};
 
 /// Multiline prompt input backed by [`tui_textarea`].
 pub struct Prompt {
     textarea: TextArea<'static>,
     area: Rect,
     focused: bool,
+    cmd: Option<CommandPopup>,
 }
 
 impl Prompt {
@@ -31,6 +35,39 @@ impl Prompt {
         // Reapply block/style after clearing
         self.textarea = Self::new_textarea();
     }
+
+    fn refresh_cmd_state(&mut self) {
+        let text = self.textarea.lines().join("\n");
+        if text.starts_with('/') && !text.contains('\n') {
+            let prefix = &text[1..];
+            let matches = commands::matches(prefix);
+            if matches.is_empty() {
+                self.cmd = None;
+            } else {
+                let selected = self
+                    .cmd
+                    .as_ref()
+                    .map(|c| c.selected.min(matches.len() - 1))
+                    .unwrap_or(0);
+                self.cmd = Some(CommandPopup {
+                    prefix: prefix.to_string(),
+                    matches,
+                    selected,
+                    visible: true,
+                });
+            }
+        } else {
+            self.cmd = None;
+        }
+    }
+}
+
+struct CommandPopup {
+    #[allow(dead_code)]
+    prefix: String,
+    matches: Vec<SlashCommand>,
+    selected: usize,
+    visible: bool,
 }
 
 impl Default for Prompt {
@@ -39,6 +76,7 @@ impl Default for Prompt {
             textarea: Self::new_textarea(),
             area: Rect::default(),
             focused: false,
+            cmd: None,
         }
     }
 }
@@ -72,27 +110,101 @@ impl Component<Msg, NoUserEvent> for Prompt {
             Event::Keyboard(key) if self.focused => match (key.code, key.modifiers) {
                 (Key::Char('j'), KeyModifiers::CONTROL) => {
                     self.textarea.insert_newline();
+                    self.refresh_cmd_state();
                 }
                 (Key::Char('l'), KeyModifiers::CONTROL) => {
                     self.set_block();
+                    self.cmd = None;
                 }
                 (Key::Enter, KeyModifiers::NONE) => {
                     let text = self.textarea.lines().join("\n");
                     let trimmed = text.trim().to_string();
+                    let cmd = if let Some(state) = &self.cmd {
+                        if state.visible {
+                            Some(state.matches[state.selected])
+                        } else if trimmed.starts_with('/') {
+                            let name = &trimmed[1..];
+                            let ms = commands::matches(name);
+                            if ms.len() == 1 && ms[0].name() == name {
+                                Some(ms[0])
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else if trimmed.starts_with('/') {
+                        let name = &trimmed[1..];
+                        let ms = commands::matches(name);
+                        if ms.len() == 1 && ms[0].name() == name {
+                            Some(ms[0])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
                     self.set_block();
+                    self.cmd = None;
+                    if let Some(cmd) = cmd {
+                        return Some(Msg::Slash(cmd));
+                    }
                     if trimmed.is_empty() {
                         return Some(Msg::None);
                     }
                     return Some(Msg::Submit(trimmed));
                 }
+                (Key::Up, _) => {
+                    if let Some(state) = &mut self.cmd {
+                        if state.visible {
+                            if state.selected == 0 {
+                                state.selected = state.matches.len() - 1;
+                            } else {
+                                state.selected -= 1;
+                            }
+                            return Some(Msg::None);
+                        }
+                    }
+                    let input = to_input(key);
+                    self.textarea.input(input);
+                    self.refresh_cmd_state();
+                }
+                (Key::Down, _) => {
+                    if let Some(state) = &mut self.cmd {
+                        if state.visible {
+                            state.selected = (state.selected + 1) % state.matches.len();
+                            return Some(Msg::None);
+                        }
+                    }
+                    let input = to_input(key);
+                    self.textarea.input(input);
+                    self.refresh_cmd_state();
+                }
+                (Key::Tab, KeyModifiers::NONE) => {
+                    if let Some(state) = &mut self.cmd {
+                        if state.visible {
+                            let cmd = state.matches[state.selected];
+                            self.set_block();
+                            self.textarea.insert_str(&format!("/{}", cmd.name()));
+                            self.cmd = None;
+                            self.refresh_cmd_state();
+                            return Some(Msg::None);
+                        }
+                    }
+                    let input = to_input(key);
+                    self.textarea.input(input);
+                    self.refresh_cmd_state();
+                }
                 (Key::Esc, _) => return Some(Msg::AppClose),
                 _ => {
                     let input = to_input(key);
                     self.textarea.input(input);
+                    self.refresh_cmd_state();
                 }
             },
             Event::Paste(ref data) if self.focused => {
                 self.textarea.insert_str(data);
+                self.refresh_cmd_state();
             }
             Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -123,6 +235,30 @@ impl MockComponent for Prompt {
 
         frame.render_widget(Paragraph::new("> "), chunks[0]);
         frame.render_widget(&self.textarea, chunks[1]);
+
+        if let Some(state) = &self.cmd {
+            if state.visible {
+                let items: Vec<ListItem> = state
+                    .matches
+                    .iter()
+                    .map(|c| ListItem::new(format!("/{} - {}", c.name(), c.description())))
+                    .collect();
+                let popup_height = items.len() as u16;
+                let popup_area = Rect {
+                    x: chunks[1].x,
+                    y: chunks[1].y.saturating_sub(popup_height),
+                    width: chunks[1].width,
+                    height: popup_height,
+                };
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL))
+                    .highlight_style(Style::default().bg(Color::Blue));
+                let mut list_state = ListState::default();
+                list_state.select(Some(state.selected));
+                frame.render_widget(Clear, popup_area);
+                frame.render_stateful_widget(list, popup_area, &mut list_state);
+            }
+        }
     }
 
     fn query(&self, attr: Attribute) -> Option<AttrValue> {

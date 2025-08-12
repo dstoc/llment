@@ -68,6 +68,13 @@ impl Conversation {
         let max = self.total_height().saturating_sub(self.viewport);
         self.scroll = max;
     }
+
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.scroll = 0;
+        self.layout.clear();
+        self.dirty = true;
+    }
 }
 
 impl MockComponent for Conversation {

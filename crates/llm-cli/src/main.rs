@@ -20,9 +20,11 @@ use tuirealm::{
     props::AttrValue,
 };
 
+mod commands;
 mod components;
 mod conversation;
 mod markdown;
+use commands::SlashCommand;
 use components::Prompt;
 use conversation::{Conversation, Node, ToolStep};
 
@@ -50,6 +52,7 @@ pub enum Msg {
     AppClose,
     FocusInput,
     Submit(String),
+    Slash(SlashCommand),
     None,
 }
 
@@ -243,6 +246,10 @@ impl Update<Msg> for Model {
                 self.tool_stream = Some(Box::new(stream));
                 self.tool_task = Some(handle);
                 self.pending_tools.clear();
+                None
+            }
+            Msg::Slash(cmd) => {
+                commands::execute(cmd, self);
                 None
             }
             Msg::None => None,
