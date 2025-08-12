@@ -38,3 +38,24 @@ pub fn execute(cmd: SlashCommand, model: &mut Model) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn match_prefixes() {
+        insta::assert_debug_snapshot!(matches(""), @r###"
+[
+    Quit,
+    Clear,
+]
+"###);
+        insta::assert_debug_snapshot!(matches("c"), @r###"
+[
+    Clear,
+]
+"###);
+        insta::assert_debug_snapshot!(matches("x"), @r###"[]"###);
+    }
+}
