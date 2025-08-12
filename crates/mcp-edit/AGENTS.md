@@ -35,8 +35,10 @@ MCP server offering file system editing utilities.
     - creates parent directories as needed
   - `glob`
     - respects git ignore and optional case sensitivity
+    - validates matched paths are within the workspace
   - `search_file_content`
     - runs regex searches with optional include filters
+    - validates matches are within the workspace
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
   - optional parameters prefix descriptions with "Optional."
