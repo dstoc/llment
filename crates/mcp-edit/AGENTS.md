@@ -11,7 +11,7 @@ MCP server offering file system editing utilities.
   - asynchronous runtime and test framework
 - base64
   - encode binary file data
-- globset, ignore, regex
+- globset, ignore, grep
   - globbing and pattern search
 - glob
   - expand glob patterns for reading many files
@@ -37,7 +37,7 @@ MCP server offering file system editing utilities.
     - respects git ignore and optional case sensitivity
     - validates matched paths are within the workspace
   - `search_file_content`
-    - runs regex searches with optional include filters
+    - uses `grep` crate for regex searches with optional include filters
     - validates matches are within the workspace
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
