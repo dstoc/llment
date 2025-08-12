@@ -281,10 +281,20 @@ impl MockComponent for Prompt {
     }
 
     fn attr(&mut self, attr: Attribute, value: AttrValue) {
-        if let Attribute::Focus = attr {
-            if let AttrValue::Flag(f) = value {
-                self.focused = f;
+        match attr {
+            Attribute::Focus => {
+                if let AttrValue::Flag(f) = value {
+                    self.focused = f;
+                }
             }
+            Attribute::Text => {
+                if let AttrValue::String(s) = value {
+                    self.set_block();
+                    self.textarea.insert_str(&s);
+                    self.refresh_cmd_state();
+                }
+            }
+            _ => {}
         }
     }
 
