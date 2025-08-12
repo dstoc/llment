@@ -9,6 +9,7 @@ use tuirealm::ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 use tuirealm::{Component, Event, Frame, MockComponent, NoUserEvent, State, StateValue};
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     Msg,
@@ -239,16 +240,23 @@ impl MockComponent for Prompt {
 
         if let Some(state) = &self.cmd {
             if state.visible {
-                let items: Vec<ListItem> = state
+                let entries: Vec<String> = state
                     .matches
                     .iter()
-                    .map(|c| ListItem::new(format!("/{} - {}", c.name(), c.description())))
+                    .map(|c| format!("/{} - {}", c.name(), c.description()))
                     .collect();
+                let popup_width = entries
+                    .iter()
+                    .map(|s| s.as_str().width())
+                    .max()
+                    .unwrap_or(0) as u16
+                    + 2;
+                let items: Vec<ListItem> = entries.into_iter().map(ListItem::new).collect();
                 let popup_height = items.len() as u16 + 2;
                 let popup_area = Rect {
                     x: chunks[1].x,
                     y: chunks[1].y.saturating_sub(popup_height),
-                    width: chunks[1].width,
+                    width: popup_width,
                     height: popup_height,
                 };
                 let list = List::new(items)
