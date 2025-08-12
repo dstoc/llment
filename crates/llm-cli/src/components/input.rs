@@ -235,6 +235,7 @@ impl MockComponent for Prompt {
 
         frame.render_widget(Paragraph::new("> "), chunks[0]);
         frame.render_widget(&self.textarea, chunks[1]);
+        self.area = chunks[1];
 
         if let Some(state) = &self.cmd {
             if state.visible {
@@ -243,7 +244,7 @@ impl MockComponent for Prompt {
                     .iter()
                     .map(|c| ListItem::new(format!("/{} - {}", c.name(), c.description())))
                     .collect();
-                let popup_height = items.len() as u16;
+                let popup_height = items.len() as u16 + 2;
                 let popup_area = Rect {
                     x: chunks[1].x,
                     y: chunks[1].y.saturating_sub(popup_height),
