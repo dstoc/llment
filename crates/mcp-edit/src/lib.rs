@@ -11,7 +11,7 @@ use rmcp::{
 use std::{
     cmp::Ordering,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::SystemTime,
 };
 
@@ -147,14 +147,36 @@ pub struct FsServer {
 }
 
 impl FsServer {
+    fn normalize(path: &Path) -> PathBuf {
+        let mut normalized = PathBuf::new();
+        for comp in path.components() {
+            match comp {
+                Component::ParentDir => {
+                    normalized.pop();
+                }
+                Component::CurDir => {}
+                other => normalized.push(other.as_os_str()),
+            }
+        }
+        normalized
+    }
+
     fn resolve(&self, path: &str) -> Result<PathBuf, McpError> {
-        if !Path::new(path).is_absolute() {
+        let p = Path::new(path);
+        if !p.is_absolute() {
             return Err(McpError::invalid_params(
                 "path must be an absolute path".to_string(),
                 None,
             ));
         }
-        let canonical = fs::canonicalize(path).map_err(|e| {
+        let normalized = Self::normalize(p);
+        if !normalized.starts_with(&self.workspace_root) {
+            return Err(McpError::invalid_params(
+                "path must be within the workspace".to_string(),
+                None,
+            ));
+        }
+        let canonical = fs::canonicalize(&normalized).map_err(|e| {
             McpError::invalid_params(format!("failed to canonicalize path: {e}"), None)
         })?;
         if !canonical.starts_with(&self.workspace_root) {
@@ -177,7 +199,14 @@ impl FsServer {
         let parent = p.parent().ok_or_else(|| {
             McpError::invalid_params("file_path must have a parent directory".to_string(), None)
         })?;
-        let canonical_parent = fs::canonicalize(parent).map_err(|e| {
+        let normalized_parent = Self::normalize(parent);
+        if !normalized_parent.starts_with(&self.workspace_root) {
+            return Err(McpError::invalid_params(
+                "path must be within the workspace".to_string(),
+                None,
+            ));
+        }
+        let canonical_parent = fs::canonicalize(&normalized_parent).map_err(|e| {
             McpError::invalid_params(format!("failed to canonicalize path: {e}"), None)
         })?;
         if !canonical_parent.starts_with(&self.workspace_root) {
@@ -824,5 +853,59 @@ mod tests {
             .text
             .clone();
         assert!(text.contains("bar"));
+    }
+
+    #[tokio::test]
+    async fn read_file_outside_workspace_masks_existence() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let existing = outside.path().join("exists.txt");
+        fs::write(&existing, "hello").unwrap();
+        let missing = outside.path().join("missing.txt");
+        let server = FsServer::new(workspace.path());
+        let err_existing = server
+            .read_file(Parameters(ReadFileParams {
+                path: existing.to_string_lossy().to_string(),
+                offset: None,
+                limit: None,
+            }))
+            .await
+            .unwrap_err();
+        let err_missing = server
+            .read_file(Parameters(ReadFileParams {
+                path: missing.to_string_lossy().to_string(),
+                offset: None,
+                limit: None,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err_existing.message, err_missing.message);
+        assert_eq!(err_existing.message, "path must be within the workspace");
+    }
+
+    #[tokio::test]
+    async fn write_file_outside_workspace_masks_existence() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let existing = outside.path().join("exists.txt");
+        fs::write(&existing, "old").unwrap();
+        let missing = outside.path().join("missing.txt");
+        let server = FsServer::new(workspace.path());
+        let err_existing = server
+            .write_file(Parameters(WriteFileParams {
+                file_path: existing.to_string_lossy().to_string(),
+                content: "new".into(),
+            }))
+            .await
+            .unwrap_err();
+        let err_missing = server
+            .write_file(Parameters(WriteFileParams {
+                file_path: missing.to_string_lossy().to_string(),
+                content: "new".into(),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err_existing.message, err_missing.message);
+        assert_eq!(err_existing.message, "path must be within the workspace");
     }
 }

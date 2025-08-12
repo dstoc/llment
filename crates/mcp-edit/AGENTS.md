@@ -22,6 +22,7 @@ MCP server offering file system editing utilities.
 ## Features, Requirements and Constraints
 - workspace root via CLI
   - all paths must be absolute within this directory
+  - paths outside the workspace return the same error regardless of file existence
 - tools
   - `replace`
     - enforces the expected number of string replacements
