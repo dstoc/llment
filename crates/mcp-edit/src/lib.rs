@@ -1,7 +1,10 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use globset::{Glob, GlobBuilder, GlobSetBuilder};
+use grep::{
+    regex::RegexMatcher,
+    searcher::{Searcher, sinks::UTF8},
+};
 use ignore::WalkBuilder;
-use regex::Regex;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
@@ -639,7 +642,7 @@ impl FsServer {
         } else {
             self.workspace_root.clone()
         };
-        let regex = Regex::new(&pattern)
+        let matcher = RegexMatcher::new(&pattern)
             .map_err(|e| McpError::invalid_params(format!("invalid regex: {e}"), None))?;
         let include_matcher = if let Some(ref inc) = include {
             Some(
@@ -656,6 +659,7 @@ impl FsServer {
         builder.git_ignore(true);
         builder.standard_filters(true);
         let mut results = Vec::new();
+        let mut searcher = Searcher::new();
         for result in builder.build() {
             let entry =
                 result.map_err(|e| McpError::internal_error(format!("walk error: {e}"), None))?;
@@ -675,14 +679,19 @@ impl FsServer {
                     continue;
                 }
             }
-            let content = match fs::read_to_string(&canonical) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            for (idx, line) in content.lines().enumerate() {
-                if regex.is_match(line) {
-                    results.push(format!("File: {}\nL{}: {}", rel.display(), idx + 1, line));
-                }
+            let rel_display = rel.display().to_string();
+            if let Err(err) = searcher.search_path(
+                &matcher,
+                &canonical,
+                UTF8(|ln, line| {
+                    results.push(format!("File: {}\nL{}: {}", rel_display, ln, line));
+                    Ok(true)
+                }),
+            ) {
+                return Err(McpError::internal_error(
+                    format!("search error: {err}"),
+                    None,
+                ));
             }
         }
         let mut output = format!(
