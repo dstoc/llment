@@ -48,6 +48,9 @@ pub fn execute(cmd: SlashCommand, model: &mut Model) {
                     .app
                     .attr(&Id::Input, Attribute::Text, AttrValue::String(text));
                 let _ = model.app.active(&Id::Input);
+                let _ = model
+                    .app
+                    .attr(&Id::Input, Attribute::Focus, AttrValue::Flag(true));
                 model.tool_stream = None;
                 if let Some(handle) = model.tool_task.take() {
                     handle.abort();

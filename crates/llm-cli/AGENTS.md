@@ -53,7 +53,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
           - `Tab` completes and `Enter` executes
         - `/quit` exits the application
         - `/clear` resets conversation history
-        - `/redo` rolls back the last assistant block and restores the previous user message in the input
+        - `/redo` rolls back the last assistant block, restores the previous user message in the input, and refocuses the prompt for editing
     - Esc exits the application
     - conversation pane has no keyboard interaction
     - conversation items
