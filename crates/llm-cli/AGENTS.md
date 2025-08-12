@@ -47,10 +47,14 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
       - cursor hidden when unfocused
       - trailing spaces do not move the cursor to the next line
       - recognizes `/` commands
-        - `/` opens a popup with `/quit`, `/clear`, and `/redo`
+        - `/` opens a popup with `/quit`, `/clear`, `/redo`, and `/model`
           - width adjusts to content
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
+        - commands may accept parameters via a cursor-aligned popup
+          - `/model ` offers `gpt-oss:20b` and `gpt-oss:120b`
+            - `Up`/`Down` navigate model selection
+            - `Tab` completes the highlighted model
         - `/quit` exits the application
         - `/clear` resets conversation history
         - `/redo` rolls back the last assistant block, restores the previous user message in the input, and refocuses the prompt for editing

@@ -52,7 +52,7 @@ pub enum Msg {
     AppClose,
     FocusInput,
     Submit(String),
-    Slash(SlashCommand),
+    Slash(SlashCommand, Option<String>),
     None,
 }
 
@@ -248,8 +248,8 @@ impl Update<Msg> for Model {
                 self.pending_tools.clear();
                 None
             }
-            Msg::Slash(cmd) => {
-                commands::execute(cmd, self);
+            Msg::Slash(cmd, param) => {
+                commands::execute(cmd, param, self);
                 None
             }
             Msg::None => None,

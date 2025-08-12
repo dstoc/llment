@@ -22,6 +22,7 @@ pub struct Prompt {
     area: Rect,
     focused: bool,
     cmd: Option<CommandPopup>,
+    param: Option<ParamPopup>,
 }
 
 impl Prompt {
@@ -40,8 +41,37 @@ impl Prompt {
     fn refresh_cmd_state(&mut self) {
         let text = self.textarea.lines().join("\n");
         if text.starts_with('/') && !text.contains('\n') {
-            let prefix = &text[1..];
-            let matches = commands::matches(prefix);
+            let rest = &text[1..];
+            if let Some((name, param)) = rest.split_once(' ') {
+                if !param.contains(' ') {
+                    let matches = commands::matches(name);
+                    if matches.len() == 1 && matches[0].name() == name {
+                        let cmd = matches[0];
+                        let params = commands::param_matches(cmd, param);
+                        if params.is_empty() {
+                            self.param = None;
+                        } else {
+                            let selected = self
+                                .param
+                                .as_ref()
+                                .map(|p| p.selected.min(params.len() - 1))
+                                .unwrap_or(0);
+                            let offset = format!("/{} ", name).width() as u16;
+                            self.param = Some(ParamPopup {
+                                cmd,
+                                prefix: param.to_string(),
+                                matches: params,
+                                selected,
+                                visible: true,
+                                offset,
+                            });
+                        }
+                        self.cmd = None;
+                        return;
+                    }
+                }
+            }
+            let matches = commands::matches(rest);
             if matches.is_empty() {
                 self.cmd = None;
             } else {
@@ -51,14 +81,16 @@ impl Prompt {
                     .map(|c| c.selected.min(matches.len() - 1))
                     .unwrap_or(0);
                 self.cmd = Some(CommandPopup {
-                    prefix: prefix.to_string(),
+                    prefix: rest.to_string(),
                     matches,
                     selected,
                     visible: true,
                 });
             }
+            self.param = None;
         } else {
             self.cmd = None;
+            self.param = None;
         }
     }
 }
@@ -71,6 +103,16 @@ struct CommandPopup {
     visible: bool,
 }
 
+struct ParamPopup {
+    cmd: SlashCommand,
+    #[allow(dead_code)]
+    prefix: String,
+    matches: Vec<&'static str>,
+    selected: usize,
+    visible: bool,
+    offset: u16,
+}
+
 impl Default for Prompt {
     fn default() -> Self {
         Self {
@@ -78,6 +120,7 @@ impl Default for Prompt {
             area: Rect::default(),
             focused: false,
             cmd: None,
+            param: None,
         }
     }
 }
@@ -116,39 +159,26 @@ impl Component<Msg, NoUserEvent> for Prompt {
                 (Key::Char('l'), KeyModifiers::CONTROL) => {
                     self.set_block();
                     self.cmd = None;
+                    self.param = None;
                 }
                 (Key::Enter, KeyModifiers::NONE) => {
+                    if let Some(state) = &mut self.param {
+                        if state.visible {
+                            let cmd = state.cmd;
+                            let param = state.matches[state.selected].to_string();
+                            self.set_block();
+                            self.cmd = None;
+                            self.param = None;
+                            return Some(Msg::Slash(cmd, Some(param)));
+                        }
+                    }
                     let text = self.textarea.lines().join("\n");
                     let trimmed = text.trim().to_string();
-                    let cmd = if let Some(state) = &self.cmd {
-                        if state.visible {
-                            Some(state.matches[state.selected])
-                        } else if trimmed.starts_with('/') {
-                            let name = &trimmed[1..];
-                            let ms = commands::matches(name);
-                            if ms.len() == 1 && ms[0].name() == name {
-                                Some(ms[0])
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else if trimmed.starts_with('/') {
-                        let name = &trimmed[1..];
-                        let ms = commands::matches(name);
-                        if ms.len() == 1 && ms[0].name() == name {
-                            Some(ms[0])
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
                     self.set_block();
                     self.cmd = None;
-                    if let Some(cmd) = cmd {
-                        return Some(Msg::Slash(cmd));
+                    self.param = None;
+                    if let Some((cmd, param)) = commands::parse(&trimmed) {
+                        return Some(Msg::Slash(cmd, param));
                     }
                     if trimmed.is_empty() {
                         return Some(Msg::None);
@@ -156,6 +186,16 @@ impl Component<Msg, NoUserEvent> for Prompt {
                     return Some(Msg::Submit(trimmed));
                 }
                 (Key::Up, _) => {
+                    if let Some(state) = &mut self.param {
+                        if state.visible {
+                            if state.selected == 0 {
+                                state.selected = state.matches.len() - 1;
+                            } else {
+                                state.selected -= 1;
+                            }
+                            return Some(Msg::None);
+                        }
+                    }
                     if let Some(state) = &mut self.cmd {
                         if state.visible {
                             if state.selected == 0 {
@@ -171,6 +211,12 @@ impl Component<Msg, NoUserEvent> for Prompt {
                     self.refresh_cmd_state();
                 }
                 (Key::Down, _) => {
+                    if let Some(state) = &mut self.param {
+                        if state.visible {
+                            state.selected = (state.selected + 1) % state.matches.len();
+                            return Some(Msg::None);
+                        }
+                    }
                     if let Some(state) = &mut self.cmd {
                         if state.visible {
                             state.selected = (state.selected + 1) % state.matches.len();
@@ -182,11 +228,26 @@ impl Component<Msg, NoUserEvent> for Prompt {
                     self.refresh_cmd_state();
                 }
                 (Key::Tab, KeyModifiers::NONE) => {
+                    if let Some(state) = &mut self.param {
+                        if state.visible {
+                            let cmd = state.cmd;
+                            let param = state.matches[state.selected];
+                            self.set_block();
+                            self.textarea
+                                .insert_str(&format!("/{} {}", cmd.name(), param));
+                            self.param = None;
+                            return Some(Msg::None);
+                        }
+                    }
                     if let Some(state) = &mut self.cmd {
                         if state.visible {
                             let cmd = state.matches[state.selected];
                             self.set_block();
-                            self.textarea.insert_str(&format!("/{}", cmd.name()));
+                            if cmd.params().is_some() {
+                                self.textarea.insert_str(&format!("/{} ", cmd.name()));
+                            } else {
+                                self.textarea.insert_str(&format!("/{}", cmd.name()));
+                            }
                             self.cmd = None;
                             self.refresh_cmd_state();
                             return Some(Msg::None);
@@ -238,7 +299,32 @@ impl MockComponent for Prompt {
         frame.render_widget(&self.textarea, chunks[1]);
         self.area = chunks[1];
 
-        if let Some(state) = &self.cmd {
+        if let Some(state) = &self.param {
+            if state.visible {
+                let entries: Vec<String> = state.matches.iter().map(|s| s.to_string()).collect();
+                let popup_width = entries
+                    .iter()
+                    .map(|s| s.as_str().width())
+                    .max()
+                    .unwrap_or(0) as u16
+                    + 2;
+                let items: Vec<ListItem> = entries.into_iter().map(ListItem::new).collect();
+                let popup_height = items.len() as u16 + 2;
+                let popup_area = Rect {
+                    x: chunks[1].x + state.offset,
+                    y: chunks[1].y.saturating_sub(popup_height),
+                    width: popup_width,
+                    height: popup_height,
+                };
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL))
+                    .highlight_style(Style::default().bg(Color::Blue));
+                let mut list_state = ListState::default();
+                list_state.select(Some(state.selected));
+                frame.render_widget(Clear, popup_area);
+                frame.render_stateful_widget(list, popup_area, &mut list_state);
+            }
+        } else if let Some(state) = &self.cmd {
             if state.visible {
                 let entries: Vec<String> = state
                     .matches
