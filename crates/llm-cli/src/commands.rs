@@ -1,4 +1,5 @@
 use crate::{Id, Model};
+use llm::MessageRole;
 use tuirealm::props::{AttrValue, Attribute};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,8 +43,11 @@ pub fn execute(cmd: SlashCommand, model: &mut Model) {
         }
         SlashCommand::Redo => {
             if let Some(text) = model.conversation.borrow_mut().redo_last() {
-                let _ = model.chat_history.pop();
-                let _ = model.chat_history.pop();
+                while let Some(msg) = model.chat_history.pop() {
+                    if msg.role == MessageRole::User {
+                        break;
+                    }
+                }
                 let _ = model
                     .app
                     .attr(&Id::Input, Attribute::Text, AttrValue::String(text));
