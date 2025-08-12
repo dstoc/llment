@@ -48,6 +48,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
       - trailing spaces do not move the cursor to the next line
       - recognizes `/` commands
         - `/` opens a popup with `/quit` and `/clear`
+          - width adjusts to content
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
         - `/quit` exits the application
