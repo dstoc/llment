@@ -116,4 +116,17 @@ impl Conversation {
             }
         }
     }
+
+    pub fn redo_last(&mut self) -> Option<String> {
+        if matches!(self.items.last(), Some(Node::Assistant(_))) {
+            self.items.pop();
+            if let Some(Node::User(user)) = self.items.pop() {
+                self.dirty = true;
+                self.ensure_layout(self.width);
+                self.scroll_to_bottom();
+                return Some(user.text);
+            }
+        }
+        None
+    }
 }

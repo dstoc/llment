@@ -1,9 +1,11 @@
-use crate::Model;
+use crate::{Id, Model};
+use tuirealm::props::{AttrValue, Attribute};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlashCommand {
     Quit,
     Clear,
+    Redo,
 }
 
 impl SlashCommand {
@@ -11,6 +13,7 @@ impl SlashCommand {
         match self {
             SlashCommand::Quit => "quit",
             SlashCommand::Clear => "clear",
+            SlashCommand::Redo => "redo",
         }
     }
 
@@ -18,12 +21,13 @@ impl SlashCommand {
         match self {
             SlashCommand::Quit => "Exit the application",
             SlashCommand::Clear => "Clear conversation history",
+            SlashCommand::Redo => "Edit previous message",
         }
     }
 }
 
 pub fn matches(prefix: &str) -> Vec<SlashCommand> {
-    [SlashCommand::Quit, SlashCommand::Clear]
+    [SlashCommand::Quit, SlashCommand::Clear, SlashCommand::Redo]
         .into_iter()
         .filter(|c| c.name().starts_with(prefix))
         .collect()
@@ -35,6 +39,21 @@ pub fn execute(cmd: SlashCommand, model: &mut Model) {
         SlashCommand::Clear => {
             model.conversation.borrow_mut().clear();
             model.chat_history.clear();
+        }
+        SlashCommand::Redo => {
+            if let Some(text) = model.conversation.borrow_mut().redo_last() {
+                let _ = model.chat_history.pop();
+                let _ = model.chat_history.pop();
+                let _ = model
+                    .app
+                    .attr(&Id::Input, Attribute::Text, AttrValue::String(text));
+                let _ = model.app.active(&Id::Input);
+                model.tool_stream = None;
+                if let Some(handle) = model.tool_task.take() {
+                    handle.abort();
+                }
+                model.pending_tools.clear();
+            }
         }
     }
 }
@@ -49,6 +68,7 @@ mod tests {
 [
     Quit,
     Clear,
+    Redo,
 ]
 "###);
         insta::assert_debug_snapshot!(matches("c"), @r###"
