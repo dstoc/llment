@@ -46,6 +46,12 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
       - clicking the field focuses it
       - cursor hidden when unfocused
       - trailing spaces do not move the cursor to the next line
+      - recognizes `/` commands
+        - `/` opens a popup with `/quit` and `/clear`
+          - `Up`/`Down` navigate selection
+          - `Tab` completes and `Enter` executes
+        - `/quit` exits the application
+        - `/clear` resets conversation history
     - Esc exits the application
     - conversation pane has no keyboard interaction
     - conversation items
