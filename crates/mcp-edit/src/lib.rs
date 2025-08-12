@@ -591,9 +591,16 @@ impl FsServer {
             if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                 continue;
             }
-            let rel = entry.path().strip_prefix(&root).unwrap_or(entry.path());
+            let canonical = match fs::canonicalize(entry.path()) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !canonical.starts_with(&self.workspace_root) {
+                continue;
+            }
+            let rel = canonical.strip_prefix(&root).unwrap_or(&canonical);
             if glob.is_match(rel) {
-                matches.push(entry.path().to_path_buf());
+                matches.push(canonical);
             }
         }
         matches.sort_by_key(|p| {
@@ -655,13 +662,20 @@ impl FsServer {
             if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                 continue;
             }
-            let rel = entry.path().strip_prefix(&root).unwrap_or(entry.path());
+            let canonical = match fs::canonicalize(entry.path()) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !canonical.starts_with(&self.workspace_root) {
+                continue;
+            }
+            let rel = canonical.strip_prefix(&root).unwrap_or(&canonical);
             if let Some(matcher) = &include_matcher {
                 if !matcher.is_match(rel) {
                     continue;
                 }
             }
-            let content = match fs::read_to_string(entry.path()) {
+            let content = match fs::read_to_string(&canonical) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
@@ -696,6 +710,8 @@ impl ServerHandler for FsServer {}
 mod tests {
     use super::*;
     use std::io::Write;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use tempfile::{NamedTempFile, tempdir};
 
     #[tokio::test]
@@ -833,6 +849,34 @@ mod tests {
         assert!(!text.contains("b.txt"));
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn glob_ignores_files_outside_workspace() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let outside_file = outside.path().join("a.rs");
+        fs::write(&outside_file, "").unwrap();
+        let link_path = workspace.path().join("link.rs");
+        symlink(&outside_file, &link_path).unwrap();
+        let server = FsServer::new(workspace.path());
+        let result = server
+            .glob(Parameters(GlobParams {
+                pattern: "*.rs".into(),
+                path: None,
+                case_sensitive: None,
+                respect_git_ignore: None,
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(!text.contains("link.rs"));
+    }
+
     #[tokio::test]
     async fn search_file_content_finds_matches() {
         let dir = tempdir().unwrap();
@@ -853,6 +897,33 @@ mod tests {
             .text
             .clone();
         assert!(text.contains("bar"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn search_file_content_ignores_files_outside_workspace() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let outside_file = outside.path().join("a.txt");
+        fs::write(&outside_file, "foo").unwrap();
+        let link = workspace.path().join("link.txt");
+        symlink(&outside_file, &link).unwrap();
+        let server = FsServer::new(workspace.path());
+        let result = server
+            .search_file_content(Parameters(SearchFileContentParams {
+                pattern: "foo".into(),
+                path: None,
+                include: Some("*.txt".into()),
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(!text.contains("link.txt"));
     }
 
     #[tokio::test]
