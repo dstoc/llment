@@ -47,9 +47,16 @@ pub struct ResponseMessage {
 }
 
 #[derive(Debug)]
+pub struct Usage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+}
+
+#[derive(Debug)]
 pub struct ResponseChunk {
     pub message: ResponseMessage,
     pub done: bool,
+    pub usage: Option<Usage>,
 }
 
 pub type ChatStream =

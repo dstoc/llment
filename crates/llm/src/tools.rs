@@ -160,6 +160,7 @@ mod tests {
                         }],
                     },
                     done: true,
+                    usage: None,
                 })],
                 2 => vec![Ok(ResponseChunk {
                     message: crate::ResponseMessage {
@@ -168,6 +169,7 @@ mod tests {
                         tool_calls: vec![],
                     },
                     done: true,
+                    usage: None,
                 })],
                 _ => vec![],
             };

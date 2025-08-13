@@ -5,7 +5,7 @@ use ollama_rs::Ollama;
 use ollama_rs::generation::chat::{ChatMessageResponseStream, request::ChatMessageRequest};
 use tokio_stream::StreamExt;
 
-use super::{ChatStream, LlmClient, ResponseChunk, ResponseMessage};
+use super::{ChatStream, LlmClient, ResponseChunk, ResponseMessage, Usage};
 
 pub struct OllamaClient {
     inner: Ollama,
@@ -39,6 +39,14 @@ impl LlmClient for OllamaClient {
                     thinking: r.message.thinking,
                 },
                 done: r.done,
+                usage: if r.done {
+                    r.final_data.as_ref().map(|f| Usage {
+                        input_tokens: f.prompt_eval_count as u32,
+                        output_tokens: f.eval_count as u32,
+                    })
+                } else {
+                    None
+                },
             }),
             Err(_) => Err("stream error".into()),
         });
