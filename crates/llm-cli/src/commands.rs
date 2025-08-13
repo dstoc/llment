@@ -1,7 +1,6 @@
 use crate::{Id, Model};
 use clap::ValueEnum;
 use llm::{MessageRole, Provider};
-use tokio::runtime::Handle;
 use tuirealm::props::{AttrValue, Attribute, PropPayload, PropValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,11 +53,17 @@ pub fn matches(prefix: &str) -> Vec<SlashCommand> {
 
 pub fn param_matches(cmd: SlashCommand, prefix: &str, models: &[String]) -> Vec<String> {
     match cmd {
-        SlashCommand::Model => models
-            .iter()
-            .filter(|m| m.starts_with(prefix))
-            .cloned()
-            .collect(),
+        SlashCommand::Model => {
+            if models.len() == 1 && models[0] == "fetching..." {
+                models.to_vec()
+            } else {
+                models
+                    .iter()
+                    .filter(|m| m.starts_with(prefix))
+                    .cloned()
+                    .collect()
+            }
+        }
         _ => Vec::new(),
     }
 }
@@ -128,17 +133,9 @@ pub fn execute(cmd: SlashCommand, param: Option<String>, model: &mut Model) {
                 if let Some((prov, model_name)) = param.split_once(' ') {
                     if let Ok(provider) = Provider::from_str(prov, true) {
                         let client = llm::client_from(provider, &model.host).expect("client");
-                        let models = model.models.entry(provider).or_insert_with(|| {
-                            Handle::current()
-                                .block_on(client.clone().list_models())
-                                .unwrap_or_default()
-                        });
-                        model.client = client;
+                        model.client = client.clone();
                         model.provider = provider;
                         model.model_name = model_name.to_string();
-                        let attr = AttrValue::Payload(PropPayload::Vec(
-                            models.iter().cloned().map(PropValue::Str).collect(),
-                        ));
                         let prov_name =
                             provider.to_possible_value().unwrap().get_name().to_string();
                         let _ = model.app.attr(
@@ -146,9 +143,31 @@ pub fn execute(cmd: SlashCommand, param: Option<String>, model: &mut Model) {
                             Attribute::Custom("provider"),
                             AttrValue::String(prov_name),
                         );
-                        let _ = model
-                            .app
-                            .attr(&Id::Input, Attribute::Custom("models"), attr);
+                        let models_entry = model.models.entry(provider).or_insert(None);
+                        let models_attr = if let Some(models) = models_entry.as_ref() {
+                            AttrValue::Payload(PropPayload::Vec(
+                                models.iter().cloned().map(PropValue::Str).collect(),
+                            ))
+                        } else {
+                            // kick off async fetch if not already started
+                            if let Some((_, handle)) = model.model_fetch.take() {
+                                handle.abort();
+                            }
+                            let fetch_client = client.clone();
+                            model.model_fetch = Some((
+                                provider,
+                                tokio::spawn(async move {
+                                    fetch_client.list_models().await.unwrap_or_default()
+                                }),
+                            ));
+                            AttrValue::Payload(PropPayload::Vec(vec![PropValue::Str(
+                                "fetching...".to_string(),
+                            )]))
+                        };
+                        let _ =
+                            model
+                                .app
+                                .attr(&Id::Input, Attribute::Custom("models"), models_attr);
                     }
                 }
             }

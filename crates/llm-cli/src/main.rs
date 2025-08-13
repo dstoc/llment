@@ -17,7 +17,7 @@ use tuirealm::ratatui::layout::{Constraint, Direction as LayoutDirection, Layout
 use tuirealm::terminal::{CrosstermTerminalAdapter, TerminalBridge};
 use tuirealm::{
     Application, Attribute, EventListenerCfg, NoUserEvent, Sub, SubClause, SubEventClause, Update,
-    props::AttrValue,
+    props::{AttrValue, PropPayload, PropValue},
 };
 
 mod commands;
@@ -105,7 +105,7 @@ struct Model {
     client: Arc<dyn llm::LlmClient>,
     provider: Provider,
     host: String,
-    models: HashMap<Provider, Vec<String>>,
+    models: HashMap<Provider, Option<Vec<String>>>,
     model_name: String,
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_ctx: Arc<McpContext>,
@@ -113,6 +113,7 @@ struct Model {
     tool_task:
         Option<JoinHandle<Result<Vec<ChatMessage>, Box<dyn std::error::Error + Send + Sync>>>>,
     pending_tools: HashMap<usize, usize>,
+    model_fetch: Option<(Provider, JoinHandle<Vec<String>>)>,
 }
 
 impl Model {
@@ -147,7 +148,7 @@ impl Model {
         );
         assert!(app.active(&Id::Input).is_ok());
         let mut model_map = HashMap::new();
-        model_map.insert(provider, models);
+        model_map.insert(provider, Some(models));
         Self {
             app,
             quit: false,
@@ -164,6 +165,7 @@ impl Model {
             tool_stream: None,
             tool_task: None,
             pending_tools: HashMap::new(),
+            model_fetch: None,
         }
     }
 
@@ -326,6 +328,25 @@ async fn main() {
                 }
                 model.tool_task = None;
                 model.redraw = true;
+            }
+        }
+
+        if let Some((prov, handle)) = &mut model.model_fetch {
+            if let Some(res) = handle.now_or_never() {
+                let models = match res {
+                    Ok(m) => m,
+                    Err(_) => Vec::new(),
+                };
+                model.models.insert(*prov, Some(models.clone()));
+                if *prov == model.provider {
+                    let attr = AttrValue::Payload(PropPayload::Vec(
+                        models.iter().cloned().map(PropValue::Str).collect(),
+                    ));
+                    let _ = model
+                        .app
+                        .attr(&Id::Input, Attribute::Custom("models"), attr);
+                }
+                model.model_fetch = None;
             }
         }
         if model.redraw {

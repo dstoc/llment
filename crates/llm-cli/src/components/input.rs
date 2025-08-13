@@ -65,11 +65,15 @@ impl Prompt {
         if let Some((prov, model_prefix)) = prefix.split_once(' ') {
             if let Ok(provider) = Provider::from_str(prov, true) {
                 if let Some(models) = self.model_cache.get(&provider) {
-                    models
-                        .iter()
-                        .filter(|m| m.starts_with(model_prefix))
-                        .cloned()
-                        .collect()
+                    if models.len() == 1 && models[0] == "fetching..." {
+                        vec!["fetching...".to_string()]
+                    } else {
+                        models
+                            .iter()
+                            .filter(|m| m.starts_with(model_prefix))
+                            .cloned()
+                            .collect()
+                    }
                 } else {
                     Vec::new()
                 }
