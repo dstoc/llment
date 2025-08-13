@@ -19,7 +19,10 @@ pub mod gemini;
 pub mod mcp;
 pub mod ollama;
 pub mod openai;
+pub mod test_provider;
 pub mod tools;
+
+pub use test_provider::TestProvider;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 pub enum Provider {
