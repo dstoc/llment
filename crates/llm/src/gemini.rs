@@ -13,7 +13,7 @@ use tokio_stream::StreamExt;
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
-    ToolCall, ToolCallFunction, to_openapi_schema,
+    ToolCall, ToolCallFunction, Usage, to_openapi_schema,
 };
 
 pub struct GeminiClient {
@@ -166,6 +166,14 @@ impl LlmClient for GeminiClient {
                     };
                     let is_empty = content.is_none() && tool_calls.is_empty() && thinking.is_none();
                     let done = chunk.candidates.iter().any(|c| c.finish_reason.is_some());
+                    let usage = if done {
+                        chunk.usage_metadata.as_ref().map(|u| Usage {
+                            input_tokens: u.prompt_token_count as u32,
+                            output_tokens: u.candidates_token_count.unwrap_or(0) as u32,
+                        })
+                    } else {
+                        None
+                    };
 
                     if done || !is_empty {
                         Some(Ok(ResponseChunk {
@@ -175,6 +183,7 @@ impl LlmClient for GeminiClient {
                                 thinking,
                             },
                             done,
+                            usage,
                         }))
                     } else {
                         None

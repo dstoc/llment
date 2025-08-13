@@ -2,7 +2,7 @@ use std::error::Error;
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
-    ToolCall, ToolCallFunction, to_openapi_schema,
+    ToolCall, ToolCallFunction, Usage as LlmUsage, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -124,6 +124,14 @@ impl LlmClient for OpenAiClient {
                     Some(content_acc)
                 };
                 let done = chunk.choices.iter().any(|c| c.finish_reason.is_some());
+                let usage = if done {
+                    chunk.usage.map(|u| LlmUsage {
+                        input_tokens: u.prompt_tokens as u32,
+                        output_tokens: u.completion_tokens as u32,
+                    })
+                } else {
+                    None
+                };
                 ResponseChunk {
                     message: ResponseMessage {
                         content,
@@ -131,6 +139,7 @@ impl LlmClient for OpenAiClient {
                         thinking: None,
                     },
                     done,
+                    usage,
                 }
             })
             .map_err(|e| e.into())
