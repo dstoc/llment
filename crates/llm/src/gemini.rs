@@ -194,4 +194,9 @@ impl LlmClient for GeminiClient {
         });
         Ok(Box::pin(mapped))
     }
+
+    async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let resp = self.inner.models().await?;
+        Ok(resp.models.into_iter().map(|m| m.name).collect())
+    }
 }

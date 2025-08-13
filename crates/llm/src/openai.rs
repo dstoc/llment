@@ -149,4 +149,9 @@ impl LlmClient for OpenAiClient {
         });
         Ok(Box::pin(mapped))
     }
+
+    async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let resp = self.inner.models().list().await?;
+        Ok(resp.data.into_iter().map(|m| m.id).collect())
+    }
 }

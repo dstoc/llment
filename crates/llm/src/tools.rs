@@ -175,6 +175,10 @@ mod tests {
             };
             Ok(Box::pin(tokio_stream::iter(stream)))
         }
+
+        async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+            Ok(vec![])
+        }
     }
 
     struct DummyExecutor;
