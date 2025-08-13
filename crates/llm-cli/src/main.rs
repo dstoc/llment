@@ -103,6 +103,9 @@ struct Model {
     conversation: Rc<RefCell<Conversation>>,
     chat_history: Vec<ChatMessage>,
     client: Arc<dyn llm::LlmClient>,
+    provider: Provider,
+    host: String,
+    models: HashMap<Provider, Vec<String>>,
     model_name: String,
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_ctx: Arc<McpContext>,
@@ -115,6 +118,8 @@ struct Model {
 impl Model {
     fn new(
         client: Arc<dyn llm::LlmClient>,
+        provider: Provider,
+        host: String,
         model_name: String,
         tool_executor: Arc<dyn ToolExecutor>,
         mcp_ctx: Arc<McpContext>,
@@ -135,12 +140,14 @@ impl Model {
         assert!(
             app.mount(
                 Id::Input,
-                Box::new(Prompt::with_models(models)),
+                Box::new(Prompt::with_models(provider, host.clone(), models.clone())),
                 vec![Sub::new(SubEventClause::Any, SubClause::Always)],
             )
             .is_ok()
         );
         assert!(app.active(&Id::Input).is_ok());
+        let mut model_map = HashMap::new();
+        model_map.insert(provider, models);
         Self {
             app,
             quit: false,
@@ -148,6 +155,9 @@ impl Model {
             conversation,
             chat_history: Vec::new(),
             client,
+            provider,
+            host,
+            models: model_map,
             model_name,
             tool_executor,
             mcp_ctx,
@@ -270,7 +280,15 @@ async fn main() {
     };
     let mcp_ctx = Arc::new(mcp_ctx);
     let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx.clone()));
-    let mut model = Model::new(client, args.model, tool_executor, mcp_ctx, models);
+    let mut model = Model::new(
+        client,
+        args.provider,
+        args.host.clone(),
+        args.model,
+        tool_executor,
+        mcp_ctx,
+        models,
+    );
     let mut terminal = TerminalBridge::init_crossterm().expect("Cannot create terminal bridge");
     let _ = terminal.enable_raw_mode();
     let _ = terminal.enter_alternate_screen();

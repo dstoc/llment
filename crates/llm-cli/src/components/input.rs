@@ -2,7 +2,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use tui_textarea::{Input as TaInput, Key as TaKey, TextArea};
 use tuirealm::command::{Cmd, CmdResult};
 use tuirealm::event::{Key, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use tuirealm::props::{AttrValue, Attribute};
+use tuirealm::props::{AttrValue, Attribute, PropValue};
 use tuirealm::ratatui::{
     layout::Rect,
     style::{Color, Style},
@@ -17,6 +17,10 @@ use super::{
     command_popup::{CommandPopup, CommandPopupMsg},
     param_popup::{ParamPopup, ParamPopupMsg},
 };
+use clap::ValueEnum;
+use llm::{self, Provider};
+use std::collections::HashMap;
+use tokio::runtime::Handle;
 
 /// Multiline prompt input backed by [`tui_textarea`].
 pub struct Prompt {
@@ -26,6 +30,9 @@ pub struct Prompt {
     cmd: Option<CommandPopup>,
     param: Option<ParamPopup>,
     models: Vec<String>,
+    current_provider: Provider,
+    model_cache: HashMap<Provider, Vec<String>>,
+    host: String,
 }
 
 impl Prompt {
@@ -41,7 +48,9 @@ impl Prompt {
         self.textarea = Self::new_textarea();
     }
 
-    pub fn with_models(models: Vec<String>) -> Self {
+    pub fn with_models(provider: Provider, host: String, models: Vec<String>) -> Self {
+        let mut cache = HashMap::new();
+        cache.insert(provider, models.clone());
         Self {
             textarea: Self::new_textarea(),
             area: Rect::default(),
@@ -49,6 +58,35 @@ impl Prompt {
             cmd: None,
             param: None,
             models,
+            current_provider: provider,
+            model_cache: cache,
+            host,
+        }
+    }
+
+    fn provider_param_matches(&mut self, prefix: &str) -> Vec<String> {
+        if let Some((prov, model_prefix)) = prefix.split_once(' ') {
+            if let Ok(provider) = Provider::from_str(prov, true) {
+                let models = self.model_cache.entry(provider).or_insert_with(|| {
+                    let client = llm::client_from(provider, &self.host).expect("client");
+                    Handle::current()
+                        .block_on(client.list_models())
+                        .unwrap_or_default()
+                });
+                models
+                    .iter()
+                    .filter(|m| m.starts_with(model_prefix))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Provider::value_variants()
+                .iter()
+                .map(|p| p.to_possible_value().unwrap().get_name().to_string())
+                .filter(|p| p.starts_with(prefix))
+                .collect()
         }
     }
 
@@ -57,31 +95,35 @@ impl Prompt {
         if text.starts_with('/') && !text.contains('\n') {
             let rest = &text[1..];
             if let Some((name, param)) = rest.split_once(' ') {
-                if !param.contains(' ') {
-                    let matches = commands::matches(name);
-                    if matches.len() == 1 && matches[0].name() == name {
-                        let cmd = matches[0];
-                        let params = commands::param_matches(cmd, param, &self.models);
-                        if params.is_empty() {
-                            self.param = None;
-                        } else {
-                            let selected = self
-                                .param
-                                .as_ref()
-                                .map(|p| p.selected.min(params.len() - 1))
-                                .unwrap_or(0);
-                            let offset = format!("/{} ", name).width() as u16;
-                            self.param = Some(ParamPopup {
-                                cmd,
-                                matches: params,
-                                selected,
-                                visible: true,
-                                offset,
-                            });
+                let matches = commands::matches(name);
+                if matches.len() == 1 && matches[0].name() == name {
+                    let cmd = matches[0];
+                    let params = match cmd {
+                        commands::SlashCommand::Model if !param.contains(' ') => {
+                            commands::param_matches(cmd, param, &self.models)
                         }
-                        self.cmd = None;
-                        return;
+                        commands::SlashCommand::Provider => self.provider_param_matches(param),
+                        _ => Vec::new(),
+                    };
+                    if params.is_empty() {
+                        self.param = None;
+                    } else {
+                        let selected = self
+                            .param
+                            .as_ref()
+                            .map(|p| p.selected.min(params.len() - 1))
+                            .unwrap_or(0);
+                        let offset = format!("/{} ", name).width() as u16;
+                        self.param = Some(ParamPopup {
+                            cmd,
+                            matches: params,
+                            selected,
+                            visible: true,
+                            offset,
+                        });
                     }
+                    self.cmd = None;
+                    return;
                 }
             }
             let matches = commands::matches(rest);
@@ -116,6 +158,9 @@ impl Default for Prompt {
             cmd: None,
             param: None,
             models: Vec::new(),
+            current_provider: Provider::Ollama,
+            model_cache: HashMap::new(),
+            host: String::new(),
         }
     }
 }
@@ -286,6 +331,27 @@ impl MockComponent for Prompt {
                     self.set_block();
                     self.textarea.insert_str(&s);
                     self.refresh_cmd_state();
+                }
+            }
+            Attribute::Custom("provider") => {
+                if let AttrValue::String(s) = value {
+                    if let Ok(p) = Provider::from_str(&s, true) {
+                        self.current_provider = p;
+                    }
+                }
+            }
+            Attribute::Custom("models") => {
+                if let AttrValue::Payload(p) = value {
+                    let vec = p.unwrap_vec();
+                    let models: Vec<String> = vec
+                        .into_iter()
+                        .filter_map(|v| match v {
+                            PropValue::Str(s) => Some(s),
+                            _ => None,
+                        })
+                        .collect();
+                    self.models = models.clone();
+                    self.model_cache.insert(self.current_provider, models);
                 }
             }
             _ => {}

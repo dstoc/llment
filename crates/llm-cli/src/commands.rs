@@ -1,6 +1,8 @@
 use crate::{Id, Model};
-use llm::MessageRole;
-use tuirealm::props::{AttrValue, Attribute};
+use clap::ValueEnum;
+use llm::{MessageRole, Provider};
+use tokio::runtime::Handle;
+use tuirealm::props::{AttrValue, Attribute, PropPayload, PropValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SlashCommand {
@@ -8,6 +10,7 @@ pub enum SlashCommand {
     Clear,
     Redo,
     Model,
+    Provider,
 }
 
 impl SlashCommand {
@@ -17,6 +20,7 @@ impl SlashCommand {
             SlashCommand::Clear => "clear",
             SlashCommand::Redo => "redo",
             SlashCommand::Model => "model",
+            SlashCommand::Provider => "provider",
         }
     }
 
@@ -26,11 +30,12 @@ impl SlashCommand {
             SlashCommand::Clear => "Clear conversation history",
             SlashCommand::Redo => "Edit previous message",
             SlashCommand::Model => "Change the active model",
+            SlashCommand::Provider => "Change the provider and model",
         }
     }
 
     pub fn takes_param(self) -> bool {
-        matches!(self, SlashCommand::Model)
+        matches!(self, SlashCommand::Model | SlashCommand::Provider)
     }
 }
 
@@ -40,6 +45,7 @@ pub fn matches(prefix: &str) -> Vec<SlashCommand> {
         SlashCommand::Clear,
         SlashCommand::Redo,
         SlashCommand::Model,
+        SlashCommand::Provider,
     ]
     .into_iter()
     .filter(|c| c.name().starts_with(prefix))
@@ -117,6 +123,36 @@ pub fn execute(cmd: SlashCommand, param: Option<String>, model: &mut Model) {
                 model.model_name = name;
             }
         }
+        SlashCommand::Provider => {
+            if let Some(param) = param {
+                if let Some((prov, model_name)) = param.split_once(' ') {
+                    if let Ok(provider) = Provider::from_str(prov, true) {
+                        let client = llm::client_from(provider, &model.host).expect("client");
+                        let models = model.models.entry(provider).or_insert_with(|| {
+                            Handle::current()
+                                .block_on(client.clone().list_models())
+                                .unwrap_or_default()
+                        });
+                        model.client = client;
+                        model.provider = provider;
+                        model.model_name = model_name.to_string();
+                        let attr = AttrValue::Payload(PropPayload::Vec(
+                            models.iter().cloned().map(PropValue::Str).collect(),
+                        ));
+                        let prov_name =
+                            provider.to_possible_value().unwrap().get_name().to_string();
+                        let _ = model.app.attr(
+                            &Id::Input,
+                            Attribute::Custom("provider"),
+                            AttrValue::String(prov_name),
+                        );
+                        let _ = model
+                            .app
+                            .attr(&Id::Input, Attribute::Custom("models"), attr);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -132,6 +168,7 @@ mod tests {
     Clear,
     Redo,
     Model,
+    Provider,
 ]
 "###);
         insta::assert_debug_snapshot!(matches("c"), @r###"
@@ -142,6 +179,11 @@ mod tests {
         insta::assert_debug_snapshot!(matches("m"), @r###"
 [
     Model,
+]
+"###);
+        insta::assert_debug_snapshot!(matches("p"), @r###"
+[
+    Provider,
 ]
 "###);
         insta::assert_debug_snapshot!(matches("x"), @r###"[]"###);

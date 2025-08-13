@@ -52,12 +52,13 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
         - commands may accept parameters via a cursor-aligned popup
-          - `/model` offers available models from the connected provider
+        - `/model` offers available models from the connected provider
             - `Up`/`Down` navigate model selection
             - `Tab` completes the highlighted model
+        - `/provider <provider> <model>` switches LLM backend and model
         - `/quit` exits the application
-        - `/clear` resets conversation history
-        - `/redo` rolls back the last assistant block, restores the previous user message in the input, and refocuses the prompt for editing
+    - `/clear` resets conversation history
+    - `/redo` rolls back the last assistant block, restores the previous user message in the input, and refocuses the prompt for editing
     - Esc exits the application
     - conversation pane has no keyboard interaction
     - conversation items
@@ -84,3 +85,4 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
     - drains remaining events after request completes before clearing state
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
+  - model lists fetched on demand per provider and cached for reuse
