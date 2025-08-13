@@ -42,6 +42,10 @@ impl LlmClient for TestProvider {
             .map(Ok);
         Ok(Box::pin(iter(chunks)))
     }
+
+    async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        Ok(vec![])
+    }
 }
 
 #[cfg(test)]

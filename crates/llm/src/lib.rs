@@ -105,6 +105,8 @@ pub trait LlmClient: Send + Sync {
         &self,
         request: ChatMessageRequest,
     ) -> Result<ChatStream, Box<dyn Error + Send + Sync>>;
+
+    async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>>;
 }
 
 #[cfg(test)]

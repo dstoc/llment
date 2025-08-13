@@ -52,4 +52,9 @@ impl LlmClient for OllamaClient {
         });
         Ok(Box::pin(mapped))
     }
+
+    async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let models = self.inner.list_local_models().await?;
+        Ok(models.into_iter().map(|m| m.name).collect())
+    }
 }

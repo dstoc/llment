@@ -21,7 +21,7 @@ Trait-based LLM client implementations for multiple providers.
 
 ## Features, Requirements and Constraints
 - LLM clients
-  - `LlmClient` trait streams chat responses
+  - `LlmClient` trait streams chat responses and lists supported model names
   - implementations for Ollama, OpenAI, and Gemini
 - Provider selection
   - `Provider` enum lists supported backends
