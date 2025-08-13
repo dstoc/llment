@@ -118,6 +118,7 @@ impl Model {
         model_name: String,
         tool_executor: Arc<dyn ToolExecutor>,
         mcp_ctx: Arc<McpContext>,
+        models: Vec<String>,
     ) -> Self {
         let mut app: Application<Id, Msg, NoUserEvent> = Application::init(
             EventListenerCfg::default().crossterm_input_listener(Duration::from_millis(10), 10),
@@ -134,7 +135,7 @@ impl Model {
         assert!(
             app.mount(
                 Id::Input,
-                Box::new(Prompt::default()),
+                Box::new(Prompt::with_models(models)),
                 vec![Sub::new(SubEventClause::Any, SubClause::Always)],
             )
             .is_ok()
@@ -261,6 +262,7 @@ impl Update<Msg> for Model {
 async fn main() {
     let args = Args::parse();
     let client = llm::client_from(args.provider, &args.host).expect("client");
+    let models = client.list_models().await.expect("models");
     let (mcp_ctx, _services) = if let Some(path) = &args.mcp {
         load_mcp_servers(path).await.expect("mcp")
     } else {
@@ -268,7 +270,7 @@ async fn main() {
     };
     let mcp_ctx = Arc::new(mcp_ctx);
     let tool_executor: Arc<dyn ToolExecutor> = Arc::new(McpToolExecutor::new(mcp_ctx.clone()));
-    let mut model = Model::new(client, args.model, tool_executor, mcp_ctx);
+    let mut model = Model::new(client, args.model, tool_executor, mcp_ctx, models);
     let mut terminal = TerminalBridge::init_crossterm().expect("Cannot create terminal bridge");
     let _ = terminal.enable_raw_mode();
     let _ = terminal.enter_alternate_screen();

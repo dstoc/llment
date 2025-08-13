@@ -25,6 +25,7 @@ pub struct Prompt {
     focused: bool,
     cmd: Option<CommandPopup>,
     param: Option<ParamPopup>,
+    models: Vec<String>,
 }
 
 impl Prompt {
@@ -40,6 +41,17 @@ impl Prompt {
         self.textarea = Self::new_textarea();
     }
 
+    pub fn with_models(models: Vec<String>) -> Self {
+        Self {
+            textarea: Self::new_textarea(),
+            area: Rect::default(),
+            focused: false,
+            cmd: None,
+            param: None,
+            models,
+        }
+    }
+
     fn refresh_cmd_state(&mut self) {
         let text = self.textarea.lines().join("\n");
         if text.starts_with('/') && !text.contains('\n') {
@@ -49,7 +61,7 @@ impl Prompt {
                     let matches = commands::matches(name);
                     if matches.len() == 1 && matches[0].name() == name {
                         let cmd = matches[0];
-                        let params = commands::param_matches(cmd, param);
+                        let params = commands::param_matches(cmd, param, &self.models);
                         if params.is_empty() {
                             self.param = None;
                         } else {
@@ -103,6 +115,7 @@ impl Default for Prompt {
             focused: false,
             cmd: None,
             param: None,
+            models: Vec::new(),
         }
     }
 }
@@ -163,7 +176,7 @@ impl Component<Msg, NoUserEvent> for Prompt {
                                 CommandPopupMsg::Navigate => {}
                                 CommandPopupMsg::Complete(cmd) => {
                                     self.set_block();
-                                    if cmd.params().is_some() {
+                                    if cmd.takes_param() {
                                         self.textarea.insert_str(&format!("/{} ", cmd.name()));
                                     } else {
                                         self.textarea.insert_str(&format!("/{}", cmd.name()));
