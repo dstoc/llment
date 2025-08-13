@@ -44,3 +44,4 @@ Trait-based LLM client implementations for multiple providers.
   - `TestProvider` implements `LlmClient`
     - captures `ChatMessageRequest`s for assertions
     - streams queued `ResponseChunk`s for iterative testing
+    - returns configurable model lists with optional delay for fetch testing

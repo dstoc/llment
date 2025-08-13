@@ -9,6 +9,7 @@ use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
 
 use clap::Parser;
+use clap::ValueEnum;
 use futures::FutureExt;
 use tokio::task::JoinHandle;
 use tokio_stream::{Stream, StreamExt};
@@ -53,6 +54,7 @@ pub enum Msg {
     FocusInput,
     Submit(String),
     Slash(SlashCommand, Option<String>),
+    FetchModels(Provider),
     None,
 }
 
@@ -265,6 +267,41 @@ impl Update<Msg> for Model {
                 commands::execute(cmd, param, self);
                 None
             }
+            Msg::FetchModels(provider) => {
+                let prov_name = provider.to_possible_value().unwrap().get_name().to_string();
+                if self
+                    .models
+                    .get(&provider)
+                    .and_then(|m| m.as_ref())
+                    .is_none()
+                {
+                    if self
+                        .model_fetch
+                        .as_ref()
+                        .map(|(p, _)| *p != provider)
+                        .unwrap_or(true)
+                    {
+                        if let Some((_, handle)) = self.model_fetch.take() {
+                            handle.abort();
+                        }
+                        let client = llm::client_from(provider, &self.host).expect("client");
+                        let fetch_client = client.clone();
+                        self.model_fetch = Some((
+                            provider,
+                            tokio::spawn(async move {
+                                fetch_client.list_models().await.unwrap_or_default()
+                            }),
+                        ));
+                    }
+                    self.models.entry(provider).or_insert(None);
+                    let attr = AttrValue::Payload(PropPayload::Vec(vec![
+                        PropValue::Str(prov_name),
+                        PropValue::Str("fetching...".to_string()),
+                    ]));
+                    let _ = self.app.attr(&Id::Input, Attribute::Custom("models"), attr);
+                }
+                None
+            }
             Msg::None => None,
         }
     }
@@ -338,14 +375,15 @@ async fn main() {
                     Err(_) => Vec::new(),
                 };
                 model.models.insert(*prov, Some(models.clone()));
-                if *prov == model.provider {
-                    let attr = AttrValue::Payload(PropPayload::Vec(
-                        models.iter().cloned().map(PropValue::Str).collect(),
-                    ));
-                    let _ = model
-                        .app
-                        .attr(&Id::Input, Attribute::Custom("models"), attr);
-                }
+                let prov_name = prov.to_possible_value().unwrap().get_name().to_string();
+                let attr = AttrValue::Payload(PropPayload::Vec(
+                    std::iter::once(PropValue::Str(prov_name))
+                        .chain(models.iter().cloned().map(PropValue::Str))
+                        .collect(),
+                ));
+                let _ = model
+                    .app
+                    .attr(&Id::Input, Attribute::Custom("models"), attr);
                 model.model_fetch = None;
             }
         }

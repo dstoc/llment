@@ -86,5 +86,5 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
 - model lists fetched on demand per provider and cached for reuse
-  - model lists fetched asynchronously when provider changes
-    - parameter popup shows "fetching..." until lists are loaded
+  - model lists fetched asynchronously when provider changes or during provider completion
+    - parameter popup requests lists and shows "fetching..." until loaded

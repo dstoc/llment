@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use tokio::time::sleep;
 use tokio_stream::iter;
 
 use crate::{ChatMessageRequest, ChatStream, LlmClient, ResponseChunk};
@@ -10,6 +12,8 @@ use crate::{ChatMessageRequest, ChatStream, LlmClient, ResponseChunk};
 pub struct TestProvider {
     pub requests: Mutex<Vec<ChatMessageRequest>>,
     responses: Mutex<VecDeque<Vec<ResponseChunk>>>,
+    models: Mutex<Vec<String>>,
+    delay: Duration,
 }
 
 impl TestProvider {
@@ -17,11 +21,21 @@ impl TestProvider {
         Self {
             requests: Mutex::new(Vec::new()),
             responses: Mutex::new(VecDeque::new()),
+            models: Mutex::new(Vec::new()),
+            delay: Duration::from_millis(0),
         }
     }
 
     pub fn enqueue(&self, chunks: Vec<ResponseChunk>) {
         self.responses.lock().unwrap().push_back(chunks);
+    }
+
+    pub fn set_models(&self, models: Vec<String>) {
+        *self.models.lock().unwrap() = models;
+    }
+
+    pub fn set_delay(&mut self, delay: Duration) {
+        self.delay = delay;
     }
 }
 
@@ -44,7 +58,10 @@ impl LlmClient for TestProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        Ok(vec![])
+        if !self.delay.is_zero() {
+            sleep(self.delay).await;
+        }
+        Ok(self.models.lock().unwrap().clone())
     }
 }
 

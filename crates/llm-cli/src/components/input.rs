@@ -61,35 +61,8 @@ impl Prompt {
         }
     }
 
-    fn provider_param_matches(&mut self, prefix: &str) -> Vec<String> {
-        if let Some((prov, model_prefix)) = prefix.split_once(' ') {
-            if let Ok(provider) = Provider::from_str(prov, true) {
-                if let Some(models) = self.model_cache.get(&provider) {
-                    if models.len() == 1 && models[0] == "fetching..." {
-                        vec!["fetching...".to_string()]
-                    } else {
-                        models
-                            .iter()
-                            .filter(|m| m.starts_with(model_prefix))
-                            .cloned()
-                            .collect()
-                    }
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            }
-        } else {
-            Provider::value_variants()
-                .iter()
-                .map(|p| p.to_possible_value().unwrap().get_name().to_string())
-                .filter(|p| p.starts_with(prefix))
-                .collect()
-        }
-    }
-
-    fn refresh_cmd_state(&mut self) {
+    fn refresh_cmd_state(&mut self) -> Option<Msg> {
+        let mut msg = None;
         let text = self.textarea.lines().join("\n");
         if text.starts_with('/') && !text.contains('\n') {
             let rest = &text[1..];
@@ -97,13 +70,18 @@ impl Prompt {
                 let matches = commands::matches(name);
                 if matches.len() == 1 && matches[0].name() == name {
                     let cmd = matches[0];
-                    let params = match cmd {
+                    let (params, fetch) = match cmd {
                         commands::SlashCommand::Model if !param.contains(' ') => {
-                            commands::param_matches(cmd, param, &self.models)
+                            commands::param_matches(cmd, param, &self.models, &mut self.model_cache)
                         }
-                        commands::SlashCommand::Provider => self.provider_param_matches(param),
-                        _ => Vec::new(),
+                        commands::SlashCommand::Provider => {
+                            commands::param_matches(cmd, param, &self.models, &mut self.model_cache)
+                        }
+                        _ => (Vec::new(), None),
                     };
+                    if let Some(p) = fetch {
+                        msg = Some(Msg::FetchModels(p));
+                    }
                     if params.is_empty() {
                         self.param = None;
                     } else {
@@ -122,7 +100,7 @@ impl Prompt {
                         });
                     }
                     self.cmd = None;
-                    return;
+                    return msg;
                 }
             }
             let matches = commands::matches(rest);
@@ -145,6 +123,7 @@ impl Prompt {
             self.cmd = None;
             self.param = None;
         }
+        msg
     }
 }
 
@@ -225,7 +204,9 @@ impl Component<Msg, NoUserEvent> for Prompt {
                                         self.textarea.insert_str(&format!("/{}", cmd.name()));
                                     }
                                     self.cmd = None;
-                                    self.refresh_cmd_state();
+                                    if let Some(msg) = self.refresh_cmd_state() {
+                                        return Some(msg);
+                                    }
                                     return Some(Msg::None);
                                 }
                             }
@@ -235,7 +216,9 @@ impl Component<Msg, NoUserEvent> for Prompt {
                 match (key.code, key.modifiers) {
                     (Key::Char('j'), KeyModifiers::CONTROL) => {
                         self.textarea.insert_newline();
-                        self.refresh_cmd_state();
+                        if let Some(msg) = self.refresh_cmd_state() {
+                            return Some(msg);
+                        }
                     }
                     (Key::Char('l'), KeyModifiers::CONTROL) => {
                         self.set_block();
@@ -260,14 +243,18 @@ impl Component<Msg, NoUserEvent> for Prompt {
                     _ => {
                         let input = to_input(key);
                         self.textarea.input(input);
-                        self.refresh_cmd_state();
+                        if let Some(msg) = self.refresh_cmd_state() {
+                            return Some(msg);
+                        }
                     }
                 }
                 return Some(Msg::None);
             }
             Event::Paste(ref data) if self.focused => {
                 self.textarea.insert_str(data);
-                self.refresh_cmd_state();
+                if let Some(msg) = self.refresh_cmd_state() {
+                    return Some(msg);
+                }
             }
             Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
@@ -328,28 +315,35 @@ impl MockComponent for Prompt {
                 if let AttrValue::String(s) = value {
                     self.set_block();
                     self.textarea.insert_str(&s);
-                    self.refresh_cmd_state();
+                    let _ = self.refresh_cmd_state();
                 }
             }
             Attribute::Custom("provider") => {
                 if let AttrValue::String(s) = value {
                     if let Ok(p) = Provider::from_str(&s, true) {
                         self.current_provider = p;
+                        let _ = self.refresh_cmd_state();
                     }
                 }
             }
             Attribute::Custom("models") => {
                 if let AttrValue::Payload(p) = value {
-                    let vec = p.unwrap_vec();
-                    let models: Vec<String> = vec
-                        .into_iter()
-                        .filter_map(|v| match v {
-                            PropValue::Str(s) => Some(s),
-                            _ => None,
-                        })
-                        .collect();
-                    self.models = models.clone();
-                    self.model_cache.insert(self.current_provider, models);
+                    let mut vec = p.unwrap_vec().into_iter();
+                    if let Some(PropValue::Str(prov)) = vec.next() {
+                        if let Ok(provider) = Provider::from_str(&prov, true) {
+                            let models: Vec<String> = vec
+                                .filter_map(|v| match v {
+                                    PropValue::Str(s) => Some(s),
+                                    _ => None,
+                                })
+                                .collect();
+                            if provider == self.current_provider {
+                                self.models = models.clone();
+                            }
+                            self.model_cache.insert(provider, models);
+                            let _ = self.refresh_cmd_state();
+                        }
+                    }
                 }
             }
             _ => {}
