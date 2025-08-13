@@ -140,7 +140,7 @@ impl Model {
         assert!(
             app.mount(
                 Id::Input,
-                Box::new(Prompt::with_models(provider, host.clone(), models.clone())),
+                Box::new(Prompt::with_models(provider, models.clone())),
                 vec![Sub::new(SubEventClause::Any, SubClause::Always)],
             )
             .is_ok()

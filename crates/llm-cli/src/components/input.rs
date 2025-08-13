@@ -18,9 +18,8 @@ use super::{
     param_popup::{ParamPopup, ParamPopupMsg},
 };
 use clap::ValueEnum;
-use llm::{self, Provider};
+use llm::Provider;
 use std::collections::HashMap;
-use tokio::runtime::Handle;
 
 /// Multiline prompt input backed by [`tui_textarea`].
 pub struct Prompt {
@@ -32,7 +31,6 @@ pub struct Prompt {
     models: Vec<String>,
     current_provider: Provider,
     model_cache: HashMap<Provider, Vec<String>>,
-    host: String,
 }
 
 impl Prompt {
@@ -48,7 +46,7 @@ impl Prompt {
         self.textarea = Self::new_textarea();
     }
 
-    pub fn with_models(provider: Provider, host: String, models: Vec<String>) -> Self {
+    pub fn with_models(provider: Provider, models: Vec<String>) -> Self {
         let mut cache = HashMap::new();
         cache.insert(provider, models.clone());
         Self {
@@ -60,24 +58,21 @@ impl Prompt {
             models,
             current_provider: provider,
             model_cache: cache,
-            host,
         }
     }
 
     fn provider_param_matches(&mut self, prefix: &str) -> Vec<String> {
         if let Some((prov, model_prefix)) = prefix.split_once(' ') {
             if let Ok(provider) = Provider::from_str(prov, true) {
-                let models = self.model_cache.entry(provider).or_insert_with(|| {
-                    let client = llm::client_from(provider, &self.host).expect("client");
-                    Handle::current()
-                        .block_on(client.list_models())
-                        .unwrap_or_default()
-                });
-                models
-                    .iter()
-                    .filter(|m| m.starts_with(model_prefix))
-                    .cloned()
-                    .collect()
+                if let Some(models) = self.model_cache.get(&provider) {
+                    models
+                        .iter()
+                        .filter(|m| m.starts_with(model_prefix))
+                        .cloned()
+                        .collect()
+                } else {
+                    Vec::new()
+                }
             } else {
                 Vec::new()
             }
@@ -160,7 +155,6 @@ impl Default for Prompt {
             models: Vec::new(),
             current_provider: Provider::Ollama,
             model_cache: HashMap::new(),
-            host: String::new(),
         }
     }
 }
