@@ -19,7 +19,7 @@ pub enum ParamPopupMsg {
 #[derive(Debug)]
 pub struct ParamPopup {
     pub cmd: SlashCommand,
-    pub matches: Vec<&'static str>,
+    pub matches: Vec<String>,
     pub selected: usize,
     pub visible: bool,
     pub offset: u16,
@@ -42,11 +42,11 @@ impl ParamPopup {
             }
             Key::Tab if key.modifiers == KeyModifiers::NONE => Some(ParamPopupMsg::Complete {
                 cmd: self.cmd,
-                param: self.matches[self.selected].to_string(),
+                param: self.matches[self.selected].clone(),
             }),
             Key::Enter if key.modifiers == KeyModifiers::NONE => Some(ParamPopupMsg::Submit {
                 cmd: self.cmd,
-                param: self.matches[self.selected].to_string(),
+                param: self.matches[self.selected].clone(),
             }),
             _ => None,
         }
@@ -56,14 +56,14 @@ impl ParamPopup {
         if !self.visible {
             return;
         }
-        let entries: Vec<String> = self.matches.iter().map(|s| s.to_string()).collect();
-        let popup_width = entries
+        let popup_width = self
+            .matches
             .iter()
             .map(|s| s.as_str().width())
             .max()
             .unwrap_or(0) as u16
             + 2;
-        let items: Vec<ListItem> = entries.into_iter().map(ListItem::new).collect();
+        let items: Vec<ListItem> = self.matches.iter().cloned().map(ListItem::new).collect();
         let popup_height = items.len() as u16 + 2;
         let popup_area = Rect {
             x: area.x + self.offset,

@@ -52,7 +52,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
         - commands may accept parameters via a cursor-aligned popup
-          - `/model ` offers `gpt-oss:20b` and `gpt-oss:120b`
+          - `/model` offers available models from the connected provider
             - `Up`/`Down` navigate model selection
             - `Tab` completes the highlighted model
         - `/quit` exits the application

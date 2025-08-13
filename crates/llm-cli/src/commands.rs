@@ -29,11 +29,8 @@ impl SlashCommand {
         }
     }
 
-    pub fn params(self) -> Option<&'static [&'static str]> {
-        match self {
-            SlashCommand::Model => Some(&["gpt-oss:20b", "gpt-oss:120b"]),
-            _ => None,
-        }
+    pub fn takes_param(self) -> bool {
+        matches!(self, SlashCommand::Model)
     }
 }
 
@@ -49,15 +46,15 @@ pub fn matches(prefix: &str) -> Vec<SlashCommand> {
     .collect()
 }
 
-pub fn param_matches(cmd: SlashCommand, prefix: &str) -> Vec<&'static str> {
-    cmd.params()
-        .map(|opts| {
-            opts.iter()
-                .copied()
-                .filter(|m| m.starts_with(prefix))
-                .collect()
-        })
-        .unwrap_or_default()
+pub fn param_matches(cmd: SlashCommand, prefix: &str, models: &[String]) -> Vec<String> {
+    match cmd {
+        SlashCommand::Model => models
+            .iter()
+            .filter(|m| m.starts_with(prefix))
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 pub fn parse(input: &str) -> Option<(SlashCommand, Option<String>)> {
