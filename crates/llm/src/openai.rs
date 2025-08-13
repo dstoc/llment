@@ -90,6 +90,9 @@ impl LlmClient for OpenAiClient {
         if let Some(t) = tools {
             req_builder.tools(t);
         }
+        req_builder.stream_options(ChatCompletionStreamOptions {
+            include_usage: true,
+        });
         let req = req_builder.build()?;
         let stream = self.inner.chat().create_stream(req).await?;
         let mapped = stream.map(|res| {
