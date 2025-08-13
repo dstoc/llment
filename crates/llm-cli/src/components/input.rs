@@ -6,14 +6,16 @@ use tuirealm::props::{AttrValue, Attribute};
 use tuirealm::ratatui::{
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::Paragraph,
 };
 use tuirealm::{Component, Event, Frame, MockComponent, NoUserEvent, State, StateValue};
 use unicode_width::UnicodeWidthStr;
 
-use crate::{
-    Msg,
-    commands::{self, SlashCommand},
+use crate::{Msg, commands};
+
+use super::{
+    command_popup::{CommandPopup, CommandPopupMsg},
+    param_popup::{ParamPopup, ParamPopupMsg},
 };
 
 /// Multiline prompt input backed by [`tui_textarea`].
@@ -59,7 +61,6 @@ impl Prompt {
                             let offset = format!("/{} ", name).width() as u16;
                             self.param = Some(ParamPopup {
                                 cmd,
-                                prefix: param.to_string(),
                                 matches: params,
                                 selected,
                                 visible: true,
@@ -81,7 +82,6 @@ impl Prompt {
                     .map(|c| c.selected.min(matches.len() - 1))
                     .unwrap_or(0);
                 self.cmd = Some(CommandPopup {
-                    prefix: rest.to_string(),
                     matches,
                     selected,
                     visible: true,
@@ -93,24 +93,6 @@ impl Prompt {
             self.param = None;
         }
     }
-}
-
-struct CommandPopup {
-    #[allow(dead_code)]
-    prefix: String,
-    matches: Vec<SlashCommand>,
-    selected: usize,
-    visible: bool,
-}
-
-struct ParamPopup {
-    cmd: SlashCommand,
-    #[allow(dead_code)]
-    prefix: String,
-    matches: Vec<&'static str>,
-    selected: usize,
-    visible: bool,
-    offset: u16,
 }
 
 impl Default for Prompt {
@@ -151,119 +133,82 @@ fn to_input(ev: KeyEvent) -> TaInput {
 impl Component<Msg, NoUserEvent> for Prompt {
     fn on(&mut self, ev: Event<NoUserEvent>) -> Option<Msg> {
         match ev {
-            Event::Keyboard(key) if self.focused => match (key.code, key.modifiers) {
-                (Key::Char('j'), KeyModifiers::CONTROL) => {
-                    self.textarea.insert_newline();
-                    self.refresh_cmd_state();
-                }
-                (Key::Char('l'), KeyModifiers::CONTROL) => {
-                    self.set_block();
-                    self.cmd = None;
-                    self.param = None;
-                }
-                (Key::Enter, KeyModifiers::NONE) => {
-                    if let Some(state) = &mut self.param {
-                        if state.visible {
-                            let cmd = state.cmd;
-                            let param = state.matches[state.selected].to_string();
-                            self.set_block();
-                            self.cmd = None;
-                            self.param = None;
-                            return Some(Msg::Slash(cmd, Some(param)));
-                        }
-                    }
-                    let text = self.textarea.lines().join("\n");
-                    let trimmed = text.trim().to_string();
-                    self.set_block();
-                    self.cmd = None;
-                    self.param = None;
-                    if let Some((cmd, param)) = commands::parse(&trimmed) {
-                        return Some(Msg::Slash(cmd, param));
-                    }
-                    if trimmed.is_empty() {
-                        return Some(Msg::None);
-                    }
-                    return Some(Msg::Submit(trimmed));
-                }
-                (Key::Up, _) => {
-                    if let Some(state) = &mut self.param {
-                        if state.visible {
-                            if state.selected == 0 {
-                                state.selected = state.matches.len() - 1;
-                            } else {
-                                state.selected -= 1;
+            Event::Keyboard(key) if self.focused => {
+                if let Some(popup) = &mut self.param {
+                    if popup.visible {
+                        if let Some(msg) = popup.on_key(key.clone()) {
+                            match msg {
+                                ParamPopupMsg::Navigate => {}
+                                ParamPopupMsg::Complete { cmd, param } => {
+                                    self.set_block();
+                                    self.textarea
+                                        .insert_str(&format!("/{} {}", cmd.name(), param));
+                                    self.param = None;
+                                    return Some(Msg::None);
+                                }
+                                ParamPopupMsg::Submit { cmd, param } => {
+                                    self.set_block();
+                                    self.cmd = None;
+                                    self.param = None;
+                                    return Some(Msg::Slash(cmd, Some(param)));
+                                }
                             }
-                            return Some(Msg::None);
                         }
                     }
-                    if let Some(state) = &mut self.cmd {
-                        if state.visible {
-                            if state.selected == 0 {
-                                state.selected = state.matches.len() - 1;
-                            } else {
-                                state.selected -= 1;
+                }
+                if let Some(popup) = &mut self.cmd {
+                    if popup.visible {
+                        if let Some(msg) = popup.on_key(key.clone()) {
+                            match msg {
+                                CommandPopupMsg::Navigate => {}
+                                CommandPopupMsg::Complete(cmd) => {
+                                    self.set_block();
+                                    if cmd.params().is_some() {
+                                        self.textarea.insert_str(&format!("/{} ", cmd.name()));
+                                    } else {
+                                        self.textarea.insert_str(&format!("/{}", cmd.name()));
+                                    }
+                                    self.cmd = None;
+                                    self.refresh_cmd_state();
+                                    return Some(Msg::None);
+                                }
                             }
-                            return Some(Msg::None);
                         }
                     }
-                    let input = to_input(key);
-                    self.textarea.input(input);
-                    self.refresh_cmd_state();
                 }
-                (Key::Down, _) => {
-                    if let Some(state) = &mut self.param {
-                        if state.visible {
-                            state.selected = (state.selected + 1) % state.matches.len();
+                match (key.code, key.modifiers) {
+                    (Key::Char('j'), KeyModifiers::CONTROL) => {
+                        self.textarea.insert_newline();
+                        self.refresh_cmd_state();
+                    }
+                    (Key::Char('l'), KeyModifiers::CONTROL) => {
+                        self.set_block();
+                        self.cmd = None;
+                        self.param = None;
+                    }
+                    (Key::Enter, KeyModifiers::NONE) => {
+                        let text = self.textarea.lines().join("\n");
+                        let trimmed = text.trim().to_string();
+                        self.set_block();
+                        self.cmd = None;
+                        self.param = None;
+                        if let Some((cmd, param)) = commands::parse(&trimmed) {
+                            return Some(Msg::Slash(cmd, param));
+                        }
+                        if trimmed.is_empty() {
                             return Some(Msg::None);
                         }
+                        return Some(Msg::Submit(trimmed));
                     }
-                    if let Some(state) = &mut self.cmd {
-                        if state.visible {
-                            state.selected = (state.selected + 1) % state.matches.len();
-                            return Some(Msg::None);
-                        }
+                    (Key::Esc, _) => return Some(Msg::AppClose),
+                    _ => {
+                        let input = to_input(key);
+                        self.textarea.input(input);
+                        self.refresh_cmd_state();
                     }
-                    let input = to_input(key);
-                    self.textarea.input(input);
-                    self.refresh_cmd_state();
                 }
-                (Key::Tab, KeyModifiers::NONE) => {
-                    if let Some(state) = &mut self.param {
-                        if state.visible {
-                            let cmd = state.cmd;
-                            let param = state.matches[state.selected];
-                            self.set_block();
-                            self.textarea
-                                .insert_str(&format!("/{} {}", cmd.name(), param));
-                            self.param = None;
-                            return Some(Msg::None);
-                        }
-                    }
-                    if let Some(state) = &mut self.cmd {
-                        if state.visible {
-                            let cmd = state.matches[state.selected];
-                            self.set_block();
-                            if cmd.params().is_some() {
-                                self.textarea.insert_str(&format!("/{} ", cmd.name()));
-                            } else {
-                                self.textarea.insert_str(&format!("/{}", cmd.name()));
-                            }
-                            self.cmd = None;
-                            self.refresh_cmd_state();
-                            return Some(Msg::None);
-                        }
-                    }
-                    let input = to_input(key);
-                    self.textarea.input(input);
-                    self.refresh_cmd_state();
-                }
-                (Key::Esc, _) => return Some(Msg::AppClose),
-                _ => {
-                    let input = to_input(key);
-                    self.textarea.input(input);
-                    self.refresh_cmd_state();
-                }
-            },
+                return Some(Msg::None);
+            }
             Event::Paste(ref data) if self.focused => {
                 self.textarea.insert_str(data);
                 self.refresh_cmd_state();
@@ -299,60 +244,10 @@ impl MockComponent for Prompt {
         frame.render_widget(&self.textarea, chunks[1]);
         self.area = chunks[1];
 
-        if let Some(state) = &self.param {
-            if state.visible {
-                let entries: Vec<String> = state.matches.iter().map(|s| s.to_string()).collect();
-                let popup_width = entries
-                    .iter()
-                    .map(|s| s.as_str().width())
-                    .max()
-                    .unwrap_or(0) as u16
-                    + 2;
-                let items: Vec<ListItem> = entries.into_iter().map(ListItem::new).collect();
-                let popup_height = items.len() as u16 + 2;
-                let popup_area = Rect {
-                    x: chunks[1].x + state.offset,
-                    y: chunks[1].y.saturating_sub(popup_height),
-                    width: popup_width,
-                    height: popup_height,
-                };
-                let list = List::new(items)
-                    .block(Block::default().borders(Borders::ALL))
-                    .highlight_style(Style::default().bg(Color::Blue));
-                let mut list_state = ListState::default();
-                list_state.select(Some(state.selected));
-                frame.render_widget(Clear, popup_area);
-                frame.render_stateful_widget(list, popup_area, &mut list_state);
-            }
-        } else if let Some(state) = &self.cmd {
-            if state.visible {
-                let entries: Vec<String> = state
-                    .matches
-                    .iter()
-                    .map(|c| format!("/{} - {}", c.name(), c.description()))
-                    .collect();
-                let popup_width = entries
-                    .iter()
-                    .map(|s| s.as_str().width())
-                    .max()
-                    .unwrap_or(0) as u16
-                    + 2;
-                let items: Vec<ListItem> = entries.into_iter().map(ListItem::new).collect();
-                let popup_height = items.len() as u16 + 2;
-                let popup_area = Rect {
-                    x: chunks[1].x,
-                    y: chunks[1].y.saturating_sub(popup_height),
-                    width: popup_width,
-                    height: popup_height,
-                };
-                let list = List::new(items)
-                    .block(Block::default().borders(Borders::ALL))
-                    .highlight_style(Style::default().bg(Color::Blue));
-                let mut list_state = ListState::default();
-                list_state.select(Some(state.selected));
-                frame.render_widget(Clear, popup_area);
-                frame.render_stateful_widget(list, popup_area, &mut list_state);
-            }
+        if let Some(state) = &mut self.param {
+            state.view(frame, chunks[1]);
+        } else if let Some(state) = &mut self.cmd {
+            state.view(frame, chunks[1]);
         }
     }
 

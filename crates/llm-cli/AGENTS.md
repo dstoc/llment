@@ -79,6 +79,7 @@ Basic terminal chat interface scaffold using tuirealm and ratatui.
     - clicking items toggles collapse without selection
   - code structure
     - conversation resides under `src/conversation` with modules for nodes and mutation helpers
+    - command and parameter popups are separate components under `src/components` used by the prompt input
   - tool streaming
     - drains remaining events after request completes before clearing state
   - MCP integration
