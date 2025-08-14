@@ -1,11 +1,11 @@
-use textwrap::wrap;
-use tuirealm::ratatui::{
+use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
+use textwrap::wrap;
 
 use super::node::ConvNode;
 

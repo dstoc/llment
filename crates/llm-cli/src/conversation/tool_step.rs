@@ -1,16 +1,17 @@
-use textwrap::wrap;
-use tuirealm::ratatui::{
+use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
+use textwrap::wrap;
 
 use super::node::ConvNode;
 
 pub struct ToolStep {
     pub(crate) name: String,
+    pub(crate) id: usize,
     pub(crate) args: String,
     pub(crate) result: String,
     pub(crate) collapsed: bool,
@@ -23,9 +24,10 @@ pub struct ToolStep {
 }
 
 impl ToolStep {
-    pub fn new(name: String, args: String, result: String, collapsed: bool) -> Self {
+    pub fn new(name: String, id: usize, args: String, result: String, collapsed: bool) -> Self {
         Self {
             name,
+            id,
             args,
             result,
             collapsed,

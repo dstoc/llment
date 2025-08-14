@@ -1,6 +1,5 @@
 mod assistant_block;
 mod conversation;
-mod mutate;
 mod node;
 mod thought_step;
 mod tool_step;

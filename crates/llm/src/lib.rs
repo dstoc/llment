@@ -24,8 +24,9 @@ pub mod tools;
 
 pub use test_provider::TestProvider;
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Default, Copy, Clone, Debug, ValueEnum)]
 pub enum Provider {
+    #[default]
     Ollama,
     Openai,
     Gemini,

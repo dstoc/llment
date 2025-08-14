@@ -1,14 +1,14 @@
 use crate::markdown::markdown_to_lines;
-use std::time::Instant;
-use tui_realm_stdlib::states::SpinnerStates;
-use tuirealm::event::Key;
-use tuirealm::ratatui::{
+use crossterm::event::KeyCode;
+use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
+use std::time::Instant;
+use tui_realm_stdlib::states::SpinnerStates;
 
 use super::{Node, node::ConvNode};
 
@@ -250,9 +250,9 @@ impl ConvNode for AssistantBlock {
         self.content_rev += 1;
     }
 
-    fn on_key(&mut self, key: Key) -> bool {
+    fn on_key(&mut self, key: KeyCode) -> bool {
         match key {
-            Key::Down => {
+            KeyCode::Down => {
                 let max = self.total_items() - 1;
                 if self.selected < max {
                     self.selected += 1;
@@ -261,7 +261,7 @@ impl ConvNode for AssistantBlock {
                     false
                 }
             }
-            Key::Up => {
+            KeyCode::Up => {
                 if self.selected > 0 {
                     self.selected -= 1;
                     true

@@ -1,5 +1,5 @@
-use tuirealm::event::Key;
-use tuirealm::ratatui::{Frame, layout::Rect};
+use crossterm::event::KeyCode;
+use ratatui::{Frame, layout::Rect};
 
 use super::{
     assistant_block::AssistantBlock, thought_step::ThoughtStep, tool_step::ToolStep,
@@ -17,7 +17,7 @@ pub trait ConvNode {
         max_height: u16,
     );
     fn activate(&mut self) {}
-    fn on_key(&mut self, _key: Key) -> bool {
+    fn on_key(&mut self, _key: KeyCode) -> bool {
         false
     }
     fn click(&mut self, _line: u16) {
@@ -67,7 +67,7 @@ impl ConvNode for Node {
         }
     }
 
-    fn on_key(&mut self, key: Key) -> bool {
+    fn on_key(&mut self, key: KeyCode) -> bool {
         match self {
             Node::User(n) => n.on_key(key),
             Node::Assistant(n) => n.on_key(key),
