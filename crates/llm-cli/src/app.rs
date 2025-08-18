@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     Args, Component,
@@ -9,10 +9,11 @@ use crate::{
     },
     conversation::{Conversation, ToolStep},
 };
+use clap::ValueEnum;
 use crossterm::event::Event;
 use futures_signals::signal::{Mutable, SignalExt};
 use llm::{
-    ChatMessage, ChatMessageRequest, MessageRole,
+    ChatMessage, ChatMessageRequest, MessageRole, Provider,
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -32,10 +33,11 @@ pub struct App {
     conversation: Conversation,
     prompt: Prompt,
 
-    client: Arc<dyn llm::LlmClient>,
+    client: Arc<Mutex<Arc<dyn llm::LlmClient>>>,
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_context: Arc<McpContext>,
     model_name: String,
+    host: String,
     chat_history: Vec<ChatMessage>,
 
     tasks: JoinSet<()>,
@@ -56,6 +58,7 @@ enum Update {
     Response(ToolEvent),
     History(Vec<ChatMessage>),
     SetModel(String),
+    SetProvider(Provider, Option<String>),
     Redo,
     Clear,
 }
@@ -68,6 +71,7 @@ impl App {
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
         let client = llm::client_from(args.provider, &args.host).unwrap();
+        let client = Arc::new(Mutex::new(client));
         let tasks = JoinSet::new();
         let request_tasks = JoinSet::new();
         App {
@@ -82,6 +86,10 @@ impl App {
                     Box::new(ModelCommand {
                         client: client.clone(),
                         tx: update_tx.clone(),
+                    }),
+                    Box::new(ProviderCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
                     }),
                     Box::new(RedoCommand {
                         needs_update: model.needs_update.clone(),
@@ -99,6 +107,7 @@ impl App {
             model,
             client,
             model_name: args.model,
+            host: args.host,
             tool_executor,
             mcp_context,
             chat_history: vec![],
@@ -150,12 +159,9 @@ impl App {
             .tools(tool_infos)
             .think(true);
         let history = std::mem::take(&mut self.chat_history);
-        let (mut stream, handle) = tool_event_stream(
-            self.client.clone(),
-            request,
-            self.tool_executor.clone(),
-            history,
-        );
+        let client = { self.client.lock().unwrap().clone() };
+        let (mut stream, handle) =
+            tool_event_stream(client, request, self.tool_executor.clone(), history);
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
@@ -240,6 +246,21 @@ impl Component for App {
                 Ok(Update::SetModel(_model_name)) => {
                     // TODO: set the model
                 }
+                Ok(Update::SetProvider(provider, host)) => {
+                    self.abort_requests();
+                    let host = host.unwrap_or_else(|| self.host.clone());
+                    if let Ok(new_client) = llm::client_from(provider, &host) {
+                        {
+                            let mut guard = self.client.lock().unwrap();
+                            *guard = new_client;
+                        }
+                        self.host = host;
+                        self.chat_history.clear();
+                        self.conversation.clear();
+                        self.model.needs_redraw.set(true);
+                        self.model.needs_update.set(true);
+                    }
+                }
                 Ok(Update::Clear) => {
                     self.abort_requests();
                     self.chat_history.clear();
@@ -275,7 +296,7 @@ impl Component for App {
 }
 
 struct ModelCommand {
-    client: Arc<dyn llm::LlmClient>,
+    client: Arc<Mutex<Arc<dyn llm::LlmClient>>>,
     tx: UnboundedSender<Update>,
 }
 
@@ -301,7 +322,7 @@ impl Command for ModelCommand {
 
 struct ModelCommandInstance {
     tx: UnboundedSender<Update>,
-    client: Arc<dyn llm::LlmClient>,
+    client: Arc<Mutex<Arc<dyn llm::LlmClient>>>,
     models: Arc<OnceCell<Vec<String>>>,
     param: String,
 }
@@ -332,10 +353,11 @@ impl CommandInstance for ModelCommandInstance {
             // TODO: if we don't match any, then it could be an error?
             CompletionResult::Options { at: 0, options }
         } else {
-            let client = self.client.clone();
+            let client_handle = self.client.clone();
             let models = self.models.clone();
             let (tx, rx) = oneshot::channel();
             tokio::spawn(async move {
+                let client = { client_handle.lock().unwrap().clone() };
                 let _ = models
                     .get_or_init(|| async move {
                         match client.list_models().await {
@@ -358,6 +380,87 @@ impl CommandInstance for ModelCommandInstance {
             let _ = self.tx.send(Update::SetModel(self.param.clone()));
             Ok(())
         }
+    }
+}
+
+struct ProviderCommand {
+    needs_update: Mutable<bool>,
+    update_tx: UnboundedSender<Update>,
+}
+
+impl Command for ProviderCommand {
+    fn name(&self) -> &'static str {
+        "provider"
+    }
+    fn description(&self) -> &'static str {
+        "Change the active provider"
+    }
+    fn has_params(&self) -> bool {
+        true
+    }
+    fn instance(&self) -> Box<dyn CommandInstance> {
+        Box::new(ProviderCommandInstance {
+            needs_update: self.needs_update.clone(),
+            tx: self.update_tx.clone(),
+            param: String::new(),
+        })
+    }
+}
+
+struct ProviderCommandInstance {
+    needs_update: Mutable<bool>,
+    tx: UnboundedSender<Update>,
+    param: String,
+}
+
+impl ProviderCommandInstance {
+    fn provider_options(&self, typed: &str) -> Vec<Completion> {
+        Provider::value_variants()
+            .iter()
+            .filter_map(|p| {
+                let name = p.to_possible_value()?.get_name().to_string();
+                if name.starts_with(typed) {
+                    Some(Completion {
+                        name: name.clone(),
+                        description: String::new(),
+                        str: format!("{} ", name),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+impl CommandInstance for ProviderCommandInstance {
+    fn update(&mut self, input: &str) -> CompletionResult {
+        self.param = input.trim().to_string();
+        let (prov, host_opt) = match self.param.split_once(' ') {
+            Some((p, h)) => (p, Some(h)),
+            None => (self.param.as_str(), None),
+        };
+        if host_opt.is_none() {
+            let options = self.provider_options(prov);
+            CompletionResult::Options { at: 0, options }
+        } else {
+            CompletionResult::Options {
+                at: 0,
+                options: vec![],
+            }
+        }
+    }
+    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.param.is_empty() {
+            return Err("no provider".into());
+        }
+        let mut parts = self.param.split_whitespace();
+        let prov_str = parts.next().ok_or("no provider")?;
+        let provider = Provider::from_str(prov_str, true)?;
+        let host = parts.next().map(|s| s.to_string());
+        let _ = self.tx.send(Update::SetProvider(provider, host));
+        self.needs_update.set(true);
+        Ok(())
     }
 }
 

@@ -49,7 +49,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - cursor hidden when unfocused
       - trailing spaces do not move the cursor to the next line
       - recognizes `/` commands
-        - `/` opens a popup with `/quit`, `/clear`, `/redo`, and `/model`
+        - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/model`, and `/provider`
           - width adjusts to content
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
@@ -57,6 +57,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
           - `/model` offers available models from the connected provider
             - `Up`/`Down` navigate model selection
             - `Tab` completes the highlighted model
+          - `/provider` switches LLM backend and optional host
         - `/quit` exits the application
         - `/clear` resets conversation history and aborts any pending request
         - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, and aborts any pending request
