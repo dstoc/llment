@@ -174,11 +174,15 @@ impl Component for Prompt {
                     }
                 }
                 if key.code == KeyCode::Enter {
-                    let text = self.textarea.lines().join("\n");
-                    let trimmed = text.trim().to_string();
-                    self.textarea = Self::new_textarea();
-                    if !trimmed.is_empty() {
-                        self.model.submitted_prompt.set(trimmed);
+                    if self.try_commit_completion() {
+                        self.reset();
+                    } else {
+                        let text = self.textarea.lines().join("\n");
+                        let trimmed = text.trim().to_string();
+                        self.textarea = Self::new_textarea();
+                        if !trimmed.is_empty() {
+                            self.model.submitted_prompt.set(trimmed);
+                        }
                     }
                     self.model.needs_redraw.set(true);
                 } else {
