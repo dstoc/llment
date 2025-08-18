@@ -39,8 +39,10 @@ pub struct App {
     chat_history: Vec<ChatMessage>,
 
     tasks: JoinSet<()>,
+    request_tasks: JoinSet<()>,
     update_tx: UnboundedSender<Update>,
     update_rx: UnboundedReceiver<Update>,
+    ignore_responses: bool,
 }
 
 pub struct AppModel {
@@ -67,6 +69,7 @@ impl App {
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
         let client = llm::client_from(args.provider, &args.host).unwrap();
         let tasks = JoinSet::new();
+        let request_tasks = JoinSet::new();
         App {
             conversation: Conversation::default(),
             prompt: Prompt::new(
@@ -100,8 +103,10 @@ impl App {
             mcp_context,
             chat_history: vec![],
             tasks,
+            request_tasks,
             update_tx,
             update_rx,
+            ignore_responses: false,
         }
     }
 
@@ -152,9 +157,10 @@ impl App {
             history,
         );
 
+        self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
         let needs_update = self.model.needs_update.clone();
-        self.tasks.spawn(async move {
+        self.request_tasks.spawn(async move {
             while let Some(event) = stream.next().await {
                 let _ = update_tx.send(Update::Response(event));
                 needs_update.set(true);
@@ -164,6 +170,12 @@ impl App {
                 let _ = update_tx.send(Update::History(history));
             }
         });
+    }
+
+    fn abort_requests(&mut self) {
+        self.request_tasks.abort_all();
+        self.request_tasks = JoinSet::new();
+        self.ignore_responses = true;
     }
 }
 
@@ -214,30 +226,34 @@ impl Component for App {
                     }
                 }
                 Ok(Update::Response(event)) => {
-                    self.handle_tool_event(event);
-                    // TODO: conversation should do this
-                    self.model.needs_redraw.set(true);
+                    if !self.ignore_responses {
+                        self.handle_tool_event(event);
+                        // TODO: conversation should do this
+                        self.model.needs_redraw.set(true);
+                    }
                 }
                 Ok(Update::History(history)) => {
-                    self.chat_history = history;
+                    if !self.ignore_responses {
+                        self.chat_history = history;
+                    }
                 }
                 Ok(Update::SetModel(_model_name)) => {
                     // TODO: set the model
                 }
                 Ok(Update::Clear) => {
-                    // TODO: abort pending requests
+                    self.abort_requests();
                     self.chat_history.clear();
                     self.conversation.clear();
                 }
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
+                        self.abort_requests();
                         while let Some(msg) = self.chat_history.pop() {
                             if msg.role == MessageRole::User {
                                 break;
                             }
                         }
                         self.prompt.set_prompt(text);
-                        // TODO: abort pending requests
                     }
                 }
                 Err(_) => break,
