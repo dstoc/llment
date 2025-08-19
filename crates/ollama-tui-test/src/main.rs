@@ -168,9 +168,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let client = llm::client_from(args.provider, Some(&args.host))?;
+    let client = Arc::new(llm::client_from(
+        args.provider,
+        args.model.clone(),
+        Some(&args.host),
+    )?);
 
-    let res = run_app(&mut terminal, client, args.model.clone(), mcp_ctx.clone()).await;
+    let res = run_app(&mut terminal, client, mcp_ctx.clone()).await;
 
     disable_raw_mode()?;
     execute!(
@@ -188,8 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
-    client: Arc<dyn llm::LlmClient>,
-    model: String,
+    client: Arc<llm::Client>,
     mcp_ctx: Arc<McpContext>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tool_infos = mcp_ctx.tool_infos.clone();
@@ -236,7 +239,10 @@ async fn run_app<B: ratatui::backend::Backend>(
                                     input.reset();
                                     chat_history.push(ChatMessage::user(query.clone()));
                                     current_line.clear();
-                                    let request = ChatMessageRequest::new(model.clone(), chat_history.clone())
+                                    let request = ChatMessageRequest::new(
+                                        client.model().to_string(),
+                                        chat_history.clone(),
+                                    )
                                         .tools(tool_infos.clone())
                                         .think(true);
                                     let history = std::mem::take(&mut chat_history);

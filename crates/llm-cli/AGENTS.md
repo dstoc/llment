@@ -60,10 +60,13 @@ Basic terminal chat interface scaffold using a bespoke component framework built
           - `/provider` switches LLM backend and optional host
             - host defaults to provider-specific configuration when omitted
         - `/quit` exits the application
-        - `/clear` resets conversation history and aborts any pending request
-        - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, and aborts any pending request
+        - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
+        - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
     - Esc exits the application
     - conversation pane has no keyboard interaction
+    - 1-line status area
+      - shows provider and model on the left
+      - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
     - conversation items
       - initialized with empty history
       - user messages render inside a right-aligned rounded block
@@ -76,6 +79,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - header displays status line summarizing assistant progress
           - before response: "Thinking" plus completed tool count and current tool with spinner
           - after response: "Thought for Ns" with completed tool count
+        - each assistant block tracks input, output, and total token usage
     - items stored as a strongly typed `Node` enum implementing `ConvNode`
       - helper methods append items and steps, bumping `content_rev` for caching
     - partial items are clipped when scrolled
