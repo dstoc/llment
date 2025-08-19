@@ -13,11 +13,11 @@ use clap::ValueEnum;
 use crossterm::event::Event;
 use futures_signals::signal::{Mutable, SignalExt};
 use llm::{
-    ChatMessage, ChatMessageRequest, MessageRole, Provider,
+    ChatMessage, ChatMessageRequest, LlmClient, MessageRole, Provider,
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
-use ratatui::prelude::*;
+use ratatui::{prelude::*, widgets::Paragraph};
 use tokio::{
     sync::{
         OnceCell,
@@ -27,16 +27,18 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_stream::StreamExt;
+use unicode_width::UnicodeWidthStr;
 
 pub struct App {
     pub model: AppModel,
     conversation: Conversation,
     prompt: Prompt,
 
-    client: Arc<Mutex<Arc<dyn llm::LlmClient>>>,
+    client: Arc<Mutex<llm::Client>>,
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_context: Arc<McpContext>,
-    model_name: String,
+    session_in_tokens: u32,
+    session_out_tokens: u32,
     chat_history: Vec<ChatMessage>,
 
     tasks: JoinSet<()>,
@@ -69,7 +71,7 @@ impl App {
         let mcp_context = Arc::new(mcp_context);
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
-        let client = llm::client_from(args.provider, Some(&args.host)).unwrap();
+        let client = llm::client_from(args.provider, args.model.clone(), Some(&args.host)).unwrap();
         let client = Arc::new(Mutex::new(client));
         let tasks = JoinSet::new();
         let request_tasks = JoinSet::new();
@@ -105,7 +107,8 @@ impl App {
             ),
             model,
             client,
-            model_name: args.model,
+            session_in_tokens: 0,
+            session_out_tokens: 0,
             tool_executor,
             mcp_context,
             chat_history: vec![],
@@ -126,6 +129,13 @@ impl App {
                 if let Some(content) = chunk.message.content.as_ref() {
                     if !content.is_empty() {
                         self.conversation.append_response(content);
+                    }
+                }
+                if chunk.done {
+                    if let Some(usage) = chunk.usage {
+                        self.session_in_tokens += usage.input_tokens;
+                        self.session_out_tokens += usage.output_tokens;
+                        self.conversation.set_usage(usage);
                     }
                 }
             }
@@ -153,11 +163,12 @@ impl App {
         self.chat_history.push(ChatMessage::user(prompt));
         self.conversation.push_assistant_block();
         let tool_infos = self.mcp_context.tool_infos.clone();
-        let request = ChatMessageRequest::new(self.model_name.clone(), self.chat_history.clone())
+        let model_name = { self.client.lock().unwrap().model().to_string() };
+        let request = ChatMessageRequest::new(model_name, self.chat_history.clone())
             .tools(tool_infos)
             .think(true);
         let history = std::mem::take(&mut self.chat_history);
-        let client = { self.client.lock().unwrap().clone() };
+        let client = { Arc::new(self.client.lock().unwrap().clone()) };
         let (mut stream, handle) =
             tool_event_stream(client, request, self.tool_executor.clone(), history);
 
@@ -241,16 +252,24 @@ impl Component for App {
                         self.chat_history = history;
                     }
                 }
-                Ok(Update::SetModel(_model_name)) => {
-                    // TODO: set the model
+                Ok(Update::SetModel(model_name)) => {
+                    {
+                        let mut client = self.client.lock().unwrap();
+                        client.set_model(model_name);
+                    }
+                    self.model.needs_redraw.set(true);
+                    self.model.needs_update.set(true);
                 }
                 Ok(Update::SetProvider(provider, host)) => {
                     self.abort_requests();
-                    if let Ok(new_client) = llm::client_from(provider, host.as_deref()) {
+                    let model = { self.client.lock().unwrap().model().to_string() };
+                    if let Ok(new_client) = llm::client_from(provider, model, host.as_deref()) {
                         {
                             let mut guard = self.client.lock().unwrap();
                             *guard = new_client;
                         }
+                        self.session_in_tokens = 0;
+                        self.session_out_tokens = 0;
                         self.chat_history.clear();
                         self.conversation.clear();
                         self.model.needs_redraw.set(true);
@@ -261,6 +280,8 @@ impl Component for App {
                     self.abort_requests();
                     self.chat_history.clear();
                     self.conversation.clear();
+                    self.session_in_tokens = 0;
+                    self.session_out_tokens = 0;
                 }
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
@@ -283,16 +304,42 @@ impl Component for App {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([Constraint::Min(1), Constraint::Length(prompt_height)].as_ref())
+            .constraints(
+                [
+                    Constraint::Min(1),
+                    Constraint::Length(prompt_height),
+                    Constraint::Length(1),
+                ]
+                .as_ref(),
+            )
             .split(area);
 
         self.conversation.render(frame, chunks[0]);
         self.prompt.render(frame, chunks[1]);
+        let ctx_tokens = self.conversation.context_tokens();
+        let status_right = format!(
+            "ctx {}t, Σ {}t=>{}t",
+            ctx_tokens, self.session_in_tokens, self.session_out_tokens
+        );
+        let right_width = status_right.width() as u16;
+        let status_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(right_width)].as_ref())
+            .split(chunks[2]);
+        let status_left = {
+            let client = self.client.lock().unwrap();
+            format!("{:?} {}", client.provider(), client.model())
+        };
+        frame.render_widget(Paragraph::new(status_left), status_chunks[0]);
+        frame.render_widget(
+            Paragraph::new(status_right).alignment(Alignment::Right),
+            status_chunks[1],
+        );
     }
 }
 
 struct ModelCommand {
-    client: Arc<Mutex<Arc<dyn llm::LlmClient>>>,
+    client: Arc<Mutex<llm::Client>>,
     tx: UnboundedSender<Update>,
 }
 
@@ -318,7 +365,7 @@ impl Command for ModelCommand {
 
 struct ModelCommandInstance {
     tx: UnboundedSender<Update>,
-    client: Arc<Mutex<Arc<dyn llm::LlmClient>>>,
+    client: Arc<Mutex<llm::Client>>,
     models: Arc<OnceCell<Vec<String>>>,
     param: String,
 }

@@ -25,7 +25,8 @@ Trait-based LLM client implementations for multiple providers.
   - implementations for Ollama, OpenAI, and Gemini
 - Provider selection
   - `Provider` enum lists supported backends
-  - `client_from` builds a client for the given provider
+  - `client_from` builds a client for the given provider and model
+    - stores provider and model names for later retrieval
     - uses provider-specific default host when none is supplied
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats

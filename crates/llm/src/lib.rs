@@ -32,15 +32,56 @@ pub enum Provider {
     Gemini,
 }
 
+#[derive(Clone)]
+pub struct Client {
+    inner: Arc<dyn LlmClient>,
+    provider: Provider,
+    model: String,
+}
+
+impl Client {
+    pub fn provider(&self) -> Provider {
+        self.provider
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn set_model(&mut self, model: String) {
+        self.model = model;
+    }
+}
+
+#[async_trait]
+impl LlmClient for Client {
+    async fn send_chat_messages_stream(
+        &self,
+        request: ChatMessageRequest,
+    ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
+        self.inner.send_chat_messages_stream(request).await
+    }
+
+    async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        self.inner.list_models().await
+    }
+}
+
 pub fn client_from(
     provider: Provider,
+    model: String,
     host: Option<&str>,
-) -> Result<Arc<dyn LlmClient>, Box<dyn Error + Send + Sync>> {
-    match provider {
-        Provider::Ollama => Ok(Arc::new(ollama::OllamaClient::new(host)?)),
-        Provider::Openai => Ok(Arc::new(openai::OpenAiClient::new(host))),
-        Provider::Gemini => Ok(Arc::new(gemini::GeminiClient::new(host))),
-    }
+) -> Result<Client, Box<dyn Error + Send + Sync>> {
+    let inner: Arc<dyn LlmClient> = match provider {
+        Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
+        Provider::Openai => Arc::new(openai::OpenAiClient::new(host)),
+        Provider::Gemini => Arc::new(gemini::GeminiClient::new(host)),
+    };
+    Ok(Client {
+        inner,
+        provider,
+        model,
+    })
 }
 
 #[derive(Debug)]
