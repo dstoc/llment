@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-async-openai = "0.29.0"
+async-openai = { version = "0.29.0", features = ["byot"] }
 async-trait = "0.1.88"
 clap = { version = "4.5.43", features = ["derive"] }
 gemini-rs = { git = "https://github.com/dstoc/gemini-rs", branch = "include-thoughts", version = "2.0.0" }

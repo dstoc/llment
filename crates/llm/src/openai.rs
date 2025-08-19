@@ -6,6 +6,7 @@ use super::{
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
+use serde::Deserialize;
 use serde_json::Value;
 use tokio_stream::StreamExt;
 
@@ -13,6 +14,26 @@ use tokio_stream::StreamExt;
 struct ToolCallBuilder {
     name: Option<String>,
     arguments: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamingChunk {
+    choices: Vec<StreamingChoice>,
+    usage: Option<CompletionUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamingChoice {
+    delta: StreamingDelta,
+    finish_reason: Option<FinishReason>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamingDelta {
+    content: Option<String>,
+    #[serde(rename = "reasoning_content")]
+    reasoning_content: Option<String>,
+    tool_calls: Option<Vec<ChatCompletionMessageToolCallChunk>>,
 }
 
 pub struct OpenAiClient {
@@ -119,16 +140,24 @@ impl LlmClient for OpenAiClient {
             include_usage: true,
         });
         let req = req_builder.build()?;
-        let stream = self.inner.chat().create_stream(req).await?;
+        let req_value = serde_json::to_value(&req)?;
+        let stream = self
+            .inner
+            .chat()
+            .create_stream_byot::<Value, StreamingChunk>(req_value)
+            .await?;
         let mut pending_tool_calls: Vec<ToolCallBuilder> = Vec::new();
-        let mut pending_function_call: Option<ToolCallBuilder> = None;
         let mapped = stream.map(move |res| {
             res.map(|chunk| {
                 let mut content_acc = String::new();
+                let mut thinking_acc = String::new();
                 let mut tool_calls = Vec::new();
                 for choice in &chunk.choices {
                     if let Some(c) = choice.delta.content.as_deref() {
                         content_acc.push_str(c);
+                    }
+                    if let Some(r) = choice.delta.reasoning_content.as_deref() {
+                        thinking_acc.push_str(r);
                     }
                     if let Some(calls) = &choice.delta.tool_calls {
                         for tc in calls {
@@ -146,30 +175,7 @@ impl LlmClient for OpenAiClient {
                             }
                         }
                     }
-                    if let Some(fc) = &choice.delta.function_call {
-                        let builder =
-                            pending_function_call.get_or_insert_with(ToolCallBuilder::default);
-                        if let Some(name) = &fc.name {
-                            builder.name = Some(name.clone());
-                        }
-                        if let Some(args) = &fc.arguments {
-                            builder.arguments.push_str(args);
-                        }
-                    }
-                    if matches!(
-                        choice.finish_reason,
-                        Some(FinishReason::ToolCalls | FinishReason::FunctionCall)
-                    ) {
-                        if let Some(b) = pending_function_call.take() {
-                            let args: Value =
-                                serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
-                            tool_calls.push(ToolCall {
-                                function: ToolCallFunction {
-                                    name: b.name.unwrap_or_default(),
-                                    arguments: args,
-                                },
-                            });
-                        }
+                    if matches!(choice.finish_reason, Some(FinishReason::ToolCalls)) {
                         if !pending_tool_calls.is_empty() {
                             for b in pending_tool_calls.drain(..) {
                                 let args: Value =
@@ -189,6 +195,11 @@ impl LlmClient for OpenAiClient {
                 } else {
                     Some(content_acc)
                 };
+                let thinking = if thinking_acc.is_empty() {
+                    None
+                } else {
+                    Some(thinking_acc)
+                };
                 let done = chunk.choices.iter().any(|c| c.finish_reason.is_some());
                 let usage = if done {
                     chunk.usage.map(|u| LlmUsage {
@@ -202,7 +213,7 @@ impl LlmClient for OpenAiClient {
                     message: ResponseMessage {
                         content,
                         tool_calls,
-                        thinking: None,
+                        thinking,
                     },
                     done,
                     usage,
