@@ -1,4 +1,5 @@
 use crossterm::event::{Event, MouseButton, MouseEventKind};
+use llm::Usage;
 use ratatui::{Frame, layout::Rect};
 
 use crate::component::Component;
@@ -268,6 +269,12 @@ impl Conversation {
         }
     }
 
+    pub fn set_usage(&mut self, usage: Usage) {
+        if let Some(Node::Assistant(block)) = self.items.last_mut() {
+            block.set_usage(usage.input_tokens, usage.output_tokens);
+        }
+    }
+
     pub fn redo_last(&mut self) -> Option<String> {
         if matches!(self.items.last(), Some(Node::Assistant(_))) {
             self.items.pop();
@@ -279,5 +286,16 @@ impl Conversation {
             }
         }
         None
+    }
+
+    pub fn context_tokens(&self) -> u32 {
+        self.items
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                Node::Assistant(block) => Some(block.total_tokens),
+                _ => None,
+            })
+            .unwrap_or(0)
     }
 }

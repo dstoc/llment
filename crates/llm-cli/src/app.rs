@@ -17,7 +17,7 @@ use llm::{
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
-use ratatui::prelude::*;
+use ratatui::{prelude::*, widgets::Paragraph};
 use tokio::{
     sync::{
         OnceCell,
@@ -37,6 +37,10 @@ pub struct App {
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_context: Arc<McpContext>,
     model_name: String,
+    provider: Provider,
+    session_in_tokens: u32,
+    session_out_tokens: u32,
+    context_tokens: u32,
     chat_history: Vec<ChatMessage>,
 
     tasks: JoinSet<()>,
@@ -106,6 +110,10 @@ impl App {
             model,
             client,
             model_name: args.model,
+            provider: args.provider,
+            session_in_tokens: 0,
+            session_out_tokens: 0,
+            context_tokens: 0,
             tool_executor,
             mcp_context,
             chat_history: vec![],
@@ -126,6 +134,14 @@ impl App {
                 if let Some(content) = chunk.message.content.as_ref() {
                     if !content.is_empty() {
                         self.conversation.append_response(content);
+                    }
+                }
+                if chunk.done {
+                    if let Some(usage) = chunk.usage {
+                        self.session_in_tokens += usage.input_tokens;
+                        self.session_out_tokens += usage.output_tokens;
+                        self.conversation.set_usage(usage);
+                        self.context_tokens = self.conversation.context_tokens();
                     }
                 }
             }
@@ -251,6 +267,10 @@ impl Component for App {
                             let mut guard = self.client.lock().unwrap();
                             *guard = new_client;
                         }
+                        self.provider = provider;
+                        self.session_in_tokens = 0;
+                        self.session_out_tokens = 0;
+                        self.context_tokens = 0;
                         self.chat_history.clear();
                         self.conversation.clear();
                         self.model.needs_redraw.set(true);
@@ -261,6 +281,9 @@ impl Component for App {
                     self.abort_requests();
                     self.chat_history.clear();
                     self.conversation.clear();
+                    self.session_in_tokens = 0;
+                    self.session_out_tokens = 0;
+                    self.context_tokens = 0;
                 }
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
@@ -271,6 +294,7 @@ impl Component for App {
                             }
                         }
                         self.prompt.set_prompt(text);
+                        self.context_tokens = self.conversation.context_tokens();
                     }
                 }
                 Err(_) => break,
@@ -283,11 +307,28 @@ impl Component for App {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([Constraint::Min(1), Constraint::Length(prompt_height)].as_ref())
+            .constraints(
+                [
+                    Constraint::Min(1),
+                    Constraint::Length(prompt_height),
+                    Constraint::Length(1),
+                ]
+                .as_ref(),
+            )
             .split(area);
 
         self.conversation.render(frame, chunks[0]);
         self.prompt.render(frame, chunks[1]);
+        let status = format!(
+            "provider: {:?} {} / context: {}t / session in: {}t out: {}t",
+            self.provider,
+            self.model_name,
+            self.context_tokens,
+            self.session_in_tokens,
+            self.session_out_tokens
+        );
+        let para = Paragraph::new(status);
+        frame.render_widget(para, chunks[2]);
     }
 }
 
