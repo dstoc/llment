@@ -47,14 +47,30 @@ impl LlmClient for OpenAiClient {
                         .build()
                         .unwrap(),
                 ),
-                MessageRole::Assistant => ChatCompletionRequestMessage::Assistant(
-                    ChatCompletionRequestAssistantMessageArgs::default()
-                        .content(ChatCompletionRequestAssistantMessageContent::Text(
+                MessageRole::Assistant => {
+                    let mut builder = ChatCompletionRequestAssistantMessageArgs::default();
+                    if !m.content.is_empty() {
+                        builder.content(ChatCompletionRequestAssistantMessageContent::Text(
                             m.content,
-                        ))
-                        .build()
-                        .unwrap(),
-                ),
+                        ));
+                    }
+                    if !m.tool_calls.is_empty() {
+                        let tool_calls: Vec<ChatCompletionMessageToolCall> = m
+                            .tool_calls
+                            .into_iter()
+                            .map(|tc| ChatCompletionMessageToolCall {
+                                id: tc.function.name.clone(),
+                                r#type: ChatCompletionToolType::Function,
+                                function: FunctionCall {
+                                    name: tc.function.name,
+                                    arguments: tc.function.arguments.to_string(),
+                                },
+                            })
+                            .collect();
+                        builder.tool_calls(tool_calls);
+                    }
+                    ChatCompletionRequestMessage::Assistant(builder.build().unwrap())
+                }
                 MessageRole::System => ChatCompletionRequestMessage::System(
                     ChatCompletionRequestSystemMessageArgs::default()
                         .content(ChatCompletionRequestSystemMessageContent::Text(m.content))
