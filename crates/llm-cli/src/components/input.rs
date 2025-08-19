@@ -10,9 +10,7 @@ use ratatui::{
 };
 use tui_textarea::{Input as TaInput, Key as TaKey, TextArea};
 
-use super::completion::{
-    Command, CommandInstance, CommandRouter, CompletionPopup, CompletionResult,
-};
+use super::completion::{Command, CommandRouter, CompletionPopup, CompletionResult};
 
 /// Multiline prompt input backed by [`tui_textarea`].
 pub struct Prompt {

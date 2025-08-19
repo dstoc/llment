@@ -4,7 +4,7 @@ use crate::{
     Args, Component,
     components::{
         Prompt,
-        completion::{Command, CommandInstance, Completion, CompletionResult},
+        completion::{Command, Completion, CompletionResult},
         input::PromptModel,
     },
     conversation::{Conversation, ToolStep},
@@ -87,10 +87,13 @@ impl App {
                     Box::new(ModelCommand {
                         client: client.clone(),
                         tx: update_tx.clone(),
+                        models: Arc::default(),
+                        param: String::new(),
                     }),
                     Box::new(ProviderCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
+                        param: String::new(),
                     }),
                     Box::new(RedoCommand {
                         needs_update: model.needs_update.clone(),
@@ -336,35 +339,11 @@ impl Component for App {
 struct ModelCommand {
     client: Arc<Mutex<llm::Client>>,
     tx: UnboundedSender<Update>,
-}
-
-impl Command for ModelCommand {
-    fn name(&self) -> &'static str {
-        "model"
-    }
-    fn description(&self) -> &'static str {
-        "Change the active model"
-    }
-    fn has_params(&self) -> bool {
-        true
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(ModelCommandInstance {
-            tx: self.tx.clone(),
-            client: self.client.clone(),
-            models: Arc::default(),
-            param: String::default(),
-        })
-    }
-}
-
-struct ModelCommandInstance {
-    tx: UnboundedSender<Update>,
-    client: Arc<Mutex<llm::Client>>,
     models: Arc<OnceCell<Vec<String>>>,
     param: String,
 }
-impl ModelCommandInstance {
+
+impl ModelCommand {
     fn matching(&self) -> Vec<Completion> {
         if let Some(models) = self.models.get() {
             let param = self.param.as_str();
@@ -382,13 +361,22 @@ impl ModelCommandInstance {
         }
     }
 }
-impl CommandInstance for ModelCommandInstance {
+
+impl Command for ModelCommand {
+    fn name(&self) -> &'static str {
+        "model"
+    }
+    fn description(&self) -> &'static str {
+        "Change the active model"
+    }
+    fn has_params(&self) -> bool {
+        true
+    }
     fn update(&mut self, input: &str) -> CompletionResult {
         let param = input.trim();
         self.param = param.to_string();
-        if let Some(_) = self.models.get() {
+        if self.models.get().is_some() {
             let options = self.matching();
-            // TODO: if we don't match any, then it could be an error?
             CompletionResult::Options { at: 0, options }
         } else {
             let client_handle = self.client.clone();
@@ -400,22 +388,21 @@ impl CommandInstance for ModelCommandInstance {
                     .get_or_init(|| async move {
                         match client.list_models().await {
                             Ok(models) => models,
-                            Err(_) => Vec::new(), // TODO: surface an error?
+                            Err(_) => Vec::new(),
                         }
                     })
                     .await;
-
                 let _ = tx.send(());
             });
             CompletionResult::Loading { at: 0, done: rx }
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
             Err("no param".into())
         } else {
-            println!("commit model??");
             let _ = self.tx.send(Update::SetModel(self.param.clone()));
+            self.param.clear();
             Ok(())
         }
     }
@@ -424,34 +411,10 @@ impl CommandInstance for ModelCommandInstance {
 struct ProviderCommand {
     needs_update: Mutable<bool>,
     update_tx: UnboundedSender<Update>,
-}
-
-impl Command for ProviderCommand {
-    fn name(&self) -> &'static str {
-        "provider"
-    }
-    fn description(&self) -> &'static str {
-        "Change the active provider"
-    }
-    fn has_params(&self) -> bool {
-        true
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(ProviderCommandInstance {
-            needs_update: self.needs_update.clone(),
-            tx: self.update_tx.clone(),
-            param: String::new(),
-        })
-    }
-}
-
-struct ProviderCommandInstance {
-    needs_update: Mutable<bool>,
-    tx: UnboundedSender<Update>,
     param: String,
 }
 
-impl ProviderCommandInstance {
+impl ProviderCommand {
     fn provider_options(&self, typed: &str) -> Vec<Completion> {
         Provider::value_variants()
             .iter()
@@ -471,7 +434,16 @@ impl ProviderCommandInstance {
     }
 }
 
-impl CommandInstance for ProviderCommandInstance {
+impl Command for ProviderCommand {
+    fn name(&self) -> &'static str {
+        "provider"
+    }
+    fn description(&self) -> &'static str {
+        "Change the active provider"
+    }
+    fn has_params(&self) -> bool {
+        true
+    }
     fn update(&mut self, input: &str) -> CompletionResult {
         self.param = input.trim().to_string();
         let (prov, host_opt) = match self.param.split_once(' ') {
@@ -488,7 +460,7 @@ impl CommandInstance for ProviderCommandInstance {
             }
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
             return Err("no provider".into());
         }
@@ -496,8 +468,9 @@ impl CommandInstance for ProviderCommandInstance {
         let prov_str = parts.next().ok_or("no provider")?;
         let provider = Provider::from_str(prov_str, true)?;
         let host = parts.next().map(|s| s.to_string());
-        let _ = self.tx.send(Update::SetProvider(provider, host));
+        let _ = self.update_tx.send(Update::SetProvider(provider, host));
         self.needs_update.set(true);
+        self.param.clear();
         Ok(())
     }
 }
@@ -513,25 +486,13 @@ impl Command for QuitCommand {
     fn description(&self) -> &'static str {
         "Exit the application"
     }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(QuitCommandInstance {
-            should_quit: self.should_quit.clone(),
-        })
-    }
-}
-
-struct QuitCommandInstance {
-    should_quit: Mutable<bool>,
-}
-
-impl CommandInstance for QuitCommandInstance {
     fn update(&mut self, _input: &str) -> CompletionResult {
         CompletionResult::Options {
             at: 0,
             options: vec![],
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.should_quit.set(true);
         Ok(())
     }
@@ -549,27 +510,13 @@ impl Command for RedoCommand {
     fn description(&self) -> &'static str {
         "Rewrite the last prompt"
     }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(RedoCommandInstance {
-            needs_update: self.needs_update.clone(),
-            update_tx: self.update_tx.clone(),
-        })
-    }
-}
-
-struct RedoCommandInstance {
-    needs_update: Mutable<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl CommandInstance for RedoCommandInstance {
     fn update(&mut self, _input: &str) -> CompletionResult {
         CompletionResult::Options {
             at: 0,
             options: vec![],
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let _ = self.update_tx.send(Update::Redo);
         self.needs_update.set(true);
         Ok(())
@@ -588,27 +535,13 @@ impl Command for ClearCommand {
     fn description(&self) -> &'static str {
         "Clear the conversation history"
     }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(ClearCommandInstance {
-            needs_update: self.needs_update.clone(),
-            update_tx: self.update_tx.clone(),
-        })
-    }
-}
-
-struct ClearCommandInstance {
-    needs_update: Mutable<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl CommandInstance for ClearCommandInstance {
     fn update(&mut self, _input: &str) -> CompletionResult {
         CompletionResult::Options {
             at: 0,
             options: vec![],
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let _ = self.update_tx.send(Update::Clear);
         self.needs_update.set(true);
         Ok(())

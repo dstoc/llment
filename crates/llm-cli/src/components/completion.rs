@@ -146,19 +146,13 @@ pub trait Command {
     fn has_params(&self) -> bool {
         false
     }
-    fn instance(&self) -> Box<dyn CommandInstance>;
-}
-
-/// Instances are used in a particular completion context. They can
-/// cache the completion state and hold on to task handles.
-pub trait CommandInstance {
     fn update(&mut self, input: &str) -> CompletionResult;
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>>;
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub struct CommandRouter {
     commands: Vec<Box<dyn Command>>,
-    active: Option<(String, Box<dyn CommandInstance>)>,
+    active: Option<usize>,
 }
 
 impl CommandRouter {
@@ -185,11 +179,8 @@ impl CommandRouter {
         CompletionResult::Options { at: 1, options }
     }
 
-    fn find_command(&self, token: &str) -> Option<&dyn Command> {
-        self.commands
-            .iter()
-            .map(|c| &**c)
-            .find(|c| c.name() == token)
+    fn find_command_index(&self, token: &str) -> Option<usize> {
+        self.commands.iter().position(|c| c.name() == token)
     }
 
     fn offset(res: CompletionResult, by: usize) -> CompletionResult {
@@ -206,8 +197,8 @@ impl CommandRouter {
     }
 }
 
-impl CommandInstance for CommandRouter {
-    fn update(&mut self, input: &str) -> CompletionResult {
+impl CommandRouter {
+    pub fn update(&mut self, input: &str) -> CompletionResult {
         if !input.starts_with('/') {
             return CompletionResult::Invalid { at: 0 };
         }
@@ -218,13 +209,8 @@ impl CommandInstance for CommandRouter {
             Some(i) => (&rest[..i], Some(&rest[i + 1..])),
         };
 
-        if let Some(cmd) = self.find_command(token) {
-            if match &self.active {
-                Some((active_name, _)) if active_name == cmd.name() => false,
-                _ => true,
-            } {
-                self.active = Some((cmd.name().to_string(), cmd.instance()));
-            }
+        if let Some(idx) = self.find_command_index(token) {
+            self.active = Some(idx);
         } else {
             self.active = None;
         }
@@ -233,26 +219,21 @@ impl CommandInstance for CommandRouter {
             return self.complete_names(token);
         }
 
-        if let Some((name, _)) = &self.active {
-            // Delegate to the active instance with the substring after "/name "
+        if let Some(idx) = self.active {
+            let name = self.commands[idx].name();
             let prefix = 1 + name.len() + 1; // "/{name} "
-            let inner_res = self
-                .active
-                .as_mut()
-                .expect("active set or already present")
-                .1
-                .update(after_opt.unwrap_or_default());
-
+            let inner_res = self.commands[idx].update(after_opt.unwrap_or_default());
             Self::offset(inner_res, prefix)
         } else {
             CompletionResult::Invalid { at: 1 }
         }
     }
 
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.active
-            .as_ref()
-            .map(|(_, inst)| inst.commit())
-            .unwrap_or_else(|| Err("no active command instance to commit".into()))
+    pub fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(idx) = self.active {
+            self.commands[idx].commit()
+        } else {
+            Err("no active command to commit".into())
+        }
     }
 }

@@ -90,6 +90,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - code structure
     - conversation resides under `src/conversation` with modules for nodes and mutation helpers
     - command and parameter popups are separate components under `src/components` used by the prompt input
+    - commands are stateful structs implementing a unified `Command` trait with `update` and `commit`, and `CommandRouter` manages them directly
     - bespoke component framework
       - `Component` trait defines `init`, `handle_event`, `update`, `render`
       - `App` orchestrates event handling, updates, and rendering via `futures_signals::Mutable`
