@@ -41,7 +41,7 @@ fn default_false() -> Option<bool> {
 
 #[derive(Deserialize, JsonSchema)]
 struct ReplaceParams {
-    /// Absolute path to the file to modify.
+    /// Path to the file to modify.
     file_path: String,
     /// Text to search for in the file.
     old_string: String,
@@ -61,15 +61,12 @@ struct ListDirectoryParams {
     #[serde(default)]
     #[schemars(default)]
     ignore: Option<Vec<String>>,
-    /// Optional. Whether to respect `.gitignore` files. Defaults to true.
-    #[serde(default = "default_true")]
-    #[schemars(default = "default_true")]
-    _respect_git_ignore: Option<bool>,
+    // Deprecated: `.gitignore` files are always respected.
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct ReadFileParams {
-    /// Absolute path to the file to read.
+    /// Path to the file to read.
     path: String,
     /// Optional. Line offset to start reading from. Defaults to 0.
     #[serde(default = "default_offset")]
@@ -83,7 +80,7 @@ struct ReadFileParams {
 
 #[derive(Deserialize, JsonSchema)]
 struct ReadManyFilesParams {
-    /// Glob patterns of absolute paths to read.
+    /// Glob patterns of file paths to read.
     paths: Vec<String>,
     /// Optional. Additional include glob patterns.
     #[serde(default)]
@@ -97,15 +94,11 @@ struct ReadManyFilesParams {
     #[serde(default = "default_true")]
     #[schemars(default = "default_true")]
     recursive: Option<bool>,
-    /// Optional. Whether to respect `.gitignore` files. Defaults to true.
-    #[serde(default = "default_true")]
-    #[schemars(default = "default_true")]
-    respect_git_ignore: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
 struct WriteFileParams {
-    /// Absolute path where the file will be written.
+    /// Path where the file will be written.
     file_path: String,
     /// Content to write to the file.
     content: String,
@@ -123,10 +116,6 @@ struct GlobParams {
     #[serde(default = "default_false")]
     #[schemars(default = "default_false")]
     case_sensitive: Option<bool>,
-    /// Optional. Whether to respect `.gitignore` files. Defaults to true.
-    #[serde(default = "default_true")]
-    #[schemars(default = "default_true")]
-    respect_git_ignore: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -147,6 +136,7 @@ struct SearchFileContentParams {
 pub struct FsServer {
     tool_router: ToolRouter<Self>,
     workspace_root: PathBuf,
+    mount_point: PathBuf,
 }
 
 impl FsServer {
@@ -166,21 +156,23 @@ impl FsServer {
 
     fn resolve(&self, path: &str) -> Result<PathBuf, McpError> {
         let p = Path::new(path);
-        if !p.is_absolute() {
-            return Err(McpError::invalid_params(
-                "path must be an absolute path".to_string(),
-                None,
-            ));
-        }
-        let normalized = Self::normalize(p);
+        let joined = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.workspace_root.join(p)
+        };
+        let normalized = Self::normalize(&joined);
         if !normalized.starts_with(&self.workspace_root) {
             return Err(McpError::invalid_params(
                 "path must be within the workspace".to_string(),
                 None,
             ));
         }
-        let canonical = fs::canonicalize(&normalized).map_err(|e| {
-            McpError::invalid_params(format!("failed to canonicalize path: {e}"), None)
+        let canonical = fs::canonicalize(&normalized).map_err(|_| {
+            McpError::invalid_params(
+                format!("path '{}' does not exist", self.display_path(&normalized)),
+                None,
+            )
         })?;
         if !canonical.starts_with(&self.workspace_root) {
             return Err(McpError::invalid_params(
@@ -193,13 +185,12 @@ impl FsServer {
 
     fn resolve_for_write(&self, path: &str) -> Result<PathBuf, McpError> {
         let p = Path::new(path);
-        if !p.is_absolute() {
-            return Err(McpError::invalid_params(
-                "path must be an absolute path".to_string(),
-                None,
-            ));
-        }
-        let parent = p.parent().ok_or_else(|| {
+        let joined = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.workspace_root.join(p)
+        };
+        let parent = joined.parent().ok_or_else(|| {
             McpError::invalid_params("file_path must have a parent directory".to_string(), None)
         })?;
         let normalized_parent = Self::normalize(parent);
@@ -209,8 +200,14 @@ impl FsServer {
                 None,
             ));
         }
-        let canonical_parent = fs::canonicalize(&normalized_parent).map_err(|e| {
-            McpError::invalid_params(format!("failed to canonicalize path: {e}"), None)
+        let canonical_parent = fs::canonicalize(&normalized_parent).map_err(|_| {
+            McpError::invalid_params(
+                format!(
+                    "path '{}' does not exist",
+                    self.display_path(&normalized_parent)
+                ),
+                None,
+            )
         })?;
         if !canonical_parent.starts_with(&self.workspace_root) {
             return Err(McpError::invalid_params(
@@ -218,23 +215,39 @@ impl FsServer {
                 None,
             ));
         }
-        Ok(canonical_parent.join(p.file_name().unwrap()))
+        Ok(canonical_parent.join(joined.file_name().unwrap()))
+    }
+
+    fn display_path(&self, path: &Path) -> String {
+        if let Ok(rel) = path.strip_prefix(&self.workspace_root) {
+            self.mount_point.join(rel).display().to_string()
+        } else {
+            path.display().to_string()
+        }
     }
 }
 
 #[tool_router]
 impl FsServer {
     pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
+        Self::new_with_mount_point(workspace_root, "/home/user/workspace")
+    }
+
+    pub fn new_with_mount_point(
+        workspace_root: impl Into<PathBuf>,
+        mount_point: impl Into<PathBuf>,
+    ) -> Self {
         let workspace_root = fs::canonicalize(workspace_root.into())
             .expect("workspace path must exist and be canonicalizable");
         Self {
             tool_router: Self::tool_router(),
             workspace_root,
+            mount_point: mount_point.into(),
         }
     }
 
     #[tool(
-        description = "Replace text in a file at an absolute path. By default replaces one occurrence of `old_string`; set `expected_replacements` to require a specific number of matches."
+        description = "Replace text in a file. By default replaces one occurrence of `old_string`; set `expected_replacements` to require a specific number of matches."
     )]
     pub async fn replace(
         &self,
@@ -247,23 +260,37 @@ impl FsServer {
             expected_replacements,
         } = params;
         let canonical_path = self.resolve(&file_path)?;
-        let content = fs::read_to_string(&canonical_path)
-            .map_err(|e| McpError::internal_error(format!("failed to read file: {e}"), None))?;
+        let content = fs::read_to_string(&canonical_path).map_err(|e| {
+            McpError::internal_error(
+                format!(
+                    "failed to read file {}: {e}",
+                    self.display_path(&canonical_path)
+                ),
+                None,
+            )
+        })?;
         let updated = replace_in_content(&content, &old_string, &new_string, expected_replacements)
             .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-        fs::write(&canonical_path, updated)
-            .map_err(|e| McpError::internal_error(format!("failed to write file: {e}"), None))?;
+        fs::write(&canonical_path, updated).map_err(|e| {
+            McpError::internal_error(
+                format!(
+                    "failed to write file {}: {e}",
+                    self.display_path(&canonical_path)
+                ),
+                None,
+            )
+        })?;
         Ok(CallToolResult::success(vec![Content::text(
             "Replaced text in file.".to_string(),
         )]))
     }
 
-    #[tool(description = "List the contents of a directory at an absolute path.")]
+    #[tool(description = "List the contents of a directory.")]
     pub async fn list_directory(
         &self,
         Parameters(params): Parameters<ListDirectoryParams>,
     ) -> Result<CallToolResult, McpError> {
-        let ListDirectoryParams { path, ignore, .. } = params;
+        let ListDirectoryParams { path, ignore } = params;
         let canonical_path = self.resolve(&path)?;
         let mut builder = GlobSetBuilder::new();
         if let Some(patterns) = ignore {
@@ -277,9 +304,15 @@ impl FsServer {
             .build()
             .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
         let mut entries = Vec::new();
-        for entry in fs::read_dir(&canonical_path)
-            .map_err(|e| McpError::internal_error(format!("failed to read dir: {e}"), None))?
-        {
+        for entry in fs::read_dir(&canonical_path).map_err(|e| {
+            McpError::internal_error(
+                format!(
+                    "failed to read dir {}: {e}",
+                    self.display_path(&canonical_path)
+                ),
+                None,
+            )
+        })? {
             let entry = entry
                 .map_err(|e| McpError::internal_error(format!("dir entry error: {e}"), None))?;
             let name = entry.file_name();
@@ -313,13 +346,13 @@ impl FsServer {
             .join("\n");
         let output = format!(
             "Directory listing for {}:\n{}",
-            canonical_path.display(),
+            self.display_path(&canonical_path),
             listing
         );
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "Read a file at an absolute path.")]
+    #[tool(description = "Read a file.")]
     pub async fn read_file(
         &self,
         Parameters(params): Parameters<ReadFileParams>,
@@ -330,8 +363,15 @@ impl FsServer {
             limit,
         } = params;
         let canonical_path = self.resolve(&path)?;
-        let data = fs::read(&canonical_path)
-            .map_err(|e| McpError::internal_error(format!("failed to read file: {e}"), None))?;
+        let data = fs::read(&canonical_path).map_err(|e| {
+            McpError::internal_error(
+                format!(
+                    "failed to read file {}: {e}",
+                    self.display_path(&canonical_path)
+                ),
+                None,
+            )
+        })?;
         if let Ok(content) = String::from_utf8(data.clone()) {
             let lines: Vec<&str> = content.lines().collect();
             let start = offset.unwrap_or(0);
@@ -378,7 +418,7 @@ impl FsServer {
             } else {
                 Ok(CallToolResult::success(vec![Content::text(format!(
                     "Cannot display content of binary file: {}",
-                    canonical_path.display()
+                    self.display_path(&canonical_path)
                 ))]))
             }
         }
@@ -394,7 +434,6 @@ impl FsServer {
             include,
             exclude,
             recursive,
-            respect_git_ignore,
         } = params;
         if paths.is_empty() {
             return Err(McpError::invalid_params(
@@ -441,13 +480,12 @@ impl FsServer {
 
         let mut file_paths = Vec::new();
         for pattern in paths {
-            if !Path::new(&pattern).is_absolute() {
-                return Err(McpError::invalid_params(
-                    "paths must be absolute".to_string(),
-                    None,
-                ));
-            }
-            let glob_iter = glob::glob(&pattern).map_err(|e| {
+            let pattern_path = if Path::new(&pattern).is_absolute() {
+                PathBuf::from(&pattern)
+            } else {
+                self.workspace_root.join(&pattern)
+            };
+            let glob_iter = glob::glob(pattern_path.to_string_lossy().as_ref()).map_err(|e| {
                 McpError::invalid_params(format!("invalid glob pattern: {e}"), None)
             })?;
             for entry in glob_iter {
@@ -467,7 +505,7 @@ impl FsServer {
                 } else if canonical.is_dir() {
                     let mut builder = WalkBuilder::new(&canonical);
                     builder.standard_filters(true);
-                    builder.git_ignore(respect_git_ignore.unwrap_or(true));
+                    builder.git_ignore(true);
                     if !recursive.unwrap_or(true) {
                         builder.max_depth(Some(1));
                     }
@@ -507,10 +545,12 @@ impl FsServer {
                     continue;
                 }
             }
-            let data = fs::read(&file)
-                .map_err(|e| McpError::internal_error(format!("failed to read file: {e}"), None))?;
+            let user_path = self.display_path(&file);
+            let data = fs::read(&file).map_err(|e| {
+                McpError::internal_error(format!("failed to read file {}: {e}", user_path), None)
+            })?;
             if let Ok(content) = String::from_utf8(data.clone()) {
-                text_output.push_str(&format!("===== {} =====\n{}\n\n", rel.display(), content));
+                text_output.push_str(&format!("===== {} =====\n{}\n\n", user_path, content));
             } else {
                 let ext = file
                     .extension()
@@ -531,8 +571,7 @@ impl FsServer {
                     let encoded = BASE64.encode(data);
                     contents.push(Content::image(encoded, mime.to_string()));
                 } else {
-                    text_output
-                        .push_str(&format!("===== {} =====\n[binary file]\n\n", rel.display()));
+                    text_output.push_str(&format!("===== {} =====\n[binary file]\n\n", user_path));
                 }
             }
         }
@@ -543,7 +582,7 @@ impl FsServer {
         Ok(CallToolResult::success(contents))
     }
 
-    #[tool(description = "Write content to a file at an absolute path, creating it if necessary.")]
+    #[tool(description = "Write content to a file, creating it if necessary.")]
     pub async fn write_file(
         &self,
         Parameters(params): Parameters<WriteFileParams>,
@@ -555,11 +594,18 @@ impl FsServer {
                 McpError::internal_error(format!("failed to create parent dirs: {e}"), None)
             })?;
         }
-        fs::write(&canonical_path, content)
-            .map_err(|e| McpError::internal_error(format!("failed to write file: {e}"), None))?;
+        fs::write(&canonical_path, content).map_err(|e| {
+            McpError::internal_error(
+                format!(
+                    "failed to write file {}: {e}",
+                    self.display_path(&canonical_path)
+                ),
+                None,
+            )
+        })?;
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Wrote file: {}",
-            canonical_path.display()
+            self.display_path(&canonical_path)
         ))]))
     }
 
@@ -572,7 +618,6 @@ impl FsServer {
             pattern,
             path,
             case_sensitive,
-            respect_git_ignore,
         } = params;
         let root = if let Some(p) = path {
             self.resolve(&p)?
@@ -580,7 +625,7 @@ impl FsServer {
             self.workspace_root.clone()
         };
         let mut builder = WalkBuilder::new(&root);
-        builder.git_ignore(respect_git_ignore.unwrap_or(true));
+        builder.git_ignore(true);
         builder.standard_filters(true);
         let glob = GlobBuilder::new(&pattern)
             .case_insensitive(!case_sensitive.unwrap_or(false))
@@ -614,14 +659,14 @@ impl FsServer {
         matches.reverse();
         let paths = matches
             .iter()
-            .map(|p| p.display().to_string())
+            .map(|p| self.display_path(p))
             .collect::<Vec<_>>()
             .join("\n");
         let output = format!(
             "Found {} file(s) matching \"{}\" within {}:\n{}",
             matches.len(),
             pattern,
-            root.display(),
+            self.display_path(&root),
             paths
         );
         Ok(CallToolResult::success(vec![Content::text(output)]))
@@ -679,12 +724,12 @@ impl FsServer {
                     continue;
                 }
             }
-            let rel_display = rel.display().to_string();
+            let user_path = self.display_path(&canonical);
             if let Err(err) = searcher.search_path(
                 &matcher,
                 &canonical,
                 UTF8(|ln, line| {
-                    results.push(format!("File: {}\nL{}: {}", rel_display, ln, line));
+                    results.push(format!("File: {}\nL{}: {}", user_path, ln, line));
                     Ok(true)
                 }),
             ) {
@@ -698,7 +743,7 @@ impl FsServer {
             "Found {} match(es) for pattern \"{}\" in path \"{}\"{}:",
             results.len(),
             pattern,
-            root.display(),
+            self.display_path(&root),
             include
                 .as_ref()
                 .map(|s| format!(" (filter: \"{}\")", s))
@@ -753,7 +798,6 @@ mod tests {
             .list_directory(Parameters(ListDirectoryParams {
                 path: dir.path().to_string_lossy().to_string(),
                 ignore: None,
-                _respect_git_ignore: None,
             }))
             .await
             .unwrap();
@@ -791,6 +835,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn read_file_supports_relative_paths() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("a.txt");
+        fs::write(&file_path, "hello").unwrap();
+        let server = FsServer::new(dir.path());
+        let result = server
+            .read_file(Parameters(ReadFileParams {
+                path: "a.txt".into(),
+                offset: None,
+                limit: None,
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(text.contains("hello"));
+    }
+
+    #[tokio::test]
     async fn read_many_files_reads_multiple() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("a.txt"), "hello").unwrap();
@@ -803,7 +870,6 @@ mod tests {
                 include: None,
                 exclude: None,
                 recursive: Some(true),
-                respect_git_ignore: None,
             }))
             .await
             .unwrap();
@@ -844,7 +910,6 @@ mod tests {
                 pattern: "*.rs".into(),
                 path: None,
                 case_sensitive: None,
-                respect_git_ignore: None,
             }))
             .await
             .unwrap();
@@ -873,7 +938,6 @@ mod tests {
                 pattern: "*.rs".into(),
                 path: None,
                 case_sensitive: None,
-                respect_git_ignore: None,
             }))
             .await
             .unwrap();
@@ -884,6 +948,130 @@ mod tests {
             .text
             .clone();
         assert!(!text.contains("link.rs"));
+    }
+
+    #[tokio::test]
+    async fn read_file_not_found_uses_mount_point() {
+        let dir = tempdir().unwrap();
+        let server = FsServer::new(dir.path());
+        let err = server
+            .read_file(Parameters(ReadFileParams {
+                path: "missing.txt".into(),
+                offset: None,
+                limit: None,
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("/home/user/workspace/missing.txt"));
+        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn write_file_parent_missing_uses_mount_point() {
+        let dir = tempdir().unwrap();
+        let server = FsServer::new(dir.path());
+        let err = server
+            .write_file(Parameters(WriteFileParams {
+                file_path: "subdir/new.txt".into(),
+                content: "hi".into(),
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("/home/user/workspace/subdir"));
+        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn list_directory_not_found_uses_mount_point() {
+        let dir = tempdir().unwrap();
+        let server = FsServer::new(dir.path());
+        let err = server
+            .list_directory(Parameters(ListDirectoryParams {
+                path: "missing".into(),
+                ignore: None,
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("/home/user/workspace/missing"));
+        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn write_file_path_is_directory() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join("dir")).unwrap();
+        let server = FsServer::new(dir.path());
+        let err = server
+            .write_file(Parameters(WriteFileParams {
+                file_path: "dir".into(),
+                content: "hi".into(),
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("/home/user/workspace/dir"));
+        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn list_directory_path_is_file() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f"), "hi").unwrap();
+        let server = FsServer::new(dir.path());
+        let err = server
+            .list_directory(Parameters(ListDirectoryParams {
+                path: "f".into(),
+                ignore: None,
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("/home/user/workspace/f"));
+        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+    }
+
+    #[tokio::test]
+    async fn list_directory_outside_workspace() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let server = FsServer::new(workspace.path());
+        let err = server
+            .list_directory(Parameters(ListDirectoryParams {
+                path: outside.path().to_string_lossy().to_string(),
+                ignore: None,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err.message, "path must be within the workspace");
+    }
+
+    #[tokio::test]
+    async fn read_file_outside_workspace() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let server = FsServer::new(workspace.path());
+        let err = server
+            .read_file(Parameters(ReadFileParams {
+                path: outside.path().join("a.txt").to_string_lossy().to_string(),
+                offset: None,
+                limit: None,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err.message, "path must be within the workspace");
+    }
+
+    #[tokio::test]
+    async fn write_file_outside_workspace() {
+        let workspace = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let server = FsServer::new(workspace.path());
+        let err = server
+            .write_file(Parameters(WriteFileParams {
+                file_path: outside.path().join("a.txt").to_string_lossy().to_string(),
+                content: "hi".into(),
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(err.message, "path must be within the workspace");
     }
 
     #[tokio::test]
