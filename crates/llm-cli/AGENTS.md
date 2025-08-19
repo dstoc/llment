@@ -45,6 +45,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - Ctrl-J inserts a new line
       - standard shortcuts: Ctrl-W delete previous word, Ctrl-L clears input
       - paste inserts clipboard text
+      - input starts focused to accept paste
       - clicking the field focuses it
       - cursor hidden when unfocused
       - trailing spaces do not move the cursor to the next line

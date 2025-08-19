@@ -38,7 +38,7 @@ impl Prompt {
             model,
             textarea: Self::new_textarea(),
             area: Rect::default(),
-            focused: false,
+            focused: true,
             completion: CompletionPopup {
                 result: None,
                 selected: 0,
