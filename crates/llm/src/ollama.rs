@@ -12,7 +12,8 @@ pub struct OllamaClient {
 }
 
 impl OllamaClient {
-    pub fn new(host: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
+    pub fn new(host: Option<&str>) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let host = host.unwrap_or("http://127.0.0.1:11434");
         Ok(Self {
             inner: Ollama::try_new(host)?,
         })

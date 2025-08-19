@@ -34,7 +34,7 @@ pub enum Provider {
 
 pub fn client_from(
     provider: Provider,
-    host: &str,
+    host: Option<&str>,
 ) -> Result<Arc<dyn LlmClient>, Box<dyn Error + Send + Sync>> {
     match provider {
         Provider::Ollama => Ok(Arc::new(ollama::OllamaClient::new(host)?)),

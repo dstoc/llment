@@ -26,6 +26,7 @@ Trait-based LLM client implementations for multiple providers.
 - Provider selection
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider
+    - uses provider-specific default host when none is supplied
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Responses
