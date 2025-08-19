@@ -9,6 +9,12 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio_stream::StreamExt;
 
+#[derive(Default)]
+struct ToolCallBuilder {
+    name: Option<String>,
+    arguments: String,
+}
+
 pub struct OpenAiClient {
     inner: Client<OpenAIConfig>,
 }
@@ -98,7 +104,9 @@ impl LlmClient for OpenAiClient {
         });
         let req = req_builder.build()?;
         let stream = self.inner.chat().create_stream(req).await?;
-        let mapped = stream.map(|res| {
+        let mut pending_tool_calls: Vec<ToolCallBuilder> = Vec::new();
+        let mut pending_function_call: Option<ToolCallBuilder> = None;
+        let mapped = stream.map(move |res| {
             res.map(|chunk| {
                 let mut content_acc = String::new();
                 let mut tool_calls = Vec::new();
@@ -108,15 +116,51 @@ impl LlmClient for OpenAiClient {
                     }
                     if let Some(calls) = &choice.delta.tool_calls {
                         for tc in calls {
+                            let index = tc.index as usize;
+                            if pending_tool_calls.len() <= index {
+                                pending_tool_calls.resize_with(index + 1, ToolCallBuilder::default);
+                            }
                             if let Some(func) = &tc.function {
-                                let args: Value = func
-                                    .arguments
-                                    .as_deref()
-                                    .and_then(|a| serde_json::from_str(a).ok())
-                                    .unwrap_or(Value::Null);
+                                if let Some(name) = &func.name {
+                                    pending_tool_calls[index].name = Some(name.clone());
+                                }
+                                if let Some(args) = &func.arguments {
+                                    pending_tool_calls[index].arguments.push_str(args);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(fc) = &choice.delta.function_call {
+                        let builder =
+                            pending_function_call.get_or_insert_with(ToolCallBuilder::default);
+                        if let Some(name) = &fc.name {
+                            builder.name = Some(name.clone());
+                        }
+                        if let Some(args) = &fc.arguments {
+                            builder.arguments.push_str(args);
+                        }
+                    }
+                    if matches!(
+                        choice.finish_reason,
+                        Some(FinishReason::ToolCalls | FinishReason::FunctionCall)
+                    ) {
+                        if let Some(b) = pending_function_call.take() {
+                            let args: Value =
+                                serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
+                            tool_calls.push(ToolCall {
+                                function: ToolCallFunction {
+                                    name: b.name.unwrap_or_default(),
+                                    arguments: args,
+                                },
+                            });
+                        }
+                        if !pending_tool_calls.is_empty() {
+                            for b in pending_tool_calls.drain(..) {
+                                let args: Value =
+                                    serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
                                 tool_calls.push(ToolCall {
                                     function: ToolCallFunction {
-                                        name: func.name.clone().unwrap_or_default(),
+                                        name: b.name.unwrap_or_default(),
                                         arguments: args,
                                     },
                                 });
