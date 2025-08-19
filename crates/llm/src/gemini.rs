@@ -21,7 +21,7 @@ pub struct GeminiClient {
 }
 
 impl GeminiClient {
-    pub fn new(_host: &str) -> Self {
+    pub fn new(_host: Option<&str>) -> Self {
         Self {
             inner: Client::instance(),
         }

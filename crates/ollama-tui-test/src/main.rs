@@ -168,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let client = llm::client_from(args.provider, &args.host)?;
+    let client = llm::client_from(args.provider, Some(&args.host))?;
 
     let res = run_app(&mut terminal, client, args.model.clone(), mcp_ctx.clone()).await;
 

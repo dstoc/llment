@@ -69,7 +69,7 @@ impl App {
         let mcp_context = Arc::new(mcp_context);
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
-        let client = llm::client_from(args.provider, &args.host).unwrap();
+        let client = llm::client_from(args.provider, Some(&args.host)).unwrap();
         let client = Arc::new(Mutex::new(client));
         let tasks = JoinSet::new();
         let request_tasks = JoinSet::new();
@@ -246,9 +246,7 @@ impl Component for App {
                 }
                 Ok(Update::SetProvider(provider, host)) => {
                     self.abort_requests();
-                    if let Ok(new_client) =
-                        llm::client_from(provider, host.as_deref().unwrap_or(""))
-                    {
+                    if let Ok(new_client) = llm::client_from(provider, host.as_deref()) {
                         {
                             let mut guard = self.client.lock().unwrap();
                             *guard = new_client;
