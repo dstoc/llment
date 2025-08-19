@@ -225,6 +225,9 @@ impl Component for App {
                 // TODO: conversation should do this
                 self.model.needs_redraw.set(true);
             }
+            Event::Paste(_) => {
+                self.prompt.handle_event(event);
+            }
             _ => (),
         }
     }

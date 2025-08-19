@@ -53,7 +53,7 @@ impl CompletionPopup {
                     let str = if options.is_empty() {
                         "".to_string()
                     } else {
-                        options[self.selected].str.clone()
+                        options[self.selected % options.len()].str.clone()
                     };
 
                     Some(CompletionPopupAction::Complete {
@@ -66,7 +66,7 @@ impl CompletionPopup {
                     let str = if options.is_empty() {
                         "".to_string()
                     } else {
-                        options[self.selected].str.clone()
+                        options[self.selected % options.len()].str.clone()
                     };
 
                     Some(CompletionPopupAction::Complete {
@@ -209,6 +209,7 @@ impl CommandRouter {
 impl CommandInstance for CommandRouter {
     fn update(&mut self, input: &str) -> CompletionResult {
         if !input.starts_with('/') {
+            self.active = None;
             return CompletionResult::Invalid { at: 0 };
         }
 
