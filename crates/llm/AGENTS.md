@@ -32,7 +32,7 @@ Trait-based LLM client implementations for multiple providers.
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Responses
   - chunks include optional content, tool calls, optional thinking text, and usage metrics on the final chunk
-  - OpenAI client stitches streaming tool call deltas into complete tool calls
+  - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
