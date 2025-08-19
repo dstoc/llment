@@ -253,12 +253,12 @@ impl Component for App {
                     }
                 }
                 Ok(Update::SetModel(model_name)) => {
+                    self.abort_requests();
                     {
                         let mut client = self.client.lock().unwrap();
                         client.set_model(model_name);
                     }
                     self.model.needs_redraw.set(true);
-                    self.model.needs_update.set(true);
                 }
                 Ok(Update::SetProvider(provider, host)) => {
                     self.abort_requests();
@@ -268,12 +268,7 @@ impl Component for App {
                             let mut guard = self.client.lock().unwrap();
                             *guard = new_client;
                         }
-                        self.session_in_tokens = 0;
-                        self.session_out_tokens = 0;
-                        self.chat_history.clear();
-                        self.conversation.clear();
                         self.model.needs_redraw.set(true);
-                        self.model.needs_update.set(true);
                     }
                 }
                 Ok(Update::Clear) => {

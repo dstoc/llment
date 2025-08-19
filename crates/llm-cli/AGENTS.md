@@ -57,8 +57,10 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - `/model` offers available models from the connected provider
             - `Up`/`Down` navigate model selection
             - `Tab` completes the highlighted model
+            - switching model aborts in-flight requests without clearing history or resetting token counters
           - `/provider` switches LLM backend and optional host
             - host defaults to provider-specific configuration when omitted
+            - retains conversation history and token counters
         - `/quit` exits the application
         - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
         - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
