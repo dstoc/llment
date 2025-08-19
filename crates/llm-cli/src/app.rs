@@ -27,6 +27,7 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_stream::StreamExt;
+use unicode_width::UnicodeWidthStr;
 
 pub struct App {
     pub model: AppModel,
@@ -40,7 +41,6 @@ pub struct App {
     provider: Provider,
     session_in_tokens: u32,
     session_out_tokens: u32,
-    context_tokens: u32,
     chat_history: Vec<ChatMessage>,
 
     tasks: JoinSet<()>,
@@ -113,7 +113,6 @@ impl App {
             provider: args.provider,
             session_in_tokens: 0,
             session_out_tokens: 0,
-            context_tokens: 0,
             tool_executor,
             mcp_context,
             chat_history: vec![],
@@ -141,7 +140,6 @@ impl App {
                         self.session_in_tokens += usage.input_tokens;
                         self.session_out_tokens += usage.output_tokens;
                         self.conversation.set_usage(usage);
-                        self.context_tokens = self.conversation.context_tokens();
                     }
                 }
             }
@@ -270,7 +268,6 @@ impl Component for App {
                         self.provider = provider;
                         self.session_in_tokens = 0;
                         self.session_out_tokens = 0;
-                        self.context_tokens = 0;
                         self.chat_history.clear();
                         self.conversation.clear();
                         self.model.needs_redraw.set(true);
@@ -283,7 +280,6 @@ impl Component for App {
                     self.conversation.clear();
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
-                    self.context_tokens = 0;
                 }
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
@@ -294,7 +290,6 @@ impl Component for App {
                             }
                         }
                         self.prompt.set_prompt(text);
-                        self.context_tokens = self.conversation.context_tokens();
                     }
                 }
                 Err(_) => break,
@@ -319,16 +314,22 @@ impl Component for App {
 
         self.conversation.render(frame, chunks[0]);
         self.prompt.render(frame, chunks[1]);
-        let status = format!(
-            "provider: {:?} {} / context: {}t / session in: {}t out: {}t",
-            self.provider,
-            self.model_name,
-            self.context_tokens,
-            self.session_in_tokens,
-            self.session_out_tokens
+        let ctx_tokens = self.conversation.context_tokens();
+        let status_right = format!(
+            "ctx {}t, Σ {}t=>{}t",
+            ctx_tokens, self.session_in_tokens, self.session_out_tokens
         );
-        let para = Paragraph::new(status);
-        frame.render_widget(para, chunks[2]);
+        let right_width = status_right.width() as u16;
+        let status_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(right_width)].as_ref())
+            .split(chunks[2]);
+        let status_left = format!("{:?} {}", self.provider, self.model_name);
+        frame.render_widget(Paragraph::new(status_left), status_chunks[0]);
+        frame.render_widget(
+            Paragraph::new(status_right).alignment(Alignment::Right),
+            status_chunks[1],
+        );
     }
 }
 

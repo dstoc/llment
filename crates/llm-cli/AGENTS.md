@@ -65,8 +65,8 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - Esc exits the application
     - conversation pane has no keyboard interaction
     - 1-line status area
-      - shows provider and model
-      - displays context tokens of the latest assistant block and cumulative session token usage
+      - shows provider and model on the left
+      - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
     - conversation items
       - initialized with empty history
       - user messages render inside a right-aligned rounded block
