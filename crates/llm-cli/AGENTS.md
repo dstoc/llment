@@ -54,10 +54,11 @@ Basic terminal chat interface scaffold using a bespoke component framework built
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
         - commands may accept parameters via a cursor-aligned popup
-          - `/model` offers available models from the connected provider
+        - `/model` offers available models from the connected provider
             - `Up`/`Down` navigate model selection
             - `Tab` completes the highlighted model
           - `/provider` switches LLM backend and optional host
+            - host defaults to provider-specific configuration when omitted
         - `/quit` exits the application
         - `/clear` resets conversation history and aborts any pending request
         - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, and aborts any pending request
