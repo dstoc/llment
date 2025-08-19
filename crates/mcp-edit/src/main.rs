@@ -7,7 +7,9 @@ use tracing_subscriber::{self, EnvFilter};
 /// Run the Edit MCP server over stdio.
 ///
 /// The workspace root may be provided as the first command-line argument.
-/// If omitted, the current working directory is used.
+/// An optional second argument sets the mount point used in responses.
+/// If omitted, the current working directory is used and the mount point
+/// defaults to `/home/user/workspace`.
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging to stderr without ANSI color codes.
@@ -19,12 +21,17 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting mcp-edit server");
 
-    let workspace_root: PathBuf = env::args()
-        .nth(1)
+    let mut args = env::args().skip(1);
+    let workspace_root: PathBuf = args
+        .next()
         .map(PathBuf::from)
         .unwrap_or_else(|| env::current_dir().expect("failed to get current dir"));
+    let mount_point: PathBuf = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/home/user/workspace"));
 
-    let service = FsServer::new(workspace_root)
+    let service = FsServer::new_with_mount_point(workspace_root, mount_point)
         .serve(stdio())
         .await
         .map_err(|e| {

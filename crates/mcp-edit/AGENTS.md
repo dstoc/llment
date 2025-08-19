@@ -21,8 +21,11 @@ MCP server offering file system editing utilities.
 
 ## Features, Requirements and Constraints
 - workspace root via CLI
-  - all paths must be absolute within this directory
+  - paths may be absolute or relative to this directory
   - paths outside the workspace return the same error regardless of file existence
+- mount point hides actual workspace path in responses
+  - defaults to `/home/user/workspace`
+  - error messages include mount point paths for missing or invalid files
 - tools
   - `replace`
     - enforces the expected number of string replacements
@@ -34,7 +37,8 @@ MCP server offering file system editing utilities.
   - `write_file`
     - creates parent directories as needed
   - `glob`
-    - respects git ignore and optional case sensitivity
+    - always respects git ignore
+    - optional case sensitivity
     - validates matched paths are within the workspace
   - `search_file_content`
     - uses `grep` crate for regex searches with optional include filters
