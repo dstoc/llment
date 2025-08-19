@@ -37,7 +37,6 @@ pub struct App {
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_context: Arc<McpContext>,
     model_name: String,
-    host: String,
     chat_history: Vec<ChatMessage>,
 
     tasks: JoinSet<()>,
@@ -107,7 +106,6 @@ impl App {
             model,
             client,
             model_name: args.model,
-            host: args.host,
             tool_executor,
             mcp_context,
             chat_history: vec![],
@@ -248,13 +246,13 @@ impl Component for App {
                 }
                 Ok(Update::SetProvider(provider, host)) => {
                     self.abort_requests();
-                    let host = host.unwrap_or_else(|| self.host.clone());
-                    if let Ok(new_client) = llm::client_from(provider, &host) {
+                    if let Ok(new_client) =
+                        llm::client_from(provider, host.as_deref().unwrap_or(""))
+                    {
                         {
                             let mut guard = self.client.lock().unwrap();
                             *guard = new_client;
                         }
-                        self.host = host;
                         self.chat_history.clear();
                         self.conversation.clear();
                         self.model.needs_redraw.set(true);
