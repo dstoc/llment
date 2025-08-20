@@ -70,6 +70,23 @@ impl Conversation {
         self.scroll = max;
     }
 
+    fn adjust_layout_after_change(&mut self, idx: usize, start: u16, prev_height: u16) {
+        self.needs_layout = true;
+        self.ensure_layout(self.width);
+        let new_height = self.layout[idx].1;
+        if start < self.scroll {
+            if new_height < prev_height {
+                self.scroll = self.scroll.saturating_sub(prev_height - new_height);
+            } else {
+                self.scroll = self.scroll.saturating_add(new_height - prev_height);
+            }
+        }
+        let max = self.total_height().saturating_sub(self.viewport);
+        if self.scroll > max {
+            self.scroll = max;
+        }
+    }
+
     pub fn clear(&mut self) {
         self.items.clear();
         self.scroll = 0;
@@ -106,13 +123,9 @@ impl Component for Conversation {
                         }
                         if let Some((idx, start)) = target {
                             let rel = line - start;
+                            let prev_height = self.layout[idx].1;
                             self.items[idx].click(rel);
-                            self.needs_layout = true;
-                            self.ensure_layout(self.width);
-                            let max = self.total_height().saturating_sub(self.viewport);
-                            if self.scroll > max {
-                                self.scroll = max;
-                            }
+                            self.adjust_layout_after_change(idx, start, prev_height);
                         }
                     }
                 }
@@ -297,5 +310,100 @@ impl Conversation {
                 _ => None,
             })
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_snapshot;
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
+
+    fn render_conv(conv: &mut Conversation, width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| {
+                conv.render(f, Rect::new(0, 0, width, height));
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_to_debug_string(buf: &Buffer) -> String {
+        let mut out = String::new();
+        for y in buf.area.top()..buf.area.bottom() {
+            let mut prev_fg = None;
+            let mut prev_bg = None;
+            for x in buf.area.left()..buf.area.right() {
+                let c = buf.cell((x, y)).unwrap();
+                let fg = c.style().fg;
+                let bg = c.style().bg;
+                if prev_fg != fg || prev_bg != bg {
+                    let fg_str = fg.map(|c| format!("{:?}", c)).unwrap_or_else(|| "_".into());
+                    let bg_str = bg.map(|c| format!("{:?}", c)).unwrap_or_else(|| "_".into());
+                    out.push_str(&format!("[{},{}]", fg_str, bg_str));
+                    prev_fg = fg;
+                    prev_bg = bg;
+                }
+                out.push_str(c.symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn collapsing_block_adjusts_scroll() {
+        let mut conv = Conversation::new();
+        conv.items.push(Node::Assistant(AssistantBlock::new(
+            false,
+            vec![Node::Thought(ThoughtStep::new(
+                "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11".into(),
+            ))],
+            String::new(),
+        )));
+        conv.items.push(Node::Assistant(AssistantBlock::new(
+            false,
+            vec![Node::Thought(ThoughtStep::new(
+                "word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11".into(),
+            ))],
+            String::new(),
+        )));
+        conv.items.push(Node::Assistant(AssistantBlock::new(
+            false,
+            Vec::new(),
+            "hi".into(),
+        )));
+        conv.needs_layout = true;
+        conv.viewport = 5;
+        conv.ensure_layout(20);
+        conv.scroll = 12;
+
+        let _ = render_conv(&mut conv, 20, 5);
+
+        let prev_scroll = conv.scroll;
+        let (start, prev_height) = conv.layout[0];
+        conv.items[0].click(0);
+        conv.adjust_layout_after_change(0, start, prev_height);
+        let new_height = conv.layout[0].1;
+        let new_max = conv.total_height().saturating_sub(conv.viewport);
+        let mut expected = prev_scroll.min(new_max);
+        if start < expected {
+            expected = expected.saturating_sub(prev_height - new_height);
+        }
+        assert_eq!(conv.scroll, expected);
+
+        let buffer = render_conv(&mut conv, 20, 5);
+        let dbg = buffer_to_debug_string(&buffer)
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_snapshot!(dbg, @r"[Reset,Reset]Thinking ⠋ ⌄
+[Reset,Reset]· word1 word2 word3
+[Reset,Reset]  word4 word5 word6
+[Reset,Reset]  word7 word8 word9
+[Reset,Reset]  word10 word11");
     }
 }
