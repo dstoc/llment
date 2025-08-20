@@ -63,20 +63,33 @@ pub async fn run_tool_loop(
         let mut handles: JoinSet<(usize, String, Result<String, Box<dyn Error + Send + Sync>>)> =
             JoinSet::new();
         let mut assistant_content: Option<String> = None;
+        let mut assistant_thinking: Option<String> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             if let Some(ref c) = chunk.message.content {
-                assistant_content
-                    .get_or_insert_with(String::new)
-                    .push_str(c);
+                if !c.is_empty() {
+                    assistant_content
+                        .get_or_insert_with(String::new)
+                        .push_str(c);
+                }
+            }
+            if let Some(ref c) = chunk.message.thinking {
+                // TODO: sometimes there's assistant_content at this time, seems like
+                // a model bug, we could merge it into thinking at this point?
+                if !c.is_empty() {
+                    assistant_thinking
+                        .get_or_insert_with(String::new)
+                        .push_str(c);
+                }
             }
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
                 let mut msg = ChatMessage::assistant(String::new());
                 msg.tool_calls = tool_calls.clone();
+                msg.thinking = assistant_thinking;
                 chat_history.push(msg);
-                assistant_content = None;
+                assistant_thinking = None;
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
@@ -100,10 +113,10 @@ pub async fn run_tool_loop(
                 break;
             }
         }
-        if let Some(content) = assistant_content {
-            if !content.is_empty() {
-                chat_history.push(ChatMessage::assistant(content));
-            }
+        if assistant_content.is_some() || assistant_thinking.is_some() {
+            let mut msg = ChatMessage::assistant(assistant_content.unwrap_or_default());
+            msg.thinking = assistant_thinking;
+            chat_history.push(msg);
         }
         if handles.is_empty() {
             break;
