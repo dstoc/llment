@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, rc::Rc};
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
@@ -58,16 +58,16 @@ impl LlmClient for OpenAiClient {
         &self,
         request: ChatMessageRequest,
     ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
-        let messages: Vec<ChatCompletionRequestMessage> = request
+        let messages: Vec<Value> = request
             .messages
             .into_iter()
             .map(|m| match m.role {
-                MessageRole::User => ChatCompletionRequestMessage::User(
+                MessageRole::User => serde_json::to_value(ChatCompletionRequestMessage::User(
                     ChatCompletionRequestUserMessageArgs::default()
                         .content(ChatCompletionRequestUserMessageContent::Text(m.content))
                         .build()
                         .unwrap(),
-                ),
+                )),
                 MessageRole::Assistant => {
                     let mut builder = ChatCompletionRequestAssistantMessageArgs::default();
                     if !m.content.is_empty() {
@@ -90,23 +90,36 @@ impl LlmClient for OpenAiClient {
                             .collect();
                         builder.tool_calls(tool_calls);
                     }
-                    ChatCompletionRequestMessage::Assistant(builder.build().unwrap())
+                    let result = serde_json::to_value(ChatCompletionRequestMessage::Assistant(
+                        builder.build().unwrap(),
+                    ));
+                    if let Some(thinking) = m.thinking {
+                        result.map(|mut inner| {
+                            inner
+                                .as_object_mut()
+                                .unwrap()
+                                .insert("reasoning_content".to_string(), Value::String(thinking));
+                            inner
+                        })
+                    } else {
+                        result
+                    }
                 }
-                MessageRole::System => ChatCompletionRequestMessage::System(
+                MessageRole::System => serde_json::to_value(ChatCompletionRequestMessage::System(
                     ChatCompletionRequestSystemMessageArgs::default()
                         .content(ChatCompletionRequestSystemMessageContent::Text(m.content))
                         .build()
                         .unwrap(),
-                ),
-                MessageRole::Tool => ChatCompletionRequestMessage::Tool(
+                )),
+                MessageRole::Tool => serde_json::to_value(ChatCompletionRequestMessage::Tool(
                     ChatCompletionRequestToolMessageArgs::default()
                         .content(ChatCompletionRequestToolMessageContent::Text(m.content))
                         .tool_call_id(m.tool_name.unwrap_or_default())
                         .build()
                         .unwrap(),
-                ),
+                )),
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let tools: Option<Vec<ChatCompletionTool>> = if request.tools.is_empty() {
             None
@@ -132,15 +145,19 @@ impl LlmClient for OpenAiClient {
 
         let mut req_builder = CreateChatCompletionRequestArgs::default();
         req_builder.model(request.model_name);
-        req_builder.messages(messages);
         if let Some(t) = tools {
             req_builder.tools(t);
         }
+        req_builder.stream(true);
         req_builder.stream_options(ChatCompletionStreamOptions {
             include_usage: true,
         });
         let req = req_builder.build()?;
-        let req_value = serde_json::to_value(&req)?;
+        let mut req_value = serde_json::to_value(&req)?;
+        req_value
+            .as_object_mut()
+            .ok_or("req was not object")?
+            .insert("messages".to_string(), Value::Array(messages));
         let stream = self
             .inner
             .chat()
