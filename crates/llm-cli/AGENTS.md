@@ -66,6 +66,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - `/quit` exits the application
         - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
         - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
+    - dismissable error box above the input with an X button displays request errors
     - Esc exits the application
     - conversation pane has no keyboard interaction
     - 1-line status area
