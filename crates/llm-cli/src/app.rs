@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::{
     Args, Component,
     components::{
-        Prompt,
+        ErrorPopup, Prompt,
         completion::{Command, CommandInstance, Completion, CompletionResult},
         input::PromptModel,
     },
@@ -46,6 +46,7 @@ pub struct App {
     update_tx: UnboundedSender<Update>,
     update_rx: UnboundedReceiver<Update>,
     ignore_responses: bool,
+    error: ErrorPopup,
 }
 
 pub struct AppModel {
@@ -58,6 +59,7 @@ enum Update {
     Prompt(String),
     Response(ToolEvent),
     History(Vec<ChatMessage>),
+    Error(String),
     SetModel(String),
     SetProvider(Provider, Option<String>),
     Redo,
@@ -75,6 +77,7 @@ impl App {
         let client = Arc::new(Mutex::new(client));
         let tasks = JoinSet::new();
         let request_tasks = JoinSet::new();
+        let needs_redraw = model.needs_redraw.clone();
         App {
             conversation: Conversation::default(),
             prompt: Prompt::new(
@@ -117,6 +120,7 @@ impl App {
             update_tx,
             update_rx,
             ignore_responses: false,
+            error: ErrorPopup::new(needs_redraw),
         }
     }
 
@@ -180,10 +184,18 @@ impl App {
                 let _ = update_tx.send(Update::Response(event));
                 needs_update.set(true);
             }
-            // TODO: errors?
-            if let Ok(Ok(history)) = handle.await {
-                let _ = update_tx.send(Update::History(history));
+            match handle.await {
+                Ok(Ok(history)) => {
+                    let _ = update_tx.send(Update::History(history));
+                }
+                Ok(Err(err)) => {
+                    let _ = update_tx.send(Update::Error(err.to_string()));
+                }
+                Err(err) => {
+                    let _ = update_tx.send(Update::Error(err.to_string()));
+                }
             }
+            needs_update.set(true);
         });
     }
 
@@ -216,6 +228,7 @@ impl Component for App {
         });
     }
     fn handle_event(&mut self, event: Event) {
+        self.error.handle_event(event.clone());
         match event {
             Event::Key(key) => {
                 self.prompt.handle_event(Event::Key(key));
@@ -235,6 +248,7 @@ impl Component for App {
     fn update(&mut self) {
         self.conversation.update();
         self.prompt.update();
+        self.error.update();
 
         loop {
             match self.update_rx.try_recv() {
@@ -254,6 +268,10 @@ impl Component for App {
                     if !self.ignore_responses {
                         self.chat_history = history;
                     }
+                }
+                Ok(Update::Error(err)) => {
+                    self.error.set(err);
+                    self.model.needs_redraw.set(true);
                 }
                 Ok(Update::SetModel(model_name)) => {
                     self.abort_requests();
@@ -299,12 +317,15 @@ impl Component for App {
 
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         let prompt_height = self.prompt.height();
+        let inner_width = area.width.saturating_sub(2);
+        let error_height = self.error.height(inner_width);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
             .constraints(
                 [
                     Constraint::Min(1),
+                    Constraint::Length(error_height),
                     Constraint::Length(prompt_height),
                     Constraint::Length(1),
                 ]
@@ -313,7 +334,8 @@ impl Component for App {
             .split(area);
 
         self.conversation.render(frame, chunks[0]);
-        self.prompt.render(frame, chunks[1]);
+        self.error.render(frame, chunks[1]);
+        self.prompt.render(frame, chunks[2]);
         let ctx_tokens = self.conversation.context_tokens();
         let status_right = format!(
             "ctx {}t, Σ {}t=>{}t",
@@ -323,7 +345,7 @@ impl Component for App {
         let status_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(0), Constraint::Length(right_width)].as_ref())
-            .split(chunks[2]);
+            .split(chunks[3]);
         let status_left = {
             let client = self.client.lock().unwrap();
             format!("{:?} {}", client.provider(), client.model())
