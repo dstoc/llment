@@ -30,6 +30,7 @@ MCP server offering file system editing utilities.
   - `replace`
     - enforces the expected number of string replacements
   - `list_directory`
+    - respects git ignore
   - `read_file`
     - supports offset/limit and base64-encoded images
   - `read_many_files`
@@ -42,6 +43,7 @@ MCP server offering file system editing utilities.
     - validates matched paths are within the workspace
   - `search_file_content`
     - uses `grep` crate for regex searches with optional include filters
+    - respects git ignore
     - validates matches are within the workspace
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
