@@ -38,6 +38,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - mouse wheel adjusts scroll
       - items snap to bottom with blank space above when short
       - auto-scrolls when at bottom or after user sends a message
+      - collapsing or expanding assistant blocks preserves the current view
     - text input field at the bottom
       - supports multi-line editing without wrapping
       - height expands to fit content
