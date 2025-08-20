@@ -292,6 +292,15 @@ impl FsServer {
     ) -> Result<CallToolResult, McpError> {
         let ListDirectoryParams { path, ignore } = params;
         let canonical_path = self.resolve(&path)?;
+        if !canonical_path.is_dir() {
+            return Err(McpError::internal_error(
+                format!(
+                    "failed to read dir {}: not a directory",
+                    self.display_path(&canonical_path)
+                ),
+                None,
+            ));
+        }
         let mut builder = GlobSetBuilder::new();
         if let Some(patterns) = ignore {
             for pat in patterns {
@@ -304,29 +313,26 @@ impl FsServer {
             .build()
             .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
         let mut entries = Vec::new();
-        for entry in fs::read_dir(&canonical_path).map_err(|e| {
-            McpError::internal_error(
-                format!(
-                    "failed to read dir {}: {e}",
-                    self.display_path(&canonical_path)
-                ),
-                None,
-            )
-        })? {
-            let entry = entry
-                .map_err(|e| McpError::internal_error(format!("dir entry error: {e}"), None))?;
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if ignore_set.is_match(name_str.as_ref()) {
+        let mut walk_builder = WalkBuilder::new(&canonical_path);
+        walk_builder.git_ignore(true);
+        walk_builder.standard_filters(true);
+        walk_builder.max_depth(Some(1));
+        for result in walk_builder.build() {
+            let entry =
+                result.map_err(|e| McpError::internal_error(format!("walk error: {e}"), None))?;
+            let path = entry.path();
+            if path == canonical_path {
                 continue;
             }
-            let is_dir = entry
-                .file_type()
-                .map_err(|e| {
-                    McpError::internal_error(format!("failed to get file type: {e}"), None)
-                })?
-                .is_dir();
-            entries.push((is_dir, name_str.to_string()));
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if ignore_set.is_match(name) {
+                continue;
+            }
+            let is_dir = entry.file_type().map_or(false, |ft| ft.is_dir());
+            entries.push((is_dir, name.to_string()));
         }
         entries.sort_by(|a, b| match (a.0, b.0) {
             (true, false) => Ordering::Less,
@@ -812,6 +818,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_directory_respects_git_ignore() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        fs::write(dir.path().join("ignored.txt"), "hi").unwrap();
+        fs::write(dir.path().join("visible.txt"), "hi").unwrap();
+        let server = FsServer::new(dir.path());
+        let result = server
+            .list_directory(Parameters(ListDirectoryParams {
+                path: dir.path().to_string_lossy().to_string(),
+                ignore: None,
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(text.contains("visible.txt"));
+        assert!(!text.contains("ignored.txt"));
+    }
+
+    #[tokio::test]
     async fn read_file_reads_content() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("a.txt");
@@ -948,6 +979,32 @@ mod tests {
             .text
             .clone();
         assert!(!text.contains("link.rs"));
+    }
+
+    #[tokio::test]
+    async fn glob_respects_git_ignore() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
+        fs::write(dir.path().join("ignored.rs"), "").unwrap();
+        fs::write(dir.path().join("visible.rs"), "").unwrap();
+        let server = FsServer::new(dir.path());
+        let result = server
+            .glob(Parameters(GlobParams {
+                pattern: "*.rs".into(),
+                path: None,
+                case_sensitive: None,
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(text.contains("visible.rs"));
+        assert!(!text.contains("ignored.rs"));
     }
 
     #[tokio::test]
@@ -1094,6 +1151,32 @@ mod tests {
             .text
             .clone();
         assert!(text.contains("bar"));
+    }
+
+    #[tokio::test]
+    async fn search_file_content_respects_git_ignore() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        fs::write(dir.path().join("ignored.txt"), "foo").unwrap();
+        fs::write(dir.path().join("visible.txt"), "foo").unwrap();
+        let server = FsServer::new(dir.path());
+        let result = server
+            .search_file_content(Parameters(SearchFileContentParams {
+                pattern: "foo".into(),
+                path: None,
+                include: Some("*.txt".into()),
+            }))
+            .await
+            .unwrap();
+        let text = result.content.unwrap()[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert!(text.contains("visible.txt"));
+        assert!(!text.contains("ignored.txt"));
     }
 
     #[cfg(unix)]
