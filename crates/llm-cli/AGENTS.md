@@ -79,6 +79,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - working and tool sections toggle with mouse click
         - final responses render markdown via termimad
         - streaming updates append thinking text, tool calls, and tool results
+        - wrapped lines prefix continuation lines with `│`
         - tool step headers show tool name italic and underlined
           - failed tools display the name in red
         - header displays status line summarizing assistant progress

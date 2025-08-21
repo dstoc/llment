@@ -41,7 +41,7 @@ impl ThoughtStep {
             if i == 0 {
                 lines.push(format!("· {}", w));
             } else {
-                lines.push(format!("  {}", w));
+                lines.push(format!("│ {}", w));
             }
         }
         self.lines = lines;

@@ -402,8 +402,8 @@ mod tests {
             .join("\n");
         assert_snapshot!(dbg, @r"[Reset,Reset]Thinking ⠋ ⌄
 [Reset,Reset]· word1 word2 word3
-[Reset,Reset]  word4 word5 word6
-[Reset,Reset]  word7 word8 word9
-[Reset,Reset]  word10 word11");
+[Reset,Reset]│ word4 word5 word6
+[Reset,Reset]│ word7 word8 word9
+[Reset,Reset]│ word10 word11");
     }
 }
