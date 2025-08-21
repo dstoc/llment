@@ -29,6 +29,13 @@ use tokio::{
 use tokio_stream::StreamExt;
 use unicode_width::UnicodeWidthStr;
 
+enum ConversationState {
+    Idle,
+    Thinking,
+    CallingTool(String),
+    Responding,
+}
+
 pub struct App {
     pub model: AppModel,
     conversation: Conversation,
@@ -40,6 +47,7 @@ pub struct App {
     session_in_tokens: u32,
     session_out_tokens: u32,
     chat_history: Vec<ChatMessage>,
+    state: ConversationState,
 
     tasks: JoinSet<()>,
     request_tasks: JoinSet<()>,
@@ -115,6 +123,7 @@ impl App {
             tool_executor,
             mcp_context,
             chat_history: vec![],
+            state: ConversationState::Idle,
             tasks,
             request_tasks,
             update_tx,
@@ -127,6 +136,8 @@ impl App {
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
             ToolEvent::Chunk(chunk) => {
+                self.state = ConversationState::Responding;
+                self.model.needs_redraw.set(true);
                 if let Some(thinking) = chunk.message.thinking.as_ref() {
                     self.conversation.append_thinking(thinking);
                 }
@@ -141,9 +152,13 @@ impl App {
                         self.session_out_tokens += usage.output_tokens;
                         self.conversation.set_usage(usage);
                     }
+                    self.state = ConversationState::Thinking;
+                    self.model.needs_redraw.set(true);
                 }
             }
             ToolEvent::ToolStarted { id, name, args } => {
+                self.state = ConversationState::CallingTool(name.clone());
+                self.model.needs_redraw.set(true);
                 self.conversation.add_tool_step(ToolStep::new(
                     name,
                     id,
@@ -158,11 +173,15 @@ impl App {
                     Err(e) => (format!("Tool Failed: {}", e), true),
                 };
                 self.conversation.update_tool_result(id, text, failed);
+                self.state = ConversationState::Thinking;
+                self.model.needs_redraw.set(true);
             }
         }
     }
 
     fn send_request(&mut self, prompt: String) -> () {
+        self.state = ConversationState::Thinking;
+        self.model.needs_redraw.set(true);
         self.conversation.push_user(prompt.clone());
         self.chat_history.push(ChatMessage::user(prompt));
         self.conversation.push_assistant_block();
@@ -268,9 +287,12 @@ impl Component for App {
                     if !self.ignore_responses {
                         self.chat_history = history;
                     }
+                    self.state = ConversationState::Idle;
+                    self.model.needs_redraw.set(true);
                 }
                 Ok(Update::Error(err)) => {
                     self.error.set(err);
+                    self.state = ConversationState::Idle;
                     self.model.needs_redraw.set(true);
                 }
                 Ok(Update::SetModel(model_name)) => {
@@ -298,6 +320,8 @@ impl Component for App {
                     self.conversation.clear();
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
+                    self.state = ConversationState::Idle;
+                    self.model.needs_redraw.set(true);
                 }
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
@@ -346,9 +370,15 @@ impl Component for App {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(0), Constraint::Length(right_width)].as_ref())
             .split(chunks[3]);
+        let state_text = match &self.state {
+            ConversationState::Idle => String::new(),
+            ConversationState::Thinking => "thinking…".to_string(),
+            ConversationState::CallingTool(name) => format!("tool: {}", name),
+            ConversationState::Responding => "responding…".to_string(),
+        };
         let status_left = {
             let client = self.client.lock().unwrap();
-            format!("{:?} {}", client.provider(), client.model())
+            format!("{} {:?} {}", state_text, client.provider(), client.model())
         };
         frame.render_widget(Paragraph::new(status_left), status_chunks[0]);
         frame.render_widget(
