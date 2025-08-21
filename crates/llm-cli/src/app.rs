@@ -27,6 +27,7 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_stream::StreamExt;
+use tui_realm_stdlib::states::SpinnerStates;
 use unicode_width::UnicodeWidthStr;
 
 enum ConversationState {
@@ -48,6 +49,7 @@ pub struct App {
     session_out_tokens: u32,
     chat_history: Vec<ChatMessage>,
     state: ConversationState,
+    spinner: SpinnerStates,
 
     tasks: JoinSet<()>,
     request_tasks: JoinSet<()>,
@@ -85,6 +87,8 @@ impl App {
         let client = Arc::new(Mutex::new(client));
         let tasks = JoinSet::new();
         let request_tasks = JoinSet::new();
+        let mut spinner = SpinnerStates::default();
+        spinner.reset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
         let needs_redraw = model.needs_redraw.clone();
         App {
             conversation: Conversation::default(),
@@ -124,6 +128,7 @@ impl App {
             mcp_context,
             chat_history: vec![],
             state: ConversationState::Idle,
+            spinner: spinner,
             tasks,
             request_tasks,
             update_tx,
@@ -188,10 +193,13 @@ impl App {
         let request = ChatMessageRequest::new(model_name, self.chat_history.clone())
             .tools(tool_infos)
             .think(true);
-        let history = std::mem::take(&mut self.chat_history);
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
-        let (mut stream, handle) =
-            tool_event_stream(client, request, self.tool_executor.clone(), history);
+        let (mut stream, handle) = tool_event_stream(
+            client,
+            request,
+            self.tool_executor.clone(),
+            self.chat_history.clone(),
+        );
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
@@ -369,9 +377,9 @@ impl Component for App {
             .split(chunks[3]);
         let state_text = match &self.state {
             ConversationState::Idle => String::new(),
-            ConversationState::Thinking => "thinking…".to_string(),
+            ConversationState::Thinking => format!("thinking… {}", self.spinner.step()),
             ConversationState::CallingTool(name) => format!("tool: {}", name),
-            ConversationState::Responding => "responding…".to_string(),
+            ConversationState::Responding => format!("responding… {}", self.spinner.step()),
         };
         let status_left = {
             let client = self.client.lock().unwrap();
