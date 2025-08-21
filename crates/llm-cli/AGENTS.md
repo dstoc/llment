@@ -74,6 +74,10 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
     - conversation state tracking
       - states: idle, thinking, calling tool, responding
+      - thinking chunks switch to thinking state
+      - content chunks switch to responding state
+      - tool start switches to calling tool state
+      - history, error, or clear updates reset to idle
     - conversation items
       - initialized with empty history
       - user messages render inside a right-aligned rounded block

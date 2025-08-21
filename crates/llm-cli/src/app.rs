@@ -136,13 +136,15 @@ impl App {
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
             ToolEvent::Chunk(chunk) => {
-                self.state = ConversationState::Responding;
-                self.model.needs_redraw.set(true);
                 if let Some(thinking) = chunk.message.thinking.as_ref() {
+                    self.state = ConversationState::Thinking;
+                    self.model.needs_redraw.set(true);
                     self.conversation.append_thinking(thinking);
                 }
                 if let Some(content) = chunk.message.content.as_ref() {
                     if !content.is_empty() {
+                        self.state = ConversationState::Responding;
+                        self.model.needs_redraw.set(true);
                         self.conversation.append_response(content);
                     }
                 }
@@ -152,8 +154,6 @@ impl App {
                         self.session_out_tokens += usage.output_tokens;
                         self.conversation.set_usage(usage);
                     }
-                    self.state = ConversationState::Thinking;
-                    self.model.needs_redraw.set(true);
                 }
             }
             ToolEvent::ToolStarted { id, name, args } => {
@@ -173,8 +173,6 @@ impl App {
                     Err(e) => (format!("Tool Failed: {}", e), true),
                 };
                 self.conversation.update_tool_result(id, text, failed);
-                self.state = ConversationState::Thinking;
-                self.model.needs_redraw.set(true);
             }
         }
     }
