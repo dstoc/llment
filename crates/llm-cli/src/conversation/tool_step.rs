@@ -61,17 +61,17 @@ impl ToolStep {
             let a_wrap = wrap(&self.args, width.saturating_sub(8) as usize);
             for (i, w) in a_wrap.into_iter().enumerate() {
                 if i == 0 {
-                    lines.push(Line::from(format!("  args: {}", w)));
+                    lines.push(Line::from(format!("│ args: {}", w)));
                 } else {
-                    lines.push(Line::from(format!("        {}", w)));
+                    lines.push(Line::from(format!("│       {}", w)));
                 }
             }
             let r_wrap = wrap(&self.result, width.saturating_sub(10) as usize);
             for (i, w) in r_wrap.into_iter().enumerate() {
                 if i == 0 {
-                    lines.push(Line::from(format!("  result: {}", w)));
+                    lines.push(Line::from(format!("│ result: {}", w)));
                 } else {
-                    lines.push(Line::from(format!("          {}", w)));
+                    lines.push(Line::from(format!("│         {}", w)));
                 }
             }
         }
