@@ -343,7 +343,6 @@ impl Component for App {
         let error_height = self.error.height(inner_width);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .margin(1)
             .constraints(
                 [
                     Constraint::Min(1),
@@ -376,7 +375,7 @@ impl Component for App {
         };
         let status_left = {
             let client = self.client.lock().unwrap();
-            format!("{} {:?} {}", state_text, client.provider(), client.model())
+            format!("{:?} {} {}", client.provider(), client.model(), state_text)
         };
         frame.render_widget(Paragraph::new(status_left), status_chunks[0]);
         frame.render_widget(
