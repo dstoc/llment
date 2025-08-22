@@ -12,7 +12,7 @@ use serde_json::json;
 use tokio_stream::StreamExt;
 
 use super::{
-    ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
     ToolCall, Usage, to_openapi_schema,
 };
 
@@ -39,14 +39,14 @@ impl LlmClient for GeminiClient {
         let mut contents: Vec<Content> = Vec::new();
         let mut system_instruction: Option<String> = None;
         for m in request.messages {
-            match m.role {
-                MessageRole::User => contents.push(Content {
+            match m {
+                ChatMessage::User(u) => contents.push(Content {
                     role: Role::User,
-                    parts: vec![Part::text(&m.content)],
+                    parts: vec![Part::text(&u.content)],
                 }),
-                MessageRole::Assistant => {
-                    if !m.tool_calls.is_empty() {
-                        let parts = m
+                ChatMessage::Assistant(a) => {
+                    if !a.tool_calls.is_empty() {
+                        let parts = a
                             .tool_calls
                             .iter()
                             .map(|tool_call| Part {
@@ -65,27 +65,27 @@ impl LlmClient for GeminiClient {
                     } else {
                         contents.push(Content {
                             role: Role::Model,
-                            parts: vec![Part::text(&m.content)],
+                            parts: vec![Part::text(&a.content)],
                         });
                     }
                 }
-                MessageRole::System => {
+                ChatMessage::System(s) => {
                     // TODO: this is weird
                     if let Some(si) = system_instruction.as_mut() {
                         si.push_str("\n");
-                        si.push_str(&m.content);
+                        si.push_str(&s.content);
                     } else {
-                        system_instruction = Some(m.content);
+                        system_instruction = Some(s.content);
                     }
                 }
-                MessageRole::Tool => contents.push(Content {
+                ChatMessage::Tool(t) => contents.push(Content {
                     role: Role::Function,
                     parts: vec![Part {
                         function_response: Some(FunctionResponse {
                             id: None,
-                            name: m.tool_name.unwrap_or("function".into()),
-                            // TODO: try parse m.content as JSON first.
-                            response: json!({"content": m.content}),
+                            name: t.tool_name,
+                            // TODO: try parse t.content as JSON first.
+                            response: json!({"content": t.content}),
                         }),
                         ..Default::default()
                     }],

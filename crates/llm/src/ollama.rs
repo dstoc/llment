@@ -19,7 +19,7 @@ use ollama_rs::{
 use tokio_stream::StreamExt;
 
 use super::{
-    ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
     ToolCall, Usage,
 };
 
@@ -46,29 +46,34 @@ impl LlmClient for OllamaClient {
             let messages = request
                 .messages
                 .into_iter()
-                .map(|m| {
-                    let mut msg = OllamaChatMessage::new(
-                        match m.role {
-                            MessageRole::User => OllamaMessageRole::User,
-                            MessageRole::Assistant => OllamaMessageRole::Assistant,
-                            MessageRole::System => OllamaMessageRole::System,
-                            MessageRole::Tool => OllamaMessageRole::Tool,
-                        },
-                        m.content,
-                    );
-                    msg.tool_calls = m
-                        .tool_calls
-                        .into_iter()
-                        .map(|tc| OllamaToolCall {
-                            function: OllamaToolCallFunction {
-                                name: tc.name,
-                                arguments: tc.arguments,
-                            },
-                        })
-                        .collect();
-                    msg.thinking = m.thinking;
-                    msg.tool_name = m.tool_name;
-                    msg
+                .map(|m| match m {
+                    ChatMessage::User(u) => {
+                        OllamaChatMessage::new(OllamaMessageRole::User, u.content)
+                    }
+                    ChatMessage::Assistant(a) => {
+                        let mut msg =
+                            OllamaChatMessage::new(OllamaMessageRole::Assistant, a.content);
+                        msg.tool_calls = a
+                            .tool_calls
+                            .into_iter()
+                            .map(|tc| OllamaToolCall {
+                                function: OllamaToolCallFunction {
+                                    name: tc.name,
+                                    arguments: tc.arguments,
+                                },
+                            })
+                            .collect();
+                        msg.thinking = a.thinking;
+                        msg
+                    }
+                    ChatMessage::System(s) => {
+                        OllamaChatMessage::new(OllamaMessageRole::System, s.content)
+                    }
+                    ChatMessage::Tool(t) => {
+                        let mut msg = OllamaChatMessage::new(OllamaMessageRole::Tool, t.content);
+                        msg.tool_name = Some(t.tool_name);
+                        msg
+                    }
                 })
                 .collect();
 

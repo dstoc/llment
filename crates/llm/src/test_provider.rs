@@ -52,7 +52,7 @@ impl LlmClient for TestProvider {
 mod tests {
     use super::*;
     use crate::tools::{ToolExecutor, run_tool_loop};
-    use crate::{ChatMessage, MessageRole, ResponseMessage, ToolCall};
+    use crate::{ChatMessage, ResponseMessage, ToolCall};
     use serde_json::Value;
     use std::sync::Arc;
 
@@ -105,7 +105,10 @@ mod tests {
         assert_eq!(requests[0].messages.len(), 1);
         assert_eq!(requests[1].messages.len(), 3);
         let final_msg = updated.last().unwrap();
-        assert_eq!(final_msg.role, MessageRole::Assistant);
-        assert_eq!(final_msg.content, "final");
+        if let ChatMessage::Assistant(a) = final_msg {
+            assert_eq!(a.content, "final");
+        } else {
+            panic!("expected assistant message");
+        }
     }
 }

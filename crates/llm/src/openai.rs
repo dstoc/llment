@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use super::{
-    ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
     ToolCall, Usage as LlmUsage, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
@@ -61,22 +61,22 @@ impl LlmClient for OpenAiClient {
         let messages: Vec<Value> = request
             .messages
             .into_iter()
-            .map(|m| match m.role {
-                MessageRole::User => serde_json::to_value(ChatCompletionRequestMessage::User(
+            .map(|m| match m {
+                ChatMessage::User(u) => serde_json::to_value(ChatCompletionRequestMessage::User(
                     ChatCompletionRequestUserMessageArgs::default()
-                        .content(ChatCompletionRequestUserMessageContent::Text(m.content))
+                        .content(ChatCompletionRequestUserMessageContent::Text(u.content))
                         .build()
                         .unwrap(),
                 )),
-                MessageRole::Assistant => {
+                ChatMessage::Assistant(a) => {
                     let mut builder = ChatCompletionRequestAssistantMessageArgs::default();
-                    if !m.content.is_empty() {
+                    if !a.content.is_empty() {
                         builder.content(ChatCompletionRequestAssistantMessageContent::Text(
-                            m.content,
+                            a.content,
                         ));
                     }
-                    if !m.tool_calls.is_empty() {
-                        let tool_calls: Vec<ChatCompletionMessageToolCall> = m
+                    if !a.tool_calls.is_empty() {
+                        let tool_calls: Vec<ChatCompletionMessageToolCall> = a
                             .tool_calls
                             .into_iter()
                             .map(|tc| ChatCompletionMessageToolCall {
@@ -93,7 +93,7 @@ impl LlmClient for OpenAiClient {
                     let result = serde_json::to_value(ChatCompletionRequestMessage::Assistant(
                         builder.build().unwrap(),
                     ));
-                    if let Some(thinking) = m.thinking {
+                    if let Some(thinking) = a.thinking {
                         result.map(|mut inner| {
                             inner
                                 .as_object_mut()
@@ -105,16 +105,18 @@ impl LlmClient for OpenAiClient {
                         result
                     }
                 }
-                MessageRole::System => serde_json::to_value(ChatCompletionRequestMessage::System(
-                    ChatCompletionRequestSystemMessageArgs::default()
-                        .content(ChatCompletionRequestSystemMessageContent::Text(m.content))
-                        .build()
-                        .unwrap(),
-                )),
-                MessageRole::Tool => serde_json::to_value(ChatCompletionRequestMessage::Tool(
+                ChatMessage::System(s) => {
+                    serde_json::to_value(ChatCompletionRequestMessage::System(
+                        ChatCompletionRequestSystemMessageArgs::default()
+                            .content(ChatCompletionRequestSystemMessageContent::Text(s.content))
+                            .build()
+                            .unwrap(),
+                    ))
+                }
+                ChatMessage::Tool(t) => serde_json::to_value(ChatCompletionRequestMessage::Tool(
                     ChatCompletionRequestToolMessageArgs::default()
-                        .content(ChatCompletionRequestToolMessageContent::Text(m.content))
-                        .tool_call_id(m.tool_name.unwrap_or_default())
+                        .content(ChatCompletionRequestToolMessageContent::Text(t.content))
+                        .tool_call_id(t.tool_name)
                         .build()
                         .unwrap(),
                 )),
