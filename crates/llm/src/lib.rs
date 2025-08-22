@@ -33,8 +33,12 @@ impl ChatMessage {
         Self::System(SystemMessage { content })
     }
 
-    pub fn tool(content: String, tool_name: String) -> Self {
-        Self::Tool(ToolMessage { content, tool_name })
+    pub fn tool(id: String, content: Value, tool_name: String) -> Self {
+        Self::Tool(ToolMessage {
+            id,
+            content,
+            tool_name,
+        })
     }
 }
 
@@ -57,12 +61,14 @@ pub struct SystemMessage {
 
 #[derive(Clone, Debug)]
 pub struct ToolMessage {
-    pub content: String,
+    pub id: String,
+    pub content: Value,
     pub tool_name: String,
 }
 
 #[derive(Clone, Debug)]
 pub struct ToolCall {
+    pub id: String,
     pub name: String,
     pub arguments: Value,
 }

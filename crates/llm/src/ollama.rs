@@ -16,7 +16,9 @@ use ollama_rs::{
         },
     },
 };
+use serde_json::Value;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 use super::{
     ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
@@ -70,7 +72,11 @@ impl LlmClient for OllamaClient {
                         OllamaChatMessage::new(OllamaMessageRole::System, s.content)
                     }
                     ChatMessage::Tool(t) => {
-                        let mut msg = OllamaChatMessage::new(OllamaMessageRole::Tool, t.content);
+                        let content_str = match t.content {
+                            Value::String(s) => s,
+                            v => v.to_string(),
+                        };
+                        let mut msg = OllamaChatMessage::new(OllamaMessageRole::Tool, content_str);
                         msg.tool_name = Some(t.tool_name);
                         msg
                     }
@@ -111,6 +117,7 @@ impl LlmClient for OllamaClient {
                         .tool_calls
                         .into_iter()
                         .map(|tc| ToolCall {
+                            id: Uuid::new_v4().to_string(),
                             name: tc.function.name,
                             arguments: tc.function.arguments,
                         })

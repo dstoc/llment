@@ -8,8 +8,8 @@ use gemini_rs::{
         FunctionResponse, GenerationConfig, Part, Role, ThinkingConfig, ToolConfig, Tools,
     },
 };
-use serde_json::json;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 use super::{
     ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
@@ -51,7 +51,7 @@ impl LlmClient for GeminiClient {
                             .iter()
                             .map(|tool_call| Part {
                                 function_call: Some(FunctionCall {
-                                    id: None,
+                                    id: Some(tool_call.id.clone()),
                                     name: tool_call.name.clone(),
                                     args: tool_call.arguments.clone(),
                                 }),
@@ -82,10 +82,9 @@ impl LlmClient for GeminiClient {
                     role: Role::Function,
                     parts: vec![Part {
                         function_response: Some(FunctionResponse {
-                            id: None,
+                            id: Some(t.id.clone()),
                             name: t.tool_name,
-                            // TODO: try parse t.content as JSON first.
-                            response: json!({"content": t.content}),
+                            response: t.content,
                         }),
                         ..Default::default()
                     }],
@@ -144,6 +143,7 @@ impl LlmClient for GeminiClient {
                         for part in &candidate.content.parts {
                             if let Some(fc) = &part.function_call {
                                 tool_calls.push(ToolCall {
+                                    id: fc.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
                                     name: fc.name.clone(),
                                     arguments: fc.args.clone(),
                                 });

@@ -60,8 +60,12 @@ pub async fn run_tool_loop(
     let mut next_id = 0usize;
     loop {
         let mut stream = client.send_chat_messages_stream(request.clone()).await?;
-        let mut handles: JoinSet<(usize, String, Result<String, Box<dyn Error + Send + Sync>>)> =
-            JoinSet::new();
+        let mut handles: JoinSet<(
+            usize,
+            String,
+            String,
+            Result<String, Box<dyn Error + Send + Sync>>,
+        )> = JoinSet::new();
         let mut assistant_content: Option<String> = None;
         let mut assistant_thinking: Option<String> = None;
         while let Some(chunk) = stream.next().await {
@@ -94,10 +98,10 @@ pub async fn run_tool_loop(
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
-                let id = next_id;
+                let event_id = next_id;
                 next_id += 1;
                 tx.send(ToolEvent::ToolStarted {
-                    id,
+                    id: event_id,
                     name: call.name.clone(),
                     args: call.arguments.clone(),
                 })
@@ -105,9 +109,10 @@ pub async fn run_tool_loop(
                 let executor = tool_executor.clone();
                 let name = call.name.clone();
                 let args = call.arguments.clone();
+                let call_id = call.id.clone();
                 handles.spawn(async move {
                     let res = executor.call(&name, args).await;
-                    (id, name, res)
+                    (event_id, name, call_id, res)
                 });
             }
             if done {
@@ -125,15 +130,29 @@ pub async fn run_tool_loop(
             break;
         }
         while let Some(res) = handles.join_next().await {
-            if let Ok((id, name, result)) = res {
+            if let Ok((event_id, name, call_id, result)) = res {
                 match &result {
-                    Ok(text) => chat_history.push(ChatMessage::tool(text.clone(), name.clone())),
+                    Ok(text) => {
+                        let content = serde_json::from_str::<Value>(&text)
+                            .unwrap_or_else(|_| Value::String(text.clone()));
+                        chat_history.push(ChatMessage::tool(
+                            call_id.clone(),
+                            content,
+                            name.clone(),
+                        ));
+                    }
                     Err(err) => chat_history.push(ChatMessage::tool(
-                        format!("Tool Failed: {}", err),
+                        call_id.clone(),
+                        Value::String(format!("Tool Failed: {}", err)),
                         name.clone(),
                     )),
                 }
-                tx.send(ToolEvent::ToolResult { id, name, result }).ok();
+                tx.send(ToolEvent::ToolResult {
+                    id: event_id,
+                    name,
+                    result,
+                })
+                .ok();
             }
         }
         request = ChatMessageRequest::new(request.model_name.clone(), chat_history.clone())
@@ -168,6 +187,7 @@ mod tests {
                         content: None,
                         thinking: None,
                         tool_calls: vec![crate::ToolCall {
+                            id: "call-1".into(),
                             name: "test".into(),
                             arguments: Value::Null,
                         }],
