@@ -1,11 +1,27 @@
 use std::error::Error;
 
 use async_trait::async_trait;
-use ollama_rs::Ollama;
-use ollama_rs::generation::chat::{ChatMessageResponseStream, request::ChatMessageRequest};
+use ollama_rs::{
+    Ollama,
+    generation::{
+        chat::{
+            ChatMessage as OllamaChatMessage, ChatMessageResponseStream,
+            MessageRole as OllamaMessageRole,
+            request::ChatMessageRequest as OllamaChatMessageRequest,
+        },
+        tools::{
+            ToolCall as OllamaToolCall, ToolCallFunction as OllamaToolCallFunction,
+            ToolFunctionInfo as OllamaToolFunctionInfo, ToolInfo as OllamaToolInfo,
+            ToolType as OllamaToolType,
+        },
+    },
+};
 use tokio_stream::StreamExt;
 
-use super::{ChatStream, LlmClient, ResponseChunk, ResponseMessage, Usage};
+use super::{
+    ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
+    ToolCall, Usage,
+};
 
 pub struct OllamaClient {
     inner: Ollama,
@@ -26,8 +42,57 @@ impl LlmClient for OllamaClient {
         &self,
         request: ChatMessageRequest,
     ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
+        let ollama_request = {
+            let messages = request
+                .messages
+                .into_iter()
+                .map(|m| {
+                    let mut msg = OllamaChatMessage::new(
+                        match m.role {
+                            MessageRole::User => OllamaMessageRole::User,
+                            MessageRole::Assistant => OllamaMessageRole::Assistant,
+                            MessageRole::System => OllamaMessageRole::System,
+                            MessageRole::Tool => OllamaMessageRole::Tool,
+                        },
+                        m.content,
+                    );
+                    msg.tool_calls = m
+                        .tool_calls
+                        .into_iter()
+                        .map(|tc| OllamaToolCall {
+                            function: OllamaToolCallFunction {
+                                name: tc.name,
+                                arguments: tc.arguments,
+                            },
+                        })
+                        .collect();
+                    msg.thinking = m.thinking;
+                    msg.tool_name = m.tool_name;
+                    msg
+                })
+                .collect();
+
+            let tools = request
+                .tools
+                .into_iter()
+                .map(|t| OllamaToolInfo {
+                    tool_type: OllamaToolType::Function,
+                    function: OllamaToolFunctionInfo {
+                        name: t.name,
+                        description: t.description,
+                        parameters: t.parameters,
+                    },
+                })
+                .collect();
+
+            let mut req = OllamaChatMessageRequest::new(request.model_name, messages).tools(tools);
+            if let Some(t) = request.think {
+                req = req.think(t);
+            }
+            req
+        };
         let stream: ChatMessageResponseStream =
-            self.inner.send_chat_messages_stream(request).await?;
+            self.inner.send_chat_messages_stream(ollama_request).await?;
         let mapped = stream.map(|res| match res {
             Ok(r) => Ok(ResponseChunk {
                 message: ResponseMessage {
@@ -36,7 +101,15 @@ impl LlmClient for OllamaClient {
                     } else {
                         Some(r.message.content)
                     },
-                    tool_calls: r.message.tool_calls,
+                    tool_calls: r
+                        .message
+                        .tool_calls
+                        .into_iter()
+                        .map(|tc| ToolCall {
+                            name: tc.function.name,
+                            arguments: tc.function.arguments,
+                        })
+                        .collect(),
                     thinking: r.message.thinking,
                 },
                 done: r.done,

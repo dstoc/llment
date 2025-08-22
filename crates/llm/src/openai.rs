@@ -1,8 +1,8 @@
-use std::{error::Error, rc::Rc};
+use std::error::Error;
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
-    ToolCall, ToolCallFunction, Usage as LlmUsage, to_openapi_schema,
+    ToolCall, Usage as LlmUsage, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -80,11 +80,11 @@ impl LlmClient for OpenAiClient {
                             .tool_calls
                             .into_iter()
                             .map(|tc| ChatCompletionMessageToolCall {
-                                id: tc.function.name.clone(),
+                                id: tc.name.clone(),
                                 r#type: ChatCompletionToolType::Function,
                                 function: FunctionCall {
-                                    name: tc.function.name,
-                                    arguments: tc.function.arguments.to_string(),
+                                    name: tc.name,
+                                    arguments: tc.arguments.to_string(),
                                 },
                             })
                             .collect();
@@ -131,9 +131,9 @@ impl LlmClient for OpenAiClient {
                     .map(|t| {
                         ChatCompletionToolArgs::default()
                             .function(FunctionObject {
-                                name: t.function.name,
-                                description: Some(t.function.description),
-                                parameters: Some(to_openapi_schema(&t.function.parameters)),
+                                name: t.name,
+                                description: Some(t.description),
+                                parameters: Some(to_openapi_schema(&t.parameters)),
                                 strict: None,
                             })
                             .build()
@@ -198,10 +198,8 @@ impl LlmClient for OpenAiClient {
                                 let args: Value =
                                     serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
                                 tool_calls.push(ToolCall {
-                                    function: ToolCallFunction {
-                                        name: b.name.unwrap_or_default(),
-                                        arguments: args,
-                                    },
+                                    name: b.name.unwrap_or_default(),
+                                    arguments: args,
                                 });
                             }
                         }

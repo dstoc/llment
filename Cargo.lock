@@ -1521,6 +1521,7 @@ dependencies = [
  "gemini-rs",
  "ollama-rs",
  "rmcp",
+ "schemars",
  "serde",
  "serde_json",
  "tokio",
