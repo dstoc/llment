@@ -1,6 +1,5 @@
 use crate::component::Component;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use futures_signals::signal::Mutable;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::{
@@ -8,6 +7,11 @@ use ratatui::{
     style::{Color, Style},
     widgets::Paragraph,
 };
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use tokio::sync::watch;
 use tui_textarea::{Input as TaInput, Key as TaKey, TextArea};
 
 use super::completion::{
@@ -22,18 +26,20 @@ pub struct Prompt {
     focused: bool,
     completion: CompletionPopup,
     router: CommandRouter,
-    needs_update: Mutable<bool>,
+    needs_update: Arc<AtomicBool>,
+    submitted_prompt_tx: watch::Sender<String>,
+    submitted_prompt_rx: watch::Receiver<String>,
 }
 
-#[derive(Default)]
 pub struct PromptModel {
-    pub submitted_prompt: Mutable<String>,
-    pub needs_redraw: Mutable<bool>,
-    pub needs_update: Mutable<bool>,
+    pub needs_redraw: watch::Sender<bool>,
+    pub needs_update: watch::Sender<bool>,
 }
 
 impl Prompt {
     pub fn new(model: PromptModel, commands: Vec<Box<dyn Command>>) -> Self {
+        let needs_update = Arc::new(AtomicBool::new(false));
+        let (submitted_prompt_tx, submitted_prompt_rx) = watch::channel(String::new());
         Self {
             model,
             textarea: Self::new_textarea(),
@@ -44,8 +50,14 @@ impl Prompt {
                 selected: 0,
             },
             router: CommandRouter::new(commands),
-            needs_update: Mutable::new(false),
+            needs_update,
+            submitted_prompt_tx,
+            submitted_prompt_rx,
         }
+    }
+
+    pub fn submitted_prompt_rx(&self) -> watch::Receiver<String> {
+        self.submitted_prompt_rx.clone()
     }
 
     pub fn height(&self) -> u16 {
@@ -55,7 +67,7 @@ impl Prompt {
     pub fn set_prompt(&mut self, prompt: String) {
         self.reset();
         self.textarea.insert_str(prompt);
-        self.model.needs_redraw.set(true);
+        let _ = self.model.needs_redraw.send(true);
     }
 
     fn new_textarea() -> TextArea<'static> {
@@ -77,8 +89,8 @@ impl Prompt {
             let self_needs_update = self.needs_update.clone();
             tokio::spawn(async move {
                 if done.await.is_ok() {
-                    model_needs_update.set(true);
-                    self_needs_update.set(true);
+                    let _ = model_needs_update.send(true);
+                    self_needs_update.store(true, Ordering::SeqCst);
                 }
             });
         }
@@ -120,8 +132,7 @@ fn to_input(ev: KeyEvent) -> TaInput {
 
 impl Component for Prompt {
     fn update(&mut self) {
-        if self.needs_update.get() {
-            self.needs_update.set(false);
+        if self.needs_update.swap(false, Ordering::SeqCst) {
             self.update_completion();
         }
     }
@@ -156,18 +167,18 @@ impl Component for Prompt {
                                     self.textarea = Prompt::new_textarea();
                                     self.textarea.insert_str(&format!("{}{}", prefix, str));
                                     self.update_completion();
-                                    self.model.needs_redraw.set(true);
+                                    let _ = self.model.needs_redraw.send(true);
                                 }
                                 if commit {
                                     if self.try_commit_completion() {
                                         self.reset();
                                     }
-                                    self.model.needs_redraw.set(true);
+                                    let _ = self.model.needs_redraw.send(true);
                                 }
                                 return;
                             }
                             super::completion::CompletionPopupAction::Redraw => {
-                                self.model.needs_redraw.set(true);
+                                let _ = self.model.needs_redraw.send(true);
                                 return;
                             }
                         }
@@ -181,20 +192,20 @@ impl Component for Prompt {
                         let trimmed = text.trim().to_string();
                         self.textarea = Self::new_textarea();
                         if !trimmed.is_empty() {
-                            self.model.submitted_prompt.set(trimmed);
+                            let _ = self.submitted_prompt_tx.send(trimmed);
                         }
                     }
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                 } else {
                     let input = to_input(key);
                     self.textarea.input(input);
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                     self.update_completion();
                 }
             }
             Event::Paste(ref data) if self.focused => {
                 self.textarea.insert_str(data);
-                self.model.needs_redraw.set(true);
+                let _ = self.model.needs_redraw.send(true);
                 self.update_completion();
             }
 
