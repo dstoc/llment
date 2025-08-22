@@ -108,3 +108,4 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
+  - built-in `get_context_size` tool returns current context token count
