@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     Args, Component,
+    builtins::setup_builtin_tools,
     components::{
         ErrorPopup, Prompt,
         completion::{Command, CommandInstance, Completion, CompletionResult},
@@ -12,22 +13,12 @@ use crate::{
 use clap::ValueEnum;
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, LlmClient, Provider, ToolInfo,
+    ChatMessage, ChatMessageRequest, LlmClient, Provider,
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
-use rmcp::{
-    ServerHandler,
-    handler::server::router::tool::ToolRouter,
-    model::{ServerCapabilities, ServerInfo},
-    service::ServiceExt,
-    tool, tool_handler, tool_router,
-};
-use schemars::{JsonSchema, schema_for};
-use serde::{Deserialize, Serialize};
 use tokio::{
-    io::duplex,
     sync::{
         OnceCell,
         mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -39,9 +30,6 @@ use tokio_stream::{StreamExt, wrappers::WatchStream};
 use tui_realm_stdlib::states::SpinnerStates;
 use unicode_width::UnicodeWidthStr;
 
-#[derive(Serialize, Deserialize, JsonSchema)]
-struct GetContextSizeParams {}
-
 enum ConversationState {
     Idle,
     Thinking,
@@ -51,7 +39,7 @@ enum ConversationState {
 
 pub struct App {
     pub model: AppModel,
-    conversation: Arc<Mutex<Conversation>>,
+    conversation: Conversation,
     prompt: Prompt,
 
     client: Arc<Mutex<llm::Client>>,
@@ -59,7 +47,7 @@ pub struct App {
     mcp_context: Arc<McpContext>,
     session_in_tokens: u32,
     session_out_tokens: u32,
-    chat_history: Vec<ChatMessage>,
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
     state: ConversationState,
     spinner: SpinnerStates,
 
@@ -77,44 +65,6 @@ pub struct AppModel {
     pub should_quit: watch::Sender<bool>,
 }
 
-#[derive(Clone)]
-struct BuiltinTools {
-    conversation: Arc<Mutex<Conversation>>,
-    tool_router: ToolRouter<Self>,
-}
-
-#[tool_router]
-impl BuiltinTools {
-    fn new(conversation: Arc<Mutex<Conversation>>) -> Self {
-        Self {
-            conversation,
-            tool_router: Self::tool_router(),
-        }
-    }
-
-    #[tool(
-        name = "get_context_size",
-        description = "Returns the current context size"
-    )]
-    fn get_context_size(&self) -> String {
-        self.conversation
-            .lock()
-            .unwrap()
-            .context_tokens()
-            .to_string()
-    }
-}
-
-#[tool_handler(router = self.tool_router)]
-impl ServerHandler for BuiltinTools {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
-    }
-}
-
 enum Update {
     Prompt(String),
     Response(ToolEvent),
@@ -127,33 +77,9 @@ enum Update {
 }
 
 impl App {
-    // TODO: mcp_context should not be a param
-    pub async fn new(model: AppModel, args: Args, mut mcp_context: McpContext) -> Self {
+    pub fn new(model: AppModel, args: Args) -> Self {
         let (update_tx, update_rx) = unbounded_channel();
-        let conversation = Arc::new(Mutex::new(Conversation::default()));
-
-        // register built-in tools
-        let builtins = BuiltinTools::new(conversation.clone());
-        let (server_transport, client_transport) = duplex(64);
-        let server = builtins
-            .clone()
-            .serve(server_transport)
-            .await
-            .expect("builtin server");
-        tokio::spawn(async move {
-            let _ = server.waiting().await;
-        });
-        let client_service = ().serve(client_transport).await.expect("builtin client");
-        mcp_context
-            .tools
-            .insert("get_context_size".into(), client_service.peer().clone());
-        mcp_context.tool_infos.push(ToolInfo {
-            name: "get_context_size".into(),
-            description: "Returns the current context size".into(),
-            parameters: schema_for!(GetContextSizeParams),
-        });
-
-        let mcp_context = Arc::new(mcp_context);
+        let mcp_context = Arc::new(McpContext::default());
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
         let client = llm::client_from(args.provider, args.model.clone(), Some(&args.host)).unwrap();
@@ -164,7 +90,7 @@ impl App {
         spinner.reset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
         let needs_redraw = model.needs_redraw.clone();
         App {
-            conversation,
+            conversation: Conversation::default(),
             prompt: Prompt::new(
                 PromptModel {
                     needs_redraw: model.needs_redraw.clone(),
@@ -198,7 +124,7 @@ impl App {
             session_out_tokens: 0,
             tool_executor,
             mcp_context,
-            chat_history: vec![],
+            chat_history: Arc::new(Mutex::new(vec![])),
             state: ConversationState::Idle,
             spinner: spinner,
             tasks,
@@ -210,26 +136,32 @@ impl App {
         }
     }
 
+    pub async fn init(&mut self, mut mcp_context: McpContext) {
+        setup_builtin_tools(self.chat_history.clone(), &mut mcp_context).await;
+        self.mcp_context = Arc::new(mcp_context);
+        self.tool_executor = Arc::new(McpToolExecutor::new(self.mcp_context.clone()));
+    }
+
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
             ToolEvent::Chunk(chunk) => {
                 if let Some(thinking) = chunk.message.thinking.as_ref() {
                     self.state = ConversationState::Thinking;
                     let _ = self.model.needs_redraw.send(true);
-                    self.conversation.lock().unwrap().append_thinking(thinking);
+                    self.conversation.append_thinking(thinking);
                 }
                 if let Some(content) = chunk.message.content.as_ref() {
                     if !content.is_empty() {
                         self.state = ConversationState::Responding;
                         let _ = self.model.needs_redraw.send(true);
-                        self.conversation.lock().unwrap().append_response(content);
+                        self.conversation.append_response(content);
                     }
                 }
                 if chunk.done {
                     if let Some(usage) = chunk.usage {
                         self.session_in_tokens += usage.input_tokens;
                         self.session_out_tokens += usage.output_tokens;
-                        self.conversation.lock().unwrap().set_usage(usage);
+                        self.conversation.set_usage(usage);
                     }
                 }
             }
@@ -237,8 +169,6 @@ impl App {
                 self.state = ConversationState::CallingTool(name.clone());
                 let _ = self.model.needs_redraw.send(true);
                 self.conversation
-                    .lock()
-                    .unwrap()
                     .add_tool_step(ToolStep::new(
                         name,
                         id,
@@ -252,10 +182,7 @@ impl App {
                     Ok(t) => (t, false),
                     Err(e) => (format!("Tool Failed: {}", e), true),
                 };
-                self.conversation
-                    .lock()
-                    .unwrap()
-                    .update_tool_result(id, text, failed);
+                self.conversation.update_tool_result(id, text, failed);
             }
         }
     }
@@ -263,21 +190,21 @@ impl App {
     fn send_request(&mut self, prompt: String) -> () {
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
-        self.conversation.lock().unwrap().push_user(prompt.clone());
-        self.chat_history.push(ChatMessage::user(prompt));
-        self.conversation.lock().unwrap().push_assistant_block();
+        self.conversation.push_user(prompt.clone());
+        self.conversation.push_assistant_block();
         let tool_infos = self.mcp_context.tool_infos.clone();
         let model_name = { self.client.lock().unwrap().model().to_string() };
-        let request = ChatMessageRequest::new(model_name, self.chat_history.clone())
+        let history = {
+            let mut history = self.chat_history.lock().unwrap();
+            history.push(ChatMessage::user(prompt));
+            history.clone()
+        };
+        let request = ChatMessageRequest::new(model_name, history.clone())
             .tools(tool_infos)
             .think(true);
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
-        let (mut stream, handle) = tool_event_stream(
-            client,
-            request,
-            self.tool_executor.clone(),
-            self.chat_history.clone(),
-        );
+        let (mut stream, handle) =
+            tool_event_stream(client, request, self.tool_executor.clone(), history);
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
@@ -332,7 +259,7 @@ impl Component for App {
                 self.prompt.handle_event(Event::Key(key));
             }
             Event::Mouse(_) => {
-                self.conversation.lock().unwrap().handle_event(event);
+                self.conversation.handle_event(event);
                 // TODO: conversation should do this
                 let _ = self.model.needs_redraw.send(true);
             }
@@ -344,7 +271,7 @@ impl Component for App {
     }
 
     fn update(&mut self) {
-        self.conversation.lock().unwrap().update();
+        self.conversation.update();
         self.prompt.update();
         self.error.update();
 
@@ -364,7 +291,7 @@ impl Component for App {
                 }
                 Ok(Update::History(history)) => {
                     if !self.ignore_responses {
-                        self.chat_history = history;
+                        *self.chat_history.lock().unwrap() = history;
                     }
                     self.state = ConversationState::Idle;
                     let _ = self.model.needs_redraw.send(true);
@@ -395,24 +322,23 @@ impl Component for App {
                 }
                 Ok(Update::Clear) => {
                     self.abort_requests();
-                    self.chat_history.clear();
-                    self.conversation.lock().unwrap().clear();
+                    self.chat_history.lock().unwrap().clear();
+                    self.conversation.clear();
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
                     self.state = ConversationState::Idle;
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
-                    if let Some(text) = {
-                        let mut conv = self.conversation.lock().unwrap();
-                        conv.redo_last()
-                    } {
+                    if let Some(text) = self.conversation.redo_last() {
                         self.abort_requests();
-                        while let Some(msg) = self.chat_history.pop() {
+                        let mut history = self.chat_history.lock().unwrap();
+                        while let Some(msg) = history.pop() {
                             if matches!(msg, ChatMessage::User(_)) {
                                 break;
                             }
                         }
+                        drop(history);
                         self.prompt.set_prompt(text);
                     }
                 }
@@ -438,10 +364,10 @@ impl Component for App {
             )
             .split(area);
 
-        self.conversation.lock().unwrap().render(frame, chunks[0]);
+        self.conversation.render(frame, chunks[0]);
         self.error.render(frame, chunks[1]);
         self.prompt.render(frame, chunks[2]);
-        let ctx_tokens = self.conversation.lock().unwrap().context_tokens();
+        let ctx_tokens = self.conversation.context_tokens();
         let status_right = format!(
             "ctx {}t, Σ {}t=>{}t",
             ctx_tokens, self.session_in_tokens, self.session_out_tokens

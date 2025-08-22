@@ -21,6 +21,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::WatchStream;
 
 mod app;
+mod builtins;
 mod component;
 mod components;
 mod conversation;
@@ -73,10 +74,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             should_quit: should_quit_tx.clone(),
         },
         args,
-        mcp_ctx,
-    )
-    .await;
-    app.init();
+    );
+    app.init(mcp_ctx).await;
+    Component::init(&mut app);
 
     tokio::spawn(event_loop(tx));
     let mut ticker = tokio::time::interval(Duration::from_millis(16));
