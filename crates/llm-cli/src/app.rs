@@ -11,22 +11,19 @@ use crate::{
 };
 use clap::ValueEnum;
 use crossterm::event::Event;
-use futures_signals::signal::{Mutable, SignalExt};
 use llm::{
     ChatMessage, ChatMessageRequest, LlmClient, MessageRole, Provider,
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
-use tokio::{
-    sync::{
-        OnceCell,
-        mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-        oneshot,
-    },
-    task::JoinSet,
+use tokio::sync::{
+    OnceCell,
+    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+    oneshot, watch,
 };
-use tokio_stream::StreamExt;
+use tokio::task::JoinSet;
+use tokio_stream::{StreamExt, wrappers::WatchStream};
 use tui_realm_stdlib::states::SpinnerStates;
 use unicode_width::UnicodeWidthStr;
 
@@ -60,9 +57,9 @@ pub struct App {
 }
 
 pub struct AppModel {
-    pub needs_update: Mutable<bool>,
-    pub needs_redraw: Mutable<bool>,
-    pub should_quit: Mutable<bool>,
+    pub needs_update: watch::Sender<bool>,
+    pub needs_redraw: watch::Sender<bool>,
+    pub should_quit: watch::Sender<bool>,
 }
 
 enum Update {
@@ -96,7 +93,6 @@ impl App {
                 PromptModel {
                     needs_redraw: model.needs_redraw.clone(),
                     needs_update: model.needs_update.clone(),
-                    ..Default::default()
                 },
                 vec![
                     Box::new(ModelCommand {
@@ -143,13 +139,13 @@ impl App {
             ToolEvent::Chunk(chunk) => {
                 if let Some(thinking) = chunk.message.thinking.as_ref() {
                     self.state = ConversationState::Thinking;
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                     self.conversation.append_thinking(thinking);
                 }
                 if let Some(content) = chunk.message.content.as_ref() {
                     if !content.is_empty() {
                         self.state = ConversationState::Responding;
-                        self.model.needs_redraw.set(true);
+                        let _ = self.model.needs_redraw.send(true);
                         self.conversation.append_response(content);
                     }
                 }
@@ -163,7 +159,7 @@ impl App {
             }
             ToolEvent::ToolStarted { id, name, args } => {
                 self.state = ConversationState::CallingTool(name.clone());
-                self.model.needs_redraw.set(true);
+                let _ = self.model.needs_redraw.send(true);
                 self.conversation.add_tool_step(ToolStep::new(
                     name,
                     id,
@@ -184,7 +180,7 @@ impl App {
 
     fn send_request(&mut self, prompt: String) -> () {
         self.state = ConversationState::Thinking;
-        self.model.needs_redraw.set(true);
+        let _ = self.model.needs_redraw.send(true);
         self.conversation.push_user(prompt.clone());
         self.chat_history.push(ChatMessage::user(prompt));
         self.conversation.push_assistant_block();
@@ -207,7 +203,7 @@ impl App {
         self.request_tasks.spawn(async move {
             while let Some(event) = stream.next().await {
                 let _ = update_tx.send(Update::Response(event));
-                needs_update.set(true);
+                let _ = needs_update.send(true);
             }
             match handle.await {
                 Ok(Ok(history)) => {
@@ -220,7 +216,7 @@ impl App {
                     let _ = update_tx.send(Update::Error(err.to_string()));
                 }
             }
-            needs_update.set(true);
+            let _ = needs_update.send(true);
         });
     }
 
@@ -235,17 +231,12 @@ impl Component for App {
     fn init(&mut self) {
         let needs_update = self.model.needs_update.clone();
         let update_tx = self.update_tx.clone();
-        let mut new_prompts = self
-            .prompt
-            .model
-            .submitted_prompt
-            .signal_cloned()
-            .to_stream();
+        let mut new_prompts = WatchStream::new(self.prompt.submitted_prompt_rx());
         self.tasks.spawn(async move {
             loop {
                 if let Some(prompt) = new_prompts.next().await {
                     let _ = update_tx.send(Update::Prompt(prompt));
-                    needs_update.set(true);
+                    let _ = needs_update.send(true);
                 } else {
                     break;
                 }
@@ -261,7 +252,7 @@ impl Component for App {
             Event::Mouse(_) => {
                 self.conversation.handle_event(event);
                 // TODO: conversation should do this
-                self.model.needs_redraw.set(true);
+                let _ = self.model.needs_redraw.send(true);
             }
             Event::Paste(_) => {
                 self.prompt.handle_event(event);
@@ -286,7 +277,7 @@ impl Component for App {
                     if !self.ignore_responses {
                         self.handle_tool_event(event);
                         // TODO: conversation should do this
-                        self.model.needs_redraw.set(true);
+                        let _ = self.model.needs_redraw.send(true);
                     }
                 }
                 Ok(Update::History(history)) => {
@@ -294,12 +285,12 @@ impl Component for App {
                         self.chat_history = history;
                     }
                     self.state = ConversationState::Idle;
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Error(err)) => {
                     self.error.set(err);
                     self.state = ConversationState::Idle;
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::SetModel(model_name)) => {
                     self.abort_requests();
@@ -307,7 +298,7 @@ impl Component for App {
                         let mut client = self.client.lock().unwrap();
                         client.set_model(model_name);
                     }
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::SetProvider(provider, host)) => {
                     self.abort_requests();
@@ -317,7 +308,7 @@ impl Component for App {
                             let mut guard = self.client.lock().unwrap();
                             *guard = new_client;
                         }
-                        self.model.needs_redraw.set(true);
+                        let _ = self.model.needs_redraw.send(true);
                     }
                 }
                 Ok(Update::Clear) => {
@@ -327,7 +318,7 @@ impl Component for App {
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
                     self.state = ConversationState::Idle;
-                    self.model.needs_redraw.set(true);
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
@@ -482,7 +473,7 @@ impl CommandInstance for ModelCommandInstance {
 }
 
 struct ProviderCommand {
-    needs_update: Mutable<bool>,
+    needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
 }
 
@@ -506,7 +497,7 @@ impl Command for ProviderCommand {
 }
 
 struct ProviderCommandInstance {
-    needs_update: Mutable<bool>,
+    needs_update: watch::Sender<bool>,
     tx: UnboundedSender<Update>,
     param: String,
 }
@@ -557,13 +548,13 @@ impl CommandInstance for ProviderCommandInstance {
         let provider = Provider::from_str(prov_str, true)?;
         let host = parts.next().map(|s| s.to_string());
         let _ = self.tx.send(Update::SetProvider(provider, host));
-        self.needs_update.set(true);
+        let _ = self.needs_update.send(true);
         Ok(())
     }
 }
 
 struct QuitCommand {
-    should_quit: Mutable<bool>,
+    should_quit: watch::Sender<bool>,
 }
 
 impl Command for QuitCommand {
@@ -581,7 +572,7 @@ impl Command for QuitCommand {
 }
 
 struct QuitCommandInstance {
-    should_quit: Mutable<bool>,
+    should_quit: watch::Sender<bool>,
 }
 
 impl CommandInstance for QuitCommandInstance {
@@ -592,13 +583,13 @@ impl CommandInstance for QuitCommandInstance {
         }
     }
     fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.should_quit.set(true);
+        let _ = self.should_quit.send(true);
         Ok(())
     }
 }
 
 struct RedoCommand {
-    needs_update: Mutable<bool>,
+    needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
 }
 
@@ -618,7 +609,7 @@ impl Command for RedoCommand {
 }
 
 struct RedoCommandInstance {
-    needs_update: Mutable<bool>,
+    needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
 }
 
@@ -631,13 +622,13 @@ impl CommandInstance for RedoCommandInstance {
     }
     fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
         let _ = self.update_tx.send(Update::Redo);
-        self.needs_update.set(true);
+        let _ = self.needs_update.send(true);
         Ok(())
     }
 }
 
 struct ClearCommand {
-    needs_update: Mutable<bool>,
+    needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
 }
 
@@ -657,7 +648,7 @@ impl Command for ClearCommand {
 }
 
 struct ClearCommandInstance {
-    needs_update: Mutable<bool>,
+    needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
 }
 
@@ -670,7 +661,7 @@ impl CommandInstance for ClearCommandInstance {
     }
     fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
         let _ = self.update_tx.send(Update::Clear);
-        self.needs_update.set(true);
+        let _ = self.needs_update.send(true);
         Ok(())
     }
 }

@@ -12,12 +12,13 @@ use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 
 use clap::Parser;
 use futures::FutureExt;
-use futures_signals::signal::{Mutable, SignalExt};
 use ratatui::Terminal;
 use ratatui::prelude::CrosstermBackend;
 use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::sync::watch;
 use tokio::time::MissedTickBehavior;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::WatchStream;
 
 mod app;
 mod component;
@@ -62,14 +63,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    let needs_redraw = Mutable::new(false);
-    let needs_update = Mutable::new(false);
-    let should_quit = Mutable::new(false);
+    let (needs_redraw_tx, needs_redraw_rx) = watch::channel(false);
+    let (needs_update_tx, needs_update_rx) = watch::channel(false);
+    let (should_quit_tx, should_quit_rx) = watch::channel(false);
     let mut app = App::new(
         AppModel {
-            needs_redraw: needs_redraw.clone(),
-            needs_update: needs_update.clone(),
-            should_quit: should_quit.clone(),
+            needs_redraw: needs_redraw_tx.clone(),
+            needs_update: needs_update_tx.clone(),
+            should_quit: should_quit_tx.clone(),
         },
         args,
         mcp_ctx,
@@ -80,9 +81,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut ticker = tokio::time::interval(Duration::from_millis(16));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-    let mut redraw_stream = needs_redraw.signal().to_stream();
-    let mut update_stream = needs_update.signal().to_stream();
-    let mut quit_stream = should_quit.signal().to_stream();
+    let mut redraw_stream = WatchStream::new(needs_redraw_rx.clone());
+    let mut update_stream = WatchStream::new(needs_update_rx.clone());
+    let mut quit_stream = WatchStream::new(should_quit_rx.clone());
     let mut should_redraw = true;
     let mut should_update = true;
 
@@ -118,15 +119,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
             _ = ticker.tick() => {
                 if should_update {
-                    // TODO: Do we need a loop?
-                    while needs_update.get() {
-                        needs_update.set(false);
+                    while *needs_update_rx.borrow() {
+                        let _ = needs_update_tx.send(false);
                         app.update();
                     }
                     should_update = false;
                 }
                 if should_redraw {
-                    needs_redraw.set(false);
+                    let _ = needs_redraw_tx.send(false);
                     terminal.draw(|frame| {
                         app.render(frame, frame.area());
                     })?;

@@ -1,6 +1,5 @@
 use crate::component::Component;
 use crossterm::event::{Event, MouseButton, MouseEventKind};
-use futures_signals::signal::Mutable;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -8,16 +7,17 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use textwrap::wrap;
+use tokio::sync::watch;
 
 /// Displays an error message in a dismissable box with an `x` button.
 pub struct ErrorPopup {
     message: Option<String>,
     area: Rect,
-    needs_redraw: Mutable<bool>,
+    needs_redraw: watch::Sender<bool>,
 }
 
 impl ErrorPopup {
-    pub fn new(needs_redraw: Mutable<bool>) -> Self {
+    pub fn new(needs_redraw: watch::Sender<bool>) -> Self {
         Self {
             message: None,
             area: Rect::default(),
@@ -27,7 +27,7 @@ impl ErrorPopup {
 
     pub fn set(&mut self, msg: String) {
         self.message = Some(msg);
-        self.needs_redraw.set(true);
+        let _ = self.needs_redraw.send(true);
     }
 
     pub fn height(&self, width: u16) -> u16 {
@@ -51,7 +51,7 @@ impl Component for ErrorPopup {
                 let x_end = self.area.x + self.area.width - 1;
                 if me.column >= x_start && me.column <= x_end && me.row == self.area.y {
                     self.message = None;
-                    self.needs_redraw.set(true);
+                    let _ = self.needs_redraw.send(true);
                 }
             }
         }

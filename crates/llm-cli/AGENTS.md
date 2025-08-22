@@ -6,7 +6,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - terminal UI rendering
 - crossterm
   - terminal events and screen management
-- futures-signals
+- tokio::sync::watch
   - reactive flags for redraw, updates, and quitting
 - textwrap
   - wrap conversation lines
@@ -102,7 +102,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - command and parameter popups are separate components under `src/components` used by the prompt input
     - bespoke component framework
       - `Component` trait defines `init`, `handle_event`, `update`, `render`
-      - `App` orchestrates event handling, updates, and rendering via `futures_signals::Mutable`
+      - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels
   - tool streaming
     - drains remaining events after request completes before clearing state
     - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
