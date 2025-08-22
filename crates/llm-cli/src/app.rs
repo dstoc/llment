@@ -44,7 +44,7 @@ pub struct App {
     mcp_context: Arc<McpContext>,
     session_in_tokens: u32,
     session_out_tokens: u32,
-    chat_history: Vec<ChatMessage>,
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
     state: ConversationState,
     spinner: SpinnerStates,
 
@@ -122,7 +122,7 @@ impl App {
             session_out_tokens: 0,
             tool_executor,
             mcp_context,
-            chat_history: vec![],
+            chat_history: Arc::new(Mutex::new(vec![])),
             state: ConversationState::Idle,
             spinner: spinner,
             tasks,
@@ -182,11 +182,15 @@ impl App {
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
         self.conversation.push_user(prompt.clone());
-        self.chat_history.push(ChatMessage::user(prompt));
+        self.chat_history
+            .lock()
+            .unwrap()
+            .push(ChatMessage::user(prompt));
         self.conversation.push_assistant_block();
         let tool_infos = self.mcp_context.tool_infos.clone();
         let model_name = { self.client.lock().unwrap().model().to_string() };
-        let request = ChatMessageRequest::new(model_name, self.chat_history.clone())
+        let history_snapshot = { self.chat_history.lock().unwrap().clone() };
+        let request = ChatMessageRequest::new(model_name, history_snapshot)
             .tools(tool_infos)
             .think(true);
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
@@ -282,7 +286,7 @@ impl Component for App {
                 }
                 Ok(Update::History(history)) => {
                     if !self.ignore_responses {
-                        self.chat_history = history;
+                        *self.chat_history.lock().unwrap() = history;
                     }
                     self.state = ConversationState::Idle;
                     let _ = self.model.needs_redraw.send(true);
@@ -313,7 +317,7 @@ impl Component for App {
                 }
                 Ok(Update::Clear) => {
                     self.abort_requests();
-                    self.chat_history.clear();
+                    self.chat_history.lock().unwrap().clear();
                     self.conversation.clear();
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
@@ -323,7 +327,8 @@ impl Component for App {
                 Ok(Update::Redo) => {
                     if let Some(text) = self.conversation.redo_last() {
                         self.abort_requests();
-                        while let Some(msg) = self.chat_history.pop() {
+                        let mut history = self.chat_history.lock().unwrap();
+                        while let Some(msg) = history.pop() {
                             if msg.role == MessageRole::User {
                                 break;
                             }

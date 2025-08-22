@@ -106,5 +106,6 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - tool streaming
     - drains remaining events after request completes before clearing state
     - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
+    - chat history stored in an `Arc<Mutex<_>>` and shared with the tool loop
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking

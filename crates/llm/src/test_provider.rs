@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use tokio_stream::iter;
@@ -97,9 +97,10 @@ mod tests {
         }]);
         let exec = Arc::new(DummyExec);
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let history = vec![ChatMessage::user("hi".into())];
-        let request = ChatMessageRequest::new("m".into(), history.clone()).think(true);
-        let updated = run_tool_loop(client.clone(), request, exec, history, tx)
+        let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".into())]));
+        let request =
+            ChatMessageRequest::new("m".into(), history.lock().unwrap().clone()).think(true);
+        let updated = run_tool_loop(client.clone(), request, exec, history.clone(), tx)
             .await
             .unwrap();
         let requests = client.requests.lock().unwrap();

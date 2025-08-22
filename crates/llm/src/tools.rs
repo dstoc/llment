@@ -1,4 +1,7 @@
-use std::{error::Error, sync::Arc};
+use std::{
+    error::Error,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -30,11 +33,17 @@ pub enum ToolEvent {
     },
 }
 
+/// Spawns [`run_tool_loop`] and exposes a stream of tool events.
+///
+/// Chat history is provided via an [`Arc<Mutex<_>>`] so it can be
+/// shared without cloning the full vector for each request. This
+/// approach keeps the API simple compared to an explicit history
+/// callback.
 pub fn tool_event_stream(
     client: Arc<dyn LlmClient>,
     request: ChatMessageRequest,
     tool_executor: Arc<dyn ToolExecutor>,
-    chat_history: Vec<ChatMessage>,
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
 ) -> (
     impl Stream<Item = ToolEvent>,
     JoinHandle<Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>>>,
@@ -44,17 +53,22 @@ pub fn tool_event_stream(
         client,
         request,
         tool_executor,
-        chat_history,
+        chat_history.clone(),
         tx,
     ));
     (UnboundedReceiverStream::new(rx), handle)
 }
 
+/// Executes the chat/tool loop updating shared chat history in place.
+///
+/// History is locked only when cloning for follow-up requests or when
+/// appending new messages, avoiding the need to pass large histories by
+/// value on every call.
 pub async fn run_tool_loop(
     client: Arc<dyn LlmClient>,
     mut request: ChatMessageRequest,
     tool_executor: Arc<dyn ToolExecutor>,
-    mut chat_history: Vec<ChatMessage>,
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
     tx: UnboundedSender<ToolEvent>,
 ) -> Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>> {
     let mut next_id = 0usize;
@@ -88,7 +102,7 @@ pub async fn run_tool_loop(
                 let mut msg = ChatMessage::assistant(String::new());
                 msg.tool_calls = tool_calls.clone();
                 msg.thinking = assistant_thinking;
-                chat_history.push(msg);
+                chat_history.lock().unwrap().push(msg);
                 assistant_thinking = None;
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
@@ -116,7 +130,7 @@ pub async fn run_tool_loop(
         if assistant_content.is_some() || assistant_thinking.is_some() {
             let mut msg = ChatMessage::assistant(assistant_content.unwrap_or_default());
             msg.thinking = assistant_thinking;
-            chat_history.push(msg);
+            chat_history.lock().unwrap().push(msg);
         }
         if handles.is_empty() {
             break;
@@ -124,8 +138,11 @@ pub async fn run_tool_loop(
         while let Some(res) = handles.join_next().await {
             if let Ok((id, name, result)) = res {
                 match &result {
-                    Ok(text) => chat_history.push(ChatMessage::tool(text.clone(), name.clone())),
-                    Err(err) => chat_history.push(ChatMessage::tool(
+                    Ok(text) => chat_history
+                        .lock()
+                        .unwrap()
+                        .push(ChatMessage::tool(text.clone(), name.clone())),
+                    Err(err) => chat_history.lock().unwrap().push(ChatMessage::tool(
                         format!("Tool Failed: {}", err),
                         name.clone(),
                     )),
@@ -133,11 +150,12 @@ pub async fn run_tool_loop(
                 tx.send(ToolEvent::ToolResult { id, name, result }).ok();
             }
         }
-        request = ChatMessageRequest::new(request.model_name.clone(), chat_history.clone())
+        let history_snapshot = { chat_history.lock().unwrap().clone() };
+        request = ChatMessageRequest::new(request.model_name.clone(), history_snapshot)
             .tools(request.tools.clone())
             .think(true);
     }
-    Ok(chat_history)
+    Ok(chat_history.lock().unwrap().clone())
 }
 
 #[cfg(test)]
@@ -145,7 +163,7 @@ mod tests {
     use super::*;
     use crate::MessageRole;
     use serde_json::Value;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use tokio_stream::{self};
 
     struct DummyClient {
@@ -214,9 +232,10 @@ mod tests {
         });
         let exec = Arc::new(DummyExecutor);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let history = vec![ChatMessage::user("hi".to_string())];
-        let request = ChatMessageRequest::new("m".into(), history.clone()).think(true);
-        let updated = run_tool_loop(client, request, exec, history, tx)
+        let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".to_string())]));
+        let request =
+            ChatMessageRequest::new("m".into(), history.lock().unwrap().clone()).think(true);
+        let updated = run_tool_loop(client, request, exec, history.clone(), tx)
             .await
             .unwrap();
         // ensure assistant tool call, tool result, and final assistant response added to history
