@@ -74,7 +74,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
         args,
         mcp_ctx,
-    );
+    )
+    .await;
     app.init();
 
     tokio::spawn(event_loop(tx));

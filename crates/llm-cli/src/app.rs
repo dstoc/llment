@@ -12,20 +12,35 @@ use crate::{
 use clap::ValueEnum;
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, LlmClient, Provider,
+    ChatMessage, ChatMessageRequest, LlmClient, Provider, ToolInfo,
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
-use tokio::sync::{
-    OnceCell,
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-    oneshot, watch,
+use rmcp::{
+    ServerHandler,
+    handler::server::router::tool::ToolRouter,
+    model::{ServerCapabilities, ServerInfo},
+    service::ServiceExt,
+    tool, tool_handler, tool_router,
 };
-use tokio::task::JoinSet;
+use schemars::{JsonSchema, schema_for};
+use serde::{Deserialize, Serialize};
+use tokio::{
+    io::duplex,
+    sync::{
+        OnceCell,
+        mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+        oneshot, watch,
+    },
+    task::JoinSet,
+};
 use tokio_stream::{StreamExt, wrappers::WatchStream};
 use tui_realm_stdlib::states::SpinnerStates;
 use unicode_width::UnicodeWidthStr;
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+struct GetContextSizeParams {}
 
 enum ConversationState {
     Idle,
@@ -36,7 +51,7 @@ enum ConversationState {
 
 pub struct App {
     pub model: AppModel,
-    conversation: Conversation,
+    conversation: Arc<Mutex<Conversation>>,
     prompt: Prompt,
 
     client: Arc<Mutex<llm::Client>>,
@@ -62,6 +77,44 @@ pub struct AppModel {
     pub should_quit: watch::Sender<bool>,
 }
 
+#[derive(Clone)]
+struct BuiltinTools {
+    conversation: Arc<Mutex<Conversation>>,
+    tool_router: ToolRouter<Self>,
+}
+
+#[tool_router]
+impl BuiltinTools {
+    fn new(conversation: Arc<Mutex<Conversation>>) -> Self {
+        Self {
+            conversation,
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    #[tool(
+        name = "get_context_size",
+        description = "Returns the current context size"
+    )]
+    fn get_context_size(&self) -> String {
+        self.conversation
+            .lock()
+            .unwrap()
+            .context_tokens()
+            .to_string()
+    }
+}
+
+#[tool_handler(router = self.tool_router)]
+impl ServerHandler for BuiltinTools {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            ..Default::default()
+        }
+    }
+}
+
 enum Update {
     Prompt(String),
     Response(ToolEvent),
@@ -75,8 +128,31 @@ enum Update {
 
 impl App {
     // TODO: mcp_context should not be a param
-    pub fn new(model: AppModel, args: Args, mcp_context: McpContext) -> Self {
+    pub async fn new(model: AppModel, args: Args, mut mcp_context: McpContext) -> Self {
         let (update_tx, update_rx) = unbounded_channel();
+        let conversation = Arc::new(Mutex::new(Conversation::default()));
+
+        // register built-in tools
+        let builtins = BuiltinTools::new(conversation.clone());
+        let (server_transport, client_transport) = duplex(64);
+        let server = builtins
+            .clone()
+            .serve(server_transport)
+            .await
+            .expect("builtin server");
+        tokio::spawn(async move {
+            let _ = server.waiting().await;
+        });
+        let client_service = ().serve(client_transport).await.expect("builtin client");
+        mcp_context
+            .tools
+            .insert("get_context_size".into(), client_service.peer().clone());
+        mcp_context.tool_infos.push(ToolInfo {
+            name: "get_context_size".into(),
+            description: "Returns the current context size".into(),
+            parameters: schema_for!(GetContextSizeParams),
+        });
+
         let mcp_context = Arc::new(mcp_context);
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
@@ -88,7 +164,7 @@ impl App {
         spinner.reset("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
         let needs_redraw = model.needs_redraw.clone();
         App {
-            conversation: Conversation::default(),
+            conversation,
             prompt: Prompt::new(
                 PromptModel {
                     needs_redraw: model.needs_redraw.clone(),
@@ -140,40 +216,46 @@ impl App {
                 if let Some(thinking) = chunk.message.thinking.as_ref() {
                     self.state = ConversationState::Thinking;
                     let _ = self.model.needs_redraw.send(true);
-                    self.conversation.append_thinking(thinking);
+                    self.conversation.lock().unwrap().append_thinking(thinking);
                 }
                 if let Some(content) = chunk.message.content.as_ref() {
                     if !content.is_empty() {
                         self.state = ConversationState::Responding;
                         let _ = self.model.needs_redraw.send(true);
-                        self.conversation.append_response(content);
+                        self.conversation.lock().unwrap().append_response(content);
                     }
                 }
                 if chunk.done {
                     if let Some(usage) = chunk.usage {
                         self.session_in_tokens += usage.input_tokens;
                         self.session_out_tokens += usage.output_tokens;
-                        self.conversation.set_usage(usage);
+                        self.conversation.lock().unwrap().set_usage(usage);
                     }
                 }
             }
             ToolEvent::ToolStarted { id, name, args } => {
                 self.state = ConversationState::CallingTool(name.clone());
                 let _ = self.model.needs_redraw.send(true);
-                self.conversation.add_tool_step(ToolStep::new(
-                    name,
-                    id,
-                    args.to_string(),
-                    String::new(),
-                    true,
-                ));
+                self.conversation
+                    .lock()
+                    .unwrap()
+                    .add_tool_step(ToolStep::new(
+                        name,
+                        id,
+                        args.to_string(),
+                        String::new(),
+                        true,
+                    ));
             }
             ToolEvent::ToolResult { id, result, .. } => {
                 let (text, failed) = match result {
                     Ok(t) => (t, false),
                     Err(e) => (format!("Tool Failed: {}", e), true),
                 };
-                self.conversation.update_tool_result(id, text, failed);
+                self.conversation
+                    .lock()
+                    .unwrap()
+                    .update_tool_result(id, text, failed);
             }
         }
     }
@@ -181,9 +263,9 @@ impl App {
     fn send_request(&mut self, prompt: String) -> () {
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
-        self.conversation.push_user(prompt.clone());
+        self.conversation.lock().unwrap().push_user(prompt.clone());
         self.chat_history.push(ChatMessage::user(prompt));
-        self.conversation.push_assistant_block();
+        self.conversation.lock().unwrap().push_assistant_block();
         let tool_infos = self.mcp_context.tool_infos.clone();
         let model_name = { self.client.lock().unwrap().model().to_string() };
         let request = ChatMessageRequest::new(model_name, self.chat_history.clone())
@@ -250,7 +332,7 @@ impl Component for App {
                 self.prompt.handle_event(Event::Key(key));
             }
             Event::Mouse(_) => {
-                self.conversation.handle_event(event);
+                self.conversation.lock().unwrap().handle_event(event);
                 // TODO: conversation should do this
                 let _ = self.model.needs_redraw.send(true);
             }
@@ -262,7 +344,7 @@ impl Component for App {
     }
 
     fn update(&mut self) {
-        self.conversation.update();
+        self.conversation.lock().unwrap().update();
         self.prompt.update();
         self.error.update();
 
@@ -314,14 +396,17 @@ impl Component for App {
                 Ok(Update::Clear) => {
                     self.abort_requests();
                     self.chat_history.clear();
-                    self.conversation.clear();
+                    self.conversation.lock().unwrap().clear();
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
                     self.state = ConversationState::Idle;
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
-                    if let Some(text) = self.conversation.redo_last() {
+                    if let Some(text) = {
+                        let mut conv = self.conversation.lock().unwrap();
+                        conv.redo_last()
+                    } {
                         self.abort_requests();
                         while let Some(msg) = self.chat_history.pop() {
                             if matches!(msg, ChatMessage::User(_)) {
@@ -353,10 +438,10 @@ impl Component for App {
             )
             .split(area);
 
-        self.conversation.render(frame, chunks[0]);
+        self.conversation.lock().unwrap().render(frame, chunks[0]);
         self.error.render(frame, chunks[1]);
         self.prompt.render(frame, chunks[2]);
-        let ctx_tokens = self.conversation.context_tokens();
+        let ctx_tokens = self.conversation.lock().unwrap().context_tokens();
         let status_right = format!(
             "ctx {}t, Σ {}t=>{}t",
             ctx_tokens, self.session_in_tokens, self.session_out_tokens
