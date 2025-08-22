@@ -76,6 +76,7 @@ mod tests {
             message: ResponseMessage {
                 content: None,
                 tool_calls: vec![ToolCall {
+                    id: "call-1".into(),
                     name: "test".into(),
                     arguments: Value::Null,
                 }],

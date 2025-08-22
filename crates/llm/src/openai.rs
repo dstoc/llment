@@ -9,9 +9,11 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 #[derive(Default)]
 struct ToolCallBuilder {
+    id: Option<String>,
     name: Option<String>,
     arguments: String,
 }
@@ -80,7 +82,7 @@ impl LlmClient for OpenAiClient {
                             .tool_calls
                             .into_iter()
                             .map(|tc| ChatCompletionMessageToolCall {
-                                id: tc.name.clone(),
+                                id: tc.id,
                                 r#type: ChatCompletionToolType::Function,
                                 function: FunctionCall {
                                     name: tc.name,
@@ -113,13 +115,19 @@ impl LlmClient for OpenAiClient {
                             .unwrap(),
                     ))
                 }
-                ChatMessage::Tool(t) => serde_json::to_value(ChatCompletionRequestMessage::Tool(
-                    ChatCompletionRequestToolMessageArgs::default()
-                        .content(ChatCompletionRequestToolMessageContent::Text(t.content))
-                        .tool_call_id(t.tool_name)
-                        .build()
-                        .unwrap(),
-                )),
+                ChatMessage::Tool(t) => {
+                    let content_str = match &t.content {
+                        Value::String(s) => s.clone(),
+                        v => v.to_string(),
+                    };
+                    serde_json::to_value(ChatCompletionRequestMessage::Tool(
+                        ChatCompletionRequestToolMessageArgs::default()
+                            .content(ChatCompletionRequestToolMessageContent::Text(content_str))
+                            .tool_call_id(t.id)
+                            .build()
+                            .unwrap(),
+                    ))
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -184,6 +192,9 @@ impl LlmClient for OpenAiClient {
                             if pending_tool_calls.len() <= index {
                                 pending_tool_calls.resize_with(index + 1, ToolCallBuilder::default);
                             }
+                            if let Some(id) = &tc.id {
+                                pending_tool_calls[index].id = Some(id.clone());
+                            }
                             if let Some(func) = &tc.function {
                                 if let Some(name) = &func.name {
                                     pending_tool_calls[index].name = Some(name.clone());
@@ -200,6 +211,7 @@ impl LlmClient for OpenAiClient {
                                 let args: Value =
                                     serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
                                 tool_calls.push(ToolCall {
+                                    id: b.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
                                     name: b.name.unwrap_or_default(),
                                     arguments: args,
                                 });
