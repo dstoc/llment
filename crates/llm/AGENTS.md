@@ -35,6 +35,7 @@ Trait-based LLM client implementations for multiple providers.
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
   - tool calls hold name and arguments directly
   - tool info stores name, description, and parameters without wrapper enums
+  - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
 - Responses
   - chunks include optional content, tool calls, optional thinking text, and usage metrics on the final chunk
   - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls

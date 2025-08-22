@@ -12,7 +12,7 @@ use crate::{
 use clap::ValueEnum;
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, LlmClient, MessageRole, Provider,
+    ChatMessage, ChatMessageRequest, LlmClient, Provider,
     mcp::{McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -324,7 +324,7 @@ impl Component for App {
                     if let Some(text) = self.conversation.redo_last() {
                         self.abort_requests();
                         while let Some(msg) = self.chat_history.pop() {
-                            if msg.role == MessageRole::User {
+                            if matches!(msg, ChatMessage::User(_)) {
                                 break;
                             }
                         }

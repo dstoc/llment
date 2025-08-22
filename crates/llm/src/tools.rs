@@ -9,7 +9,7 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk};
+use crate::{AssistantMessage, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk};
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -85,10 +85,11 @@ pub async fn run_tool_loop(
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
-                let mut msg = ChatMessage::assistant(String::new());
-                msg.tool_calls = tool_calls.clone();
-                msg.thinking = assistant_thinking;
-                chat_history.push(msg);
+                chat_history.push(ChatMessage::Assistant(AssistantMessage {
+                    content: String::new(),
+                    tool_calls: tool_calls.clone(),
+                    thinking: assistant_thinking,
+                }));
                 assistant_thinking = None;
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
@@ -114,9 +115,11 @@ pub async fn run_tool_loop(
             }
         }
         if assistant_content.is_some() || assistant_thinking.is_some() {
-            let mut msg = ChatMessage::assistant(assistant_content.unwrap_or_default());
-            msg.thinking = assistant_thinking;
-            chat_history.push(msg);
+            chat_history.push(ChatMessage::Assistant(AssistantMessage {
+                content: assistant_content.unwrap_or_default(),
+                tool_calls: Vec::new(),
+                thinking: assistant_thinking,
+            }));
         }
         if handles.is_empty() {
             break;
@@ -143,7 +146,6 @@ pub async fn run_tool_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MessageRole;
     use serde_json::Value;
     use std::sync::Mutex;
     use tokio_stream::{self};
@@ -220,13 +222,19 @@ mod tests {
         // ensure assistant tool call, tool result, and final assistant response added to history
         assert_eq!(updated.len(), 4);
         let call_msg = &updated[1];
-        assert_eq!(call_msg.role, MessageRole::Assistant);
-        assert_eq!(call_msg.tool_calls.len(), 1);
-        assert_eq!(call_msg.tool_calls[0].name, "test");
-        assert!(call_msg.content.is_empty());
+        if let ChatMessage::Assistant(a) = call_msg {
+            assert_eq!(a.tool_calls.len(), 1);
+            assert_eq!(a.tool_calls[0].name, "test");
+            assert!(a.content.is_empty());
+        } else {
+            panic!("expected assistant message with tool call");
+        }
         let final_msg = updated.last().unwrap();
-        assert_eq!(final_msg.role, MessageRole::Assistant);
-        assert_eq!(final_msg.content, "final");
+        if let ChatMessage::Assistant(a) = final_msg {
+            assert_eq!(a.content, "final");
+        } else {
+            panic!("expected assistant message");
+        }
         // collect events
         let mut saw_final = false;
         let mut saw_tool = false;

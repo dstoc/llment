@@ -9,50 +9,56 @@ use serde_json::{Value, to_value};
 use tokio_stream::Stream;
 
 #[derive(Clone, Debug)]
-pub struct ChatMessage {
-    pub role: MessageRole,
-    pub content: String,
-    pub tool_calls: Vec<ToolCall>,
-    pub thinking: Option<String>,
-    pub tool_name: Option<String>,
+pub enum ChatMessage {
+    User(UserMessage),
+    Assistant(AssistantMessage),
+    System(SystemMessage),
+    Tool(ToolMessage),
 }
 
 impl ChatMessage {
     pub fn user(content: String) -> Self {
-        Self::new(MessageRole::User, content)
+        Self::User(UserMessage { content })
     }
 
     pub fn assistant(content: String) -> Self {
-        Self::new(MessageRole::Assistant, content)
-    }
-
-    pub fn system(content: String) -> Self {
-        Self::new(MessageRole::System, content)
-    }
-
-    pub fn tool(content: String, tool_name: String) -> Self {
-        let mut result = Self::new(MessageRole::Tool, content);
-        result.tool_name = Some(tool_name);
-        result
-    }
-
-    fn new(role: MessageRole, content: String) -> Self {
-        Self {
-            role,
+        Self::Assistant(AssistantMessage {
             content,
             tool_calls: Vec::new(),
             thinking: None,
-            tool_name: None,
-        }
+        })
+    }
+
+    pub fn system(content: String) -> Self {
+        Self::System(SystemMessage { content })
+    }
+
+    pub fn tool(content: String, tool_name: String) -> Self {
+        Self::Tool(ToolMessage { content, tool_name })
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MessageRole {
-    User,
-    Assistant,
-    System,
-    Tool,
+#[derive(Clone, Debug)]
+pub struct UserMessage {
+    pub content: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct AssistantMessage {
+    pub content: String,
+    pub tool_calls: Vec<ToolCall>,
+    pub thinking: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SystemMessage {
+    pub content: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ToolMessage {
+    pub content: String,
+    pub tool_name: String,
 }
 
 #[derive(Clone, Debug)]
