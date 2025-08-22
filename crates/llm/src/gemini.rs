@@ -13,7 +13,7 @@ use tokio_stream::StreamExt;
 
 use super::{
     ChatMessageRequest, ChatStream, LlmClient, MessageRole, ResponseChunk, ResponseMessage,
-    ToolCall, ToolCallFunction, Usage, to_openapi_schema,
+    ToolCall, Usage, to_openapi_schema,
 };
 
 pub struct GeminiClient {
@@ -52,8 +52,8 @@ impl LlmClient for GeminiClient {
                             .map(|tool_call| Part {
                                 function_call: Some(FunctionCall {
                                     id: None,
-                                    name: tool_call.function.name.clone(),
-                                    args: tool_call.function.arguments.clone(),
+                                    name: tool_call.name.clone(),
+                                    args: tool_call.arguments.clone(),
                                 }),
                                 ..Default::default()
                             })
@@ -102,9 +102,9 @@ impl LlmClient for GeminiClient {
                 .tools
                 .iter()
                 .map(|t| FunctionDeclaration {
-                    name: t.function.name.clone(),
-                    description: t.function.description.clone(),
-                    parameters: to_openapi_schema(&t.function.parameters),
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    parameters: to_openapi_schema(&t.parameters),
                 })
                 .collect();
 
@@ -144,10 +144,8 @@ impl LlmClient for GeminiClient {
                         for part in &candidate.content.parts {
                             if let Some(fc) = &part.function_call {
                                 tool_calls.push(ToolCall {
-                                    function: ToolCallFunction {
-                                        name: fc.name.clone(),
-                                        arguments: fc.args.clone(),
-                                    },
+                                    name: fc.name.clone(),
+                                    arguments: fc.args.clone(),
                                 });
                             } else if let Some(text) = &part.text {
                                 if part.thought == Some(true) {

@@ -52,7 +52,7 @@ impl LlmClient for TestProvider {
 mod tests {
     use super::*;
     use crate::tools::{ToolExecutor, run_tool_loop};
-    use crate::{ChatMessage, MessageRole, ResponseMessage, ToolCall, ToolCallFunction};
+    use crate::{ChatMessage, MessageRole, ResponseMessage, ToolCall};
     use serde_json::Value;
     use std::sync::Arc;
 
@@ -76,10 +76,8 @@ mod tests {
             message: ResponseMessage {
                 content: None,
                 tool_calls: vec![ToolCall {
-                    function: ToolCallFunction {
-                        name: "test".into(),
-                        arguments: Value::Null,
-                    },
+                    name: "test".into(),
+                    arguments: Value::Null,
                 }],
                 thinking: None,
             },

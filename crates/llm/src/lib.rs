@@ -4,16 +4,98 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use clap::ValueEnum;
+use schemars::Schema;
 use serde_json::{Value, to_value};
 use tokio_stream::Stream;
 
-pub use ollama_rs::{
-    generation::{
-        chat::{ChatMessage, MessageRole, request::ChatMessageRequest},
-        tools::{ToolCall, ToolCallFunction, ToolFunctionInfo, ToolInfo, ToolType},
-    },
-    re_exports::schemars::Schema,
-};
+#[derive(Clone, Debug)]
+pub struct ChatMessage {
+    pub role: MessageRole,
+    pub content: String,
+    pub tool_calls: Vec<ToolCall>,
+    pub thinking: Option<String>,
+    pub tool_name: Option<String>,
+}
+
+impl ChatMessage {
+    pub fn user(content: String) -> Self {
+        Self::new(MessageRole::User, content)
+    }
+
+    pub fn assistant(content: String) -> Self {
+        Self::new(MessageRole::Assistant, content)
+    }
+
+    pub fn system(content: String) -> Self {
+        Self::new(MessageRole::System, content)
+    }
+
+    pub fn tool(content: String, tool_name: String) -> Self {
+        let mut result = Self::new(MessageRole::Tool, content);
+        result.tool_name = Some(tool_name);
+        result
+    }
+
+    fn new(role: MessageRole, content: String) -> Self {
+        Self {
+            role,
+            content,
+            tool_calls: Vec::new(),
+            thinking: None,
+            tool_name: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MessageRole {
+    User,
+    Assistant,
+    System,
+    Tool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ToolCall {
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Clone, Debug)]
+pub struct ToolInfo {
+    pub name: String,
+    pub description: String,
+    pub parameters: Schema,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChatMessageRequest {
+    pub model_name: String,
+    pub messages: Vec<ChatMessage>,
+    pub tools: Vec<ToolInfo>,
+    pub think: Option<bool>,
+}
+
+impl ChatMessageRequest {
+    pub fn new(model_name: String, messages: Vec<ChatMessage>) -> Self {
+        Self {
+            model_name,
+            messages,
+            tools: Vec::new(),
+            think: None,
+        }
+    }
+
+    pub fn tools(mut self, tools: Vec<ToolInfo>) -> Self {
+        self.tools = tools;
+        self
+    }
+
+    pub fn think(mut self, think: bool) -> Self {
+        self.think = Some(think);
+        self
+    }
+}
 
 pub mod gemini;
 pub mod mcp;
@@ -154,7 +236,7 @@ pub trait LlmClient: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ollama_rs::re_exports::schemars::{self as schemars, JsonSchema};
+    use schemars::{self, JsonSchema};
 
     #[derive(JsonSchema)]
     struct Params {

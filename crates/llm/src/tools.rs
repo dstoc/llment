@@ -97,13 +97,13 @@ pub async fn run_tool_loop(
                 next_id += 1;
                 tx.send(ToolEvent::ToolStarted {
                     id,
-                    name: call.function.name.clone(),
-                    args: call.function.arguments.clone(),
+                    name: call.name.clone(),
+                    args: call.arguments.clone(),
                 })
                 .ok();
                 let executor = tool_executor.clone();
-                let name = call.function.name.clone();
-                let args = call.function.arguments.clone();
+                let name = call.name.clone();
+                let args = call.arguments.clone();
                 handles.spawn(async move {
                     let res = executor.call(&name, args).await;
                     (id, name, res)
@@ -166,10 +166,8 @@ mod tests {
                         content: None,
                         thinking: None,
                         tool_calls: vec![crate::ToolCall {
-                            function: crate::ToolCallFunction {
-                                name: "test".into(),
-                                arguments: Value::Null,
-                            },
+                            name: "test".into(),
+                            arguments: Value::Null,
                         }],
                     },
                     done: true,
@@ -224,7 +222,7 @@ mod tests {
         let call_msg = &updated[1];
         assert_eq!(call_msg.role, MessageRole::Assistant);
         assert_eq!(call_msg.tool_calls.len(), 1);
-        assert_eq!(call_msg.tool_calls[0].function.name, "test");
+        assert_eq!(call_msg.tool_calls[0].name, "test");
         assert!(call_msg.content.is_empty());
         let final_msg = updated.last().unwrap();
         assert_eq!(final_msg.role, MessageRole::Assistant);

@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::process::Command;
 
-use crate::{Schema, ToolFunctionInfo, ToolInfo, ToolType, tools::ToolExecutor};
+use crate::{Schema, ToolInfo, tools::ToolExecutor};
 
 #[derive(Default)]
 pub struct McpContext {
@@ -58,12 +58,9 @@ pub async fn load_mcp_servers(
                 let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
                 let description = tool.description.clone().unwrap_or_default().to_string();
                 ctx.tool_infos.push(ToolInfo {
-                    tool_type: ToolType::Function,
-                    function: ToolFunctionInfo {
-                        name: tool.name.to_string(),
-                        description,
-                        parameters: schema,
-                    },
+                    name: tool.name.to_string(),
+                    description,
+                    parameters: schema,
                 });
             }
         }

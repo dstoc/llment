@@ -18,6 +18,8 @@ Trait-based LLM client implementations for multiple providers.
   - connect to Gemini models
 - rmcp
   - connect to MCP servers
+- schemars
+  - define and manipulate tool schemas
 
 ## Features, Requirements and Constraints
 - LLM clients
@@ -30,6 +32,9 @@ Trait-based LLM client implementations for multiple providers.
     - uses provider-specific default host when none is supplied
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
+- Core message and tool types defined locally instead of re-exporting from `ollama-rs`
+  - tool calls hold name and arguments directly
+  - tool info stores name, description, and parameters without wrapper enums
 - Responses
   - chunks include optional content, tool calls, optional thinking text, and usage metrics on the final chunk
   - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
