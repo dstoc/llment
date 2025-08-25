@@ -2,14 +2,12 @@ use anyhow::{Context, Result, anyhow};
 use bytes::BytesMut;
 use nix::sys::signal::{Signal, kill as send_signal};
 use nix::unistd::Pid;
-use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::time::{Duration, timeout};
-use uuid::Uuid;
 
 // ========================= Backend abstraction ===============================
 
@@ -68,11 +66,10 @@ struct Inner {
     stdin: Mutex<ChildStdin>,
     stdout_task: tokio::task::JoinHandle<()>,
     stderr_task: tokio::task::JoinHandle<()>,
-    queue: Arc<Mutex<VecDeque<RunState>>>,
+    run: Arc<Mutex<Option<RunState>>>,
 }
 
 struct RunState {
-    id: String,
     out_tx: mpsc::Sender<String>,
     err_tx: mpsc::Sender<String>,
     done_tx: oneshot::Sender<Exit>,
@@ -84,7 +81,6 @@ pub struct Exit {
 }
 
 pub struct RunHandle {
-    id: String,
     stdout_rx: mpsc::Receiver<String>,
     stderr_rx: mpsc::Receiver<String>,
     done_rx: oneshot::Receiver<Exit>,
@@ -103,9 +99,6 @@ impl RunHandle {
     }
     pub fn pid(&self) -> i32 {
         self.pid
-    }
-    pub fn id(&self) -> &str {
-        &self.id
     }
     pub fn into_parts(
         self,
@@ -137,14 +130,8 @@ impl RunHandle {
 }
 
 const BEGIN: &str = "\u{001E}__BEGIN__";
-const END: &str = "\u{001E}__END__";
-const NL: &str = "\n";
-fn begin_line(id: &str) -> String {
-    format!("{BEGIN}{id}{NL}")
-}
-fn end_line(id: &str, status: i32) -> String {
-    format!("{END}{id}:{status}{NL}")
-}
+const BEGIN_LINE: &str = "\u{001E}__BEGIN__\n";
+const END_PREFIX: &str = "\u{001E}__END__:";
 
 impl ContainerShell {
     /// Connect using any backend (Podman or Local).
@@ -156,15 +143,15 @@ impl ContainerShell {
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
 
-        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let run = Arc::new(Mutex::new(None));
 
         let stdout_task = tokio::spawn({
-            let queue = queue.clone();
-            async move { scanner_task(stdout, true, pid, &queue).await }
+            let run = run.clone();
+            async move { scanner_task(stdout, true, pid, &run).await }
         });
         let stderr_task = tokio::spawn({
-            let queue = queue.clone();
-            async move { scanner_task(stderr, false, pid, &queue).await }
+            let run = run.clone();
+            async move { scanner_task(stderr, false, pid, &run).await }
         });
 
         Ok(Self {
@@ -173,7 +160,7 @@ impl ContainerShell {
                 stdin: Mutex::new(stdin),
                 stdout_task,
                 stderr_task,
-                queue,
+                run,
             }),
         })
     }
@@ -196,16 +183,15 @@ impl ContainerShell {
         command: impl AsRef<str>,
         stdin_bytes: impl Into<Option<Vec<u8>>>,
     ) -> Result<RunHandle> {
-        let id = Uuid::new_v4().to_string();
-
         let (out_tx, out_rx) = mpsc::channel::<String>(64);
         let (err_tx, err_rx) = mpsc::channel::<String>(64);
         let (done_tx, done_rx) = oneshot::channel::<Exit>();
-
         {
-            let mut q = self.inner.queue.lock().await;
-            q.push_back(RunState {
-                id: id.clone(),
+            let mut slot = self.inner.run.lock().await;
+            if slot.is_some() {
+                return Err(anyhow!("command already running"));
+            }
+            *slot = Some(RunState {
                 out_tx,
                 err_tx,
                 done_tx,
@@ -216,12 +202,12 @@ impl ContainerShell {
 
         // BEGIN
         stdin
-            .write_all(begin_line(&id).as_bytes())
+            .write_all(BEGIN_LINE.as_bytes())
             .await
             .context("send begin")?;
 
         // heredoc for stdin
-        let heredoc = format!("__IN_{}__", &id.replace('-', "_"));
+        let heredoc = "__IN__";
         let run_script = format!(
             "set -o pipefail; {{ {cmd}; }} <<'{tag}'\n",
             cmd = command.as_ref(),
@@ -243,9 +229,8 @@ impl ContainerShell {
 
         // END
         let end = format!(
-            "status=$?; printf '{end}{id}:%s\\n' \"$status\"\n",
-            end = END,
-            id = id
+            "status=$?; printf '{END_PREFIX}%s\\n' \"$status\"\n",
+            END_PREFIX = END_PREFIX,
         );
         stdin.write_all(end.as_bytes()).await.context("send end")?;
 
@@ -257,7 +242,6 @@ impl ContainerShell {
         };
 
         Ok(RunHandle {
-            id,
             stdout_rx: out_rx,
             stderr_rx: err_rx,
             done_rx,
@@ -300,7 +284,7 @@ async fn scanner_task(
     mut reader: impl AsyncReadExt + Unpin,
     is_stdout: bool,
     _pid: i32,
-    queue: &Arc<Mutex<VecDeque<RunState>>>,
+    run: &Arc<Mutex<Option<RunState>>>,
 ) {
     let mut buf = [0u8; 8192];
     let mut acc = BytesMut::new();
@@ -309,8 +293,7 @@ async fn scanner_task(
     loop {
         match reader.read(&mut buf).await {
             Ok(0) => {
-                let mut q = queue.lock().await;
-                while let Some(run) = q.pop_front() {
+                if let Some(run) = run.lock().await.take() {
                     let _ = run.done_tx.send(Exit { code: 255 });
                 }
                 break;
@@ -321,32 +304,22 @@ async fn scanner_task(
                     let line = acc.split_to(pos + 1).freeze();
                     // Try ascii-first for sentinel matching; if not utf8, deliver raw.
                     if let Ok(s) = std::str::from_utf8(&line) {
-                        if let Some(rest) = s.strip_prefix(BEGIN) {
-                            let _id = rest.trim_end_matches('\n'); // sanity only
+                        if s.starts_with(BEGIN) {
                             continue;
                         }
-                        if let Some(rest) = s.strip_prefix(END) {
-                            if let Some((id, status_s)) =
-                                rest.trim_end_matches('\n').split_once(':')
-                            {
-                                let status = status_s.parse::<i32>().unwrap_or(255);
-                                let mut q = queue.lock().await;
-                                if let Some(front) = q.front() {
-                                    if front.id == id {
-                                        let run = q.pop_front().unwrap();
-                                        let _ = run.done_tx.send(Exit { code: status });
-                                    } else if let Some(idx) = q.iter().position(|r| r.id == id) {
-                                        let run = q.remove(idx).unwrap();
-                                        let _ = run.done_tx.send(Exit { code: status });
-                                    }
-                                }
-                                drop(q);
-                                continue;
+                        if let Some(status_s) = s.strip_prefix(END_PREFIX) {
+                            let status = status_s
+                                .trim_end_matches('\n')
+                                .parse::<i32>()
+                                .unwrap_or(255);
+                            if let Some(run) = run.lock().await.take() {
+                                let _ = run.done_tx.send(Exit { code: status });
                             }
+                            continue;
                         }
                     }
                     // normal payload
-                    deliver(queue, is_stdout, &mut utf, &line).await;
+                    deliver(run, is_stdout, &mut utf, &line).await;
                 }
             }
             Err(_) => break,
@@ -355,12 +328,13 @@ async fn scanner_task(
 }
 
 async fn deliver(
-    queue: &Arc<Mutex<VecDeque<RunState>>>,
+    run: &Arc<Mutex<Option<RunState>>>,
     is_stdout: bool,
     utf: &mut Utf8Accumulator,
     bytes: &[u8],
 ) {
-    if let Some(run) = queue.lock().await.front() {
+    let guard = run.lock().await;
+    if let Some(run) = guard.as_ref() {
         let tx = if is_stdout { &run.out_tx } else { &run.err_tx };
         for chunk in utf.push(bytes) {
             let _ = tx.send(chunk).await;

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,7 +26,7 @@ const TIME_LIMIT: Duration = Duration::from_secs(10);
 pub struct ShellServer {
     tool_router: ToolRouter<Self>,
     shell: Arc<ContainerShell>,
-    runs: Arc<Mutex<HashMap<String, CommandState>>>,
+    run: Arc<Mutex<Option<CommandState>>>,
 }
 
 struct CommandState {
@@ -81,20 +80,16 @@ pub struct RunParams {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct WaitParams {
-    /// Identifier returned from `run`
-    id: String,
+    // no parameters
 }
 
 #[derive(Deserialize, JsonSchema)]
 pub struct TerminateParams {
-    /// Identifier returned from `run`
-    id: String,
+    // no parameters
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct WaitResult {
-    /// Identifier for the running command
-    id: String,
     /// Newly collected stdout since the last poll
     stdout: String,
     /// Newly collected stderr since the last poll
@@ -117,7 +112,7 @@ impl ShellServer {
         Ok(Self {
             tool_router: Self::tool_router(),
             shell: Arc::new(shell),
-            runs: Arc::new(Mutex::new(HashMap::new())),
+            run: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -127,7 +122,7 @@ impl ShellServer {
         Ok(Self {
             tool_router: Self::tool_router(),
             shell: Arc::new(shell),
-            runs: Arc::new(Mutex::new(HashMap::new())),
+            run: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -137,12 +132,18 @@ impl ShellServer {
         Parameters(params): Parameters<RunParams>,
     ) -> Result<CallToolResult, McpError> {
         let RunParams { command, stdin } = params;
+        let mut run_slot = self.run.lock().await;
+        if run_slot.is_some() {
+            return Err(McpError::invalid_params(
+                "command already running".to_string(),
+                None,
+            ));
+        }
         let handle = self
             .shell
             .run(command, stdin.map(|s| s.into_bytes()))
             .await
             .map_err(|e| McpError::internal_error(format!("spawn failed: {e}"), None))?;
-        let id = handle.id().to_string();
         let mut state = CommandState::new(handle);
         let timed_out = collect_output(&mut state).await;
         let stdout = state.stdout.clone();
@@ -151,9 +152,9 @@ impl ShellServer {
         let truncated = state.truncated;
         let additional = state.additional_output;
         state.additional_output = false;
-        self.runs.lock().await.insert(id.clone(), state);
+        *run_slot = Some(state);
+        drop(run_slot);
         let result = WaitResult {
-            id,
             stdout,
             stderr,
             exit_code,
@@ -169,13 +170,12 @@ impl ShellServer {
     #[tool(description = "Wait for a running command for up to 10s")]
     pub async fn wait(
         &self,
-        Parameters(params): Parameters<WaitParams>,
+        Parameters(_params): Parameters<WaitParams>,
     ) -> Result<CallToolResult, McpError> {
-        let id = params.id;
-        let mut runs = self.runs.lock().await;
-        let state = runs
-            .get_mut(&id)
-            .ok_or_else(|| McpError::invalid_params("unknown id".to_string(), None))?;
+        let mut run_slot = self.run.lock().await;
+        let state = run_slot
+            .as_mut()
+            .ok_or_else(|| McpError::invalid_params("no running command".to_string(), None))?;
         let timed_out = collect_output(state).await;
         let stdout = state.stdout[state.stdout_pos..].to_string();
         let stderr = state.stderr[state.stderr_pos..].to_string();
@@ -187,11 +187,10 @@ impl ShellServer {
         state.additional_output = false;
         let finished = state.stdout_closed && state.stderr_closed && exit_code.is_some();
         if finished {
-            runs.remove(&id);
+            *run_slot = None;
         }
-        drop(runs);
+        drop(run_slot);
         let result = WaitResult {
-            id,
             stdout,
             stderr,
             exit_code,
@@ -207,16 +206,15 @@ impl ShellServer {
     #[tool(description = "Terminate a running command")]
     pub async fn terminate(
         &self,
-        Parameters(params): Parameters<TerminateParams>,
+        Parameters(_params): Parameters<TerminateParams>,
     ) -> Result<CallToolResult, McpError> {
-        let id = params.id;
-        let mut runs = self.runs.lock().await;
-        let state = runs
-            .remove(&id)
-            .ok_or_else(|| McpError::invalid_params("unknown id".to_string(), None))?;
+        let mut run_slot = self.run.lock().await;
+        let state = run_slot
+            .take()
+            .ok_or_else(|| McpError::invalid_params("no running command".to_string(), None))?;
         kill(Pid::from_raw(state.pid), Signal::SIGTERM)
             .map_err(|e| McpError::internal_error(format!("terminate failed: {e}"), None))?;
-        let result = serde_json::json!({ "id": id });
+        let result = serde_json::json!({});
         Ok(CallToolResult::success(vec![Content::text(
             result.to_string(),
         )]))
