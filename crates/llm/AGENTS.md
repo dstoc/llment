@@ -53,6 +53,7 @@ Trait-based LLM client implementations for multiple providers.
     - `McpContext` stores MCP tool mappings and metadata
       - tool call chunks insert assistant messages immediately before execution
       - accumulated streamed content is appended as an assistant message after the stream completes
+      - contexts can be merged to combine tools and metadata
 - Test utilities
   - `TestProvider` implements `LlmClient`
     - captures `ChatMessageRequest`s for assertions

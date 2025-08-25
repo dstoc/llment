@@ -17,6 +17,14 @@ pub struct McpContext {
     pub tool_infos: Vec<ToolInfo>,
 }
 
+impl McpContext {
+    /// Merge another context into this one, extending tool mappings and metadata.
+    pub fn merge(&mut self, other: McpContext) {
+        self.tools.extend(other.tools);
+        self.tool_infos.extend(other.tool_infos);
+    }
+}
+
 #[derive(Deserialize)]
 struct McpConfig {
     #[serde(rename = "mcpServers")]

@@ -108,4 +108,5 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
-  - built-in `get_message_count` tool returns the number of chat messages
+  - built-in tools registered in a separate context returned by `setup_builtin_tools`
+    - `get_message_count` returns the number of chat messages
