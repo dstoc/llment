@@ -12,9 +12,12 @@ MCP server exposing shell command execution.
   - define tool parameters and results
 - anyhow
   - error handling
+- tracing, tracing-subscriber
+  - structured logging
 
 ## Features, Requirements and Constraints
 - connects to bash locally or in a Podman container
+  - container name may be passed as the first CLI argument; defaults to local bash
 - tools
   - `run`
     - executes a command with optional stdin
