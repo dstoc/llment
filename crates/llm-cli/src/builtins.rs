@@ -5,7 +5,7 @@ use rmcp::{
     ServerHandler,
     handler::server::router::tool::ToolRouter,
     model::{ServerCapabilities, ServerInfo},
-    service::ServiceExt,
+    service::{RoleClient, RunningService, ServiceExt},
     tool, tool_handler, tool_router,
 };
 use schemars::{JsonSchema, schema_for};
@@ -49,7 +49,9 @@ impl ServerHandler for BuiltinTools {
     }
 }
 
-pub async fn setup_builtin_tools(chat_history: Arc<Mutex<Vec<ChatMessage>>>) -> McpContext {
+pub async fn setup_builtin_tools(
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
+) -> (McpContext, RunningService<RoleClient, ()>) {
     let builtins = BuiltinTools::new(chat_history);
     let (server_transport, client_transport) = duplex(64);
     let (server_res, client_res) = tokio::join!(
@@ -70,5 +72,5 @@ pub async fn setup_builtin_tools(chat_history: Arc<Mutex<Vec<ChatMessage>>>) -> 
         description: "Returns the number of chat messages".into(),
         parameters: schema_for!(GetMessageCountParams),
     });
-    mcp_context
+    (mcp_context, client_service)
 }

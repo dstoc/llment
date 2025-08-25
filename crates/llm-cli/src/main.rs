@@ -48,7 +48,7 @@ pub struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let (mcp_ctx, _services) = if let Some(path) = &args.mcp {
+    let (mcp_ctx, services) = if let Some(path) = &args.mcp {
         load_mcp_servers(path).await.expect("mcp")
     } else {
         (McpContext::default(), Vec::new())
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
         args,
     );
-    app.init(mcp_ctx).await;
+    app.init(mcp_ctx, services).await;
     Component::init(&mut app);
 
     tokio::spawn(event_loop(tx));
