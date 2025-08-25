@@ -49,10 +49,7 @@ impl ServerHandler for BuiltinTools {
     }
 }
 
-pub async fn setup_builtin_tools(
-    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
-    mcp_context: &mut McpContext,
-) {
+pub async fn setup_builtin_tools(chat_history: Arc<Mutex<Vec<ChatMessage>>>) -> McpContext {
     let builtins = BuiltinTools::new(chat_history);
     let (server_transport, client_transport) = duplex(64);
     let server = builtins
@@ -64,6 +61,7 @@ pub async fn setup_builtin_tools(
         let _ = server.waiting().await;
     });
     let client_service = ().serve(client_transport).await.expect("builtin client");
+    let mut mcp_context = McpContext::default();
     mcp_context
         .tools
         .insert("get_message_count".into(), client_service.peer().clone());
@@ -72,4 +70,5 @@ pub async fn setup_builtin_tools(
         description: "Returns the number of chat messages".into(),
         parameters: schema_for!(GetMessageCountParams),
     });
+    mcp_context
 }

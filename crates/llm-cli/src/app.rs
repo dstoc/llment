@@ -137,7 +137,8 @@ impl App {
     }
 
     pub async fn init(&mut self, mut mcp_context: McpContext) {
-        setup_builtin_tools(self.chat_history.clone(), &mut mcp_context).await;
+        let builtin_ctx = setup_builtin_tools(self.chat_history.clone()).await;
+        mcp_context.merge(builtin_ctx);
         self.mcp_context = Arc::new(mcp_context);
         self.tool_executor = Arc::new(McpToolExecutor::new(self.mcp_context.clone()));
     }
@@ -168,14 +169,13 @@ impl App {
             ToolEvent::ToolStarted { id, name, args } => {
                 self.state = ConversationState::CallingTool(name.clone());
                 let _ = self.model.needs_redraw.send(true);
-                self.conversation
-                    .add_tool_step(ToolStep::new(
-                        name,
-                        id,
-                        args.to_string(),
-                        String::new(),
-                        true,
-                    ));
+                self.conversation.add_tool_step(ToolStep::new(
+                    name,
+                    id,
+                    args.to_string(),
+                    String::new(),
+                    true,
+                ));
             }
             ToolEvent::ToolResult { id, result, .. } => {
                 let (text, failed) = match result {
