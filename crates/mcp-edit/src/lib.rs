@@ -595,6 +595,12 @@ impl FsServer {
     ) -> Result<CallToolResult, McpError> {
         let WriteFileParams { file_path, content } = params;
         let canonical_path = self.resolve_for_write(&file_path)?;
+        if canonical_path.exists() {
+            return Err(McpError::invalid_params(
+                format!("file {} already exists", self.display_path(&canonical_path)),
+                None,
+            ));
+        }
         if let Some(parent) = canonical_path.parent() {
             fs::create_dir_all(parent).map_err(|e| {
                 McpError::internal_error(format!("failed to create parent dirs: {e}"), None)
@@ -928,6 +934,24 @@ mod tests {
             .unwrap();
         let content = fs::read_to_string(file_path).unwrap();
         assert_eq!(content, "hello");
+    }
+
+    #[tokio::test]
+    async fn write_file_errors_if_exists() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("new.txt");
+        fs::write(&file_path, "hi").unwrap();
+        let server = FsServer::new(dir.path());
+        let err = server
+            .write_file(Parameters(WriteFileParams {
+                file_path: file_path.to_string_lossy().to_string(),
+                content: "bye".into(),
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.message.contains("/home/user/workspace/new.txt"));
+        let content = fs::read_to_string(file_path).unwrap();
+        assert_eq!(content, "hi");
     }
 
     #[tokio::test]
