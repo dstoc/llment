@@ -26,4 +26,4 @@ MCP server exposing shell command execution.
     - reports if extra output was produced after the limit
   - `terminate`
     - sends SIGTERM to the running command
-- commands are identified by UUIDs
+- only one command may run at a time
