@@ -1530,7 +1530,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "llm-cli"
+name = "llment"
 version = "0.1.0"
 dependencies = [
  "clap",

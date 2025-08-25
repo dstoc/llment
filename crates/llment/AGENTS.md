@@ -1,4 +1,4 @@
-# llm-cli
+# llment
 Basic terminal chat interface scaffold using a bespoke component framework built on ratatui and crossterm.
 
 ## Dependencies
