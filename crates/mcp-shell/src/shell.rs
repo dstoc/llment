@@ -1,15 +1,14 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use bytes::BytesMut;
-use futures::{Stream, StreamExt};
-use nix::sys::signal::{kill as send_signal, Signal};
+use nix::sys::signal::{Signal, kill as send_signal};
 use nix::unistd::Pid;
 use std::collections::VecDeque;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio::time::{timeout, Duration};
+use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::time::{Duration, timeout};
 use uuid::Uuid;
 
 // ========================= Backend abstraction ===============================
@@ -69,7 +68,7 @@ struct Inner {
     stdin: Mutex<ChildStdin>,
     stdout_task: tokio::task::JoinHandle<()>,
     stderr_task: tokio::task::JoinHandle<()>,
-    queue: Mutex<VecDeque<RunState>>,
+    queue: Arc<Mutex<VecDeque<RunState>>>,
 }
 
 struct RunState {
@@ -93,11 +92,11 @@ pub struct RunHandle {
 }
 
 impl RunHandle {
-    pub fn stdout(&mut self) -> impl Stream<Item = String> + '_ {
-        tokio_stream::wrappers::ReceiverStream::new(&mut self.stdout_rx)
+    pub async fn recv_stdout(&mut self) -> Option<String> {
+        self.stdout_rx.recv().await
     }
-    pub fn stderr(&mut self) -> impl Stream<Item = String> + '_ {
-        tokio_stream::wrappers::ReceiverStream::new(&mut self.stderr_rx)
+    pub async fn recv_stderr(&mut self) -> Option<String> {
+        self.stderr_rx.recv().await
     }
     pub async fn wait(self) -> Result<Exit> {
         self.done_rx.await.map_err(|_| anyhow!("run canceled"))
@@ -107,6 +106,16 @@ impl RunHandle {
     }
     pub fn id(&self) -> &str {
         &self.id
+    }
+    pub fn into_parts(
+        self,
+    ) -> (
+        mpsc::Receiver<String>,
+        mpsc::Receiver<String>,
+        oneshot::Receiver<Exit>,
+        i32,
+    ) {
+        (self.stdout_rx, self.stderr_rx, self.done_rx, self.pid)
     }
     pub fn interrupt(&self) -> Result<()> {
         send_signal(Pid::from_raw(self.pid), Signal::SIGINT)?;
@@ -119,6 +128,10 @@ impl RunHandle {
     pub fn kill(&self) -> Result<()> {
         send_signal(Pid::from_raw(self.pid), Signal::SIGKILL)?;
         Ok(())
+    }
+    /// Try to get the exit status without waiting.
+    pub fn try_wait(&mut self) -> Option<Exit> {
+        self.done_rx.try_recv().ok()
     }
     pub fn cancel(self) {}
 }
@@ -143,7 +156,7 @@ impl ContainerShell {
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
         let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
 
-        let queue = Mutex::new(VecDeque::new());
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
 
         let stdout_task = tokio::spawn({
             let queue = queue.clone();
@@ -223,10 +236,17 @@ impl ContainerShell {
             stdin.write_all(&bytes).await.context("send stdin")?;
         }
         let close = format!("{tag}\n", tag = heredoc);
-        stdin.write_all(close.as_bytes()).await.context("close heredoc")?;
+        stdin
+            .write_all(close.as_bytes())
+            .await
+            .context("close heredoc")?;
 
         // END
-        let end = format!("status=$?; printf '{end}{id}:%s\\n' \"$status\"\n", end = END, id = id);
+        let end = format!(
+            "status=$?; printf '{end}{id}:%s\\n' \"$status\"\n",
+            end = END,
+            id = id
+        );
         stdin.write_all(end.as_bytes()).await.context("send end")?;
 
         stdin.flush().await.ok();
@@ -280,7 +300,7 @@ async fn scanner_task(
     mut reader: impl AsyncReadExt + Unpin,
     is_stdout: bool,
     _pid: i32,
-    queue: &Mutex<VecDeque<RunState>>,
+    queue: &Arc<Mutex<VecDeque<RunState>>>,
 ) {
     let mut buf = [0u8; 8192];
     let mut acc = BytesMut::new();
@@ -306,7 +326,8 @@ async fn scanner_task(
                             continue;
                         }
                         if let Some(rest) = s.strip_prefix(END) {
-                            if let Some((id, status_s)) = rest.trim_end_matches('\n').split_once(':')
+                            if let Some((id, status_s)) =
+                                rest.trim_end_matches('\n').split_once(':')
                             {
                                 let status = status_s.parse::<i32>().unwrap_or(255);
                                 let mut q = queue.lock().await;
@@ -314,9 +335,7 @@ async fn scanner_task(
                                     if front.id == id {
                                         let run = q.pop_front().unwrap();
                                         let _ = run.done_tx.send(Exit { code: status });
-                                    } else if let Some(idx) =
-                                        q.iter().position(|r| r.id == id)
-                                    {
+                                    } else if let Some(idx) = q.iter().position(|r| r.id == id) {
                                         let run = q.remove(idx).unwrap();
                                         let _ = run.done_tx.send(Exit { code: status });
                                     }
@@ -336,7 +355,7 @@ async fn scanner_task(
 }
 
 async fn deliver(
-    queue: &Mutex<VecDeque<RunState>>,
+    queue: &Arc<Mutex<VecDeque<RunState>>>,
     is_stdout: bool,
     utf: &mut Utf8Accumulator,
     bytes: &[u8],
@@ -355,7 +374,9 @@ struct Utf8Accumulator {
 }
 impl Utf8Accumulator {
     fn new() -> Self {
-        Self { carry: Vec::with_capacity(4) }
+        Self {
+            carry: Vec::with_capacity(4),
+        }
     }
     fn push(&mut self, data: &[u8]) -> Vec<String> {
         let mut out = Vec::new();
@@ -398,7 +419,6 @@ impl Utf8Accumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::StreamExt;
 
     #[tokio::test]
     async fn local_bash_echo_and_status() -> Result<()> {
@@ -407,8 +427,7 @@ mod tests {
         // stdout only
         let mut h = shell.run("echo hello", None).await?;
         let mut out = String::new();
-        let mut s = h.stdout();
-        while let Some(chunk) = s.next().await {
+        while let Some(chunk) = h.recv_stdout().await {
             out.push_str(&chunk);
         }
         let exit = h.wait().await?;
@@ -422,12 +441,9 @@ mod tests {
     async fn local_bash_stderr_and_nonzero() -> Result<()> {
         let shell = ContainerShell::connect_local().await?;
         // send to stderr and exit 7
-        let mut h = shell
-            .run("bash -c 'echo oops 1>&2; exit 7'", None)
-            .await?;
+        let mut h = shell.run("bash -c 'echo oops 1>&2; exit 7'", None).await?;
         let mut err = String::new();
-        let mut es = h.stderr();
-        while let Some(chunk) = es.next().await {
+        while let Some(chunk) = h.recv_stderr().await {
             err.push_str(&chunk);
         }
         let exit = h.wait().await?;
@@ -442,8 +458,7 @@ mod tests {
         let payload = b"hello-from-stdin\n".to_vec();
         let mut h = shell.run("cat", payload).await?;
         let mut out = String::new();
-        let mut s = h.stdout();
-        while let Some(chunk) = s.next().await {
+        while let Some(chunk) = h.recv_stdout().await {
             out.push_str(&chunk);
         }
         let exit = h.wait().await?;
