@@ -30,3 +30,4 @@ MCP server exposing shell command execution.
   - `terminate`
     - sends SIGTERM to the running command
 - only one command may run at a time
+- tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)

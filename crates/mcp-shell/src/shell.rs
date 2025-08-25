@@ -130,7 +130,7 @@ impl RunHandle {
 }
 
 const BEGIN: &str = "\u{001E}__BEGIN__";
-const BEGIN_LINE: &str = "\u{001E}__BEGIN__\n";
+const BEGIN_PRINT: &[u8] = b"printf '%b\\n' '\\036__BEGIN__'\n";
 const END_PREFIX: &str = "\u{001E}__END__:";
 
 impl ContainerShell {
@@ -201,10 +201,7 @@ impl ContainerShell {
         let mut stdin = self.inner.stdin.lock().await;
 
         // BEGIN
-        stdin
-            .write_all(BEGIN_LINE.as_bytes())
-            .await
-            .context("send begin")?;
+        stdin.write_all(BEGIN_PRINT).await.context("send begin")?;
 
         // heredoc for stdin
         let heredoc = "__IN__";
