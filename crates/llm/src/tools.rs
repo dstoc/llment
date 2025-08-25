@@ -1,4 +1,7 @@
-use std::{error::Error, sync::Arc};
+use std::{
+    error::Error,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -34,10 +37,10 @@ pub fn tool_event_stream(
     client: Arc<dyn LlmClient>,
     request: ChatMessageRequest,
     tool_executor: Arc<dyn ToolExecutor>,
-    chat_history: Vec<ChatMessage>,
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
 ) -> (
     impl Stream<Item = ToolEvent>,
-    JoinHandle<Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>>>,
+    JoinHandle<Result<(), Box<dyn Error + Send + Sync>>>,
 ) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let handle = tokio::spawn(run_tool_loop(
@@ -54,9 +57,9 @@ pub async fn run_tool_loop(
     client: Arc<dyn LlmClient>,
     mut request: ChatMessageRequest,
     tool_executor: Arc<dyn ToolExecutor>,
-    mut chat_history: Vec<ChatMessage>,
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
     tx: UnboundedSender<ToolEvent>,
-) -> Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut next_id = 0usize;
     loop {
         let mut stream = client.send_chat_messages_stream(request.clone()).await?;
@@ -89,11 +92,14 @@ pub async fn run_tool_loop(
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
-                chat_history.push(ChatMessage::Assistant(AssistantMessage {
-                    content: String::new(),
-                    tool_calls: tool_calls.clone(),
-                    thinking: assistant_thinking,
-                }));
+                chat_history
+                    .lock()
+                    .unwrap()
+                    .push(ChatMessage::Assistant(AssistantMessage {
+                        content: String::new(),
+                        tool_calls: tool_calls.clone(),
+                        thinking: assistant_thinking,
+                    }));
                 assistant_thinking = None;
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
@@ -120,11 +126,14 @@ pub async fn run_tool_loop(
             }
         }
         if assistant_content.is_some() || assistant_thinking.is_some() {
-            chat_history.push(ChatMessage::Assistant(AssistantMessage {
-                content: assistant_content.unwrap_or_default(),
-                tool_calls: Vec::new(),
-                thinking: assistant_thinking,
-            }));
+            chat_history
+                .lock()
+                .unwrap()
+                .push(ChatMessage::Assistant(AssistantMessage {
+                    content: assistant_content.unwrap_or_default(),
+                    tool_calls: Vec::new(),
+                    thinking: assistant_thinking,
+                }));
         }
         if handles.is_empty() {
             break;
@@ -135,13 +144,13 @@ pub async fn run_tool_loop(
                     Ok(text) => {
                         let content = serde_json::from_str::<Value>(&text)
                             .unwrap_or_else(|_| Value::String(text.clone()));
-                        chat_history.push(ChatMessage::tool(
+                        chat_history.lock().unwrap().push(ChatMessage::tool(
                             call_id.clone(),
                             content,
                             name.clone(),
                         ));
                     }
-                    Err(err) => chat_history.push(ChatMessage::tool(
+                    Err(err) => chat_history.lock().unwrap().push(ChatMessage::tool(
                         call_id.clone(),
                         Value::String(format!("Tool Failed: {}", err)),
                         name.clone(),
@@ -155,18 +164,19 @@ pub async fn run_tool_loop(
                 .ok();
             }
         }
-        request = ChatMessageRequest::new(request.model_name.clone(), chat_history.clone())
+        let history_clone = { chat_history.lock().unwrap().clone() };
+        request = ChatMessageRequest::new(request.model_name.clone(), history_clone)
             .tools(request.tools.clone())
             .think(true);
     }
-    Ok(chat_history)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use tokio_stream::{self};
 
     struct DummyClient {
@@ -234,11 +244,13 @@ mod tests {
         });
         let exec = Arc::new(DummyExecutor);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let history = vec![ChatMessage::user("hi".to_string())];
-        let request = ChatMessageRequest::new("m".into(), history.clone()).think(true);
-        let updated = run_tool_loop(client, request, exec, history, tx)
+        let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".to_string())]));
+        let request_history = { history.lock().unwrap().clone() };
+        let request = ChatMessageRequest::new("m".into(), request_history).think(true);
+        run_tool_loop(client, request, exec, history.clone(), tx)
             .await
             .unwrap();
+        let updated = history.lock().unwrap().clone();
         // ensure assistant tool call, tool result, and final assistant response added to history
         assert_eq!(updated.len(), 4);
         let call_msg = &updated[1];

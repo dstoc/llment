@@ -54,7 +54,7 @@ mod tests {
     use crate::tools::{ToolExecutor, run_tool_loop};
     use crate::{ChatMessage, ResponseMessage, ToolCall};
     use serde_json::Value;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     struct DummyExec;
 
@@ -96,15 +96,17 @@ mod tests {
         }]);
         let exec = Arc::new(DummyExec);
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let history = vec![ChatMessage::user("hi".into())];
-        let request = ChatMessageRequest::new("m".into(), history.clone()).think(true);
-        let updated = run_tool_loop(client.clone(), request, exec, history, tx)
+        let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".into())]));
+        let request_history = { history.lock().unwrap().clone() };
+        let request = ChatMessageRequest::new("m".into(), request_history).think(true);
+        run_tool_loop(client.clone(), request, exec, history.clone(), tx)
             .await
             .unwrap();
         let requests = client.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].messages.len(), 1);
         assert_eq!(requests[1].messages.len(), 3);
+        let updated = history.lock().unwrap().clone();
         let final_msg = updated.last().unwrap();
         if let ChatMessage::Assistant(a) = final_msg {
             assert_eq!(a.content, "final");
