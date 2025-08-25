@@ -46,7 +46,8 @@ Trait-based LLM client implementations for multiple providers.
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
-  - `tool_event_stream` spawns the loop and yields `ToolEvent`s with a join handle for updated history
+  - `tool_event_stream` spawns the loop and yields `ToolEvent`s
+    - join handle resolves on completion with history updated in place
   - `mcp` module
     - `load_mcp_servers` starts configured MCP servers and collects tool schemas
     - `McpToolExecutor` implements `ToolExecutor` for MCP calls

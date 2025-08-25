@@ -203,17 +203,18 @@ impl App {
         self.conversation.push_assistant_block();
         let tool_infos = self.mcp_context.tool_infos.clone();
         let model_name = { self.client.lock().unwrap().model().to_string() };
-        let history = {
+        {
             let mut history = self.chat_history.lock().unwrap();
             history.push(ChatMessage::user(prompt));
-            history.clone()
-        };
-        let request = ChatMessageRequest::new(model_name, history.clone())
+        }
+        let request_history = { self.chat_history.lock().unwrap().clone() };
+        let request = ChatMessageRequest::new(model_name, request_history)
             .tools(tool_infos)
             .think(true);
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
+        let history = self.chat_history.clone();
         let (mut stream, handle) =
-            tool_event_stream(client, request, self.tool_executor.clone(), history);
+            tool_event_stream(client, request, self.tool_executor.clone(), history.clone());
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
@@ -224,7 +225,8 @@ impl App {
                 let _ = needs_update.send(true);
             }
             match handle.await {
-                Ok(Ok(history)) => {
+                Ok(Ok(())) => {
+                    let history = { history.lock().unwrap().clone() };
                     let _ = update_tx.send(Update::History(history));
                 }
                 Ok(Err(err)) => {
