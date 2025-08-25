@@ -95,13 +95,21 @@ pub struct WaitResult {
     /// Newly collected stderr since the last poll
     stderr: String,
     /// Exit code if the process has finished
+    #[serde(skip_serializing_if = "Option::is_none")]
     exit_code: Option<i32>,
     /// True if the 10 second time limit elapsed before completion
+    #[serde(default, skip_serializing_if = "is_false")]
     timed_out: bool,
     /// True if output exceeded the 10k character limit
+    #[serde(default, skip_serializing_if = "is_false")]
     output_truncated: bool,
     /// True if additional output was produced after the limit was reached
+    #[serde(default, skip_serializing_if = "is_false")]
     additional_output: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[tool_router]
@@ -151,6 +159,8 @@ impl ShellServer {
         let exit_code = state.exit_code;
         let truncated = state.truncated;
         let additional = state.additional_output;
+        state.stdout_pos = state.stdout.len();
+        state.stderr_pos = state.stderr.len();
         state.additional_output = false;
         *run_slot = Some(state);
         drop(run_slot);
@@ -286,17 +296,56 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn echo_works() -> Result<()> {
+    async fn captures_all_output_fields() -> Result<()> {
         let server = ShellServer::new_local().await?;
         let params = RunParams {
-            command: "echo hi".into(),
+            command: "bash -c 'echo out; echo err >&2'".into(),
             stdin: None,
         };
         let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
-        let value: WaitResult =
-            serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
-        assert!(value.stdout.contains("hi"));
+        let text = &run_res.content[0].as_text().unwrap().text;
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert!(json.get("timed_out").is_none());
+        assert!(json.get("output_truncated").is_none());
+        assert!(json.get("additional_output").is_none());
+        let value: WaitResult = serde_json::from_str(text).unwrap();
+        assert_eq!(value.stdout.trim(), "out");
+        assert_eq!(value.stderr.trim(), "err");
         assert_eq!(value.exit_code, Some(0));
+        assert!(!value.timed_out);
+        assert!(!value.output_truncated);
+        assert!(!value.additional_output);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sequential_commands_flush() -> Result<()> {
+        let server = ShellServer::new_local().await?;
+
+        let first = RunParams {
+            command: "echo first".into(),
+            stdin: None,
+        };
+        let first_res: CallToolResult = server.run(Parameters(first)).await.unwrap();
+        let _: WaitResult =
+            serde_json::from_str(&first_res.content[0].as_text().unwrap().text).unwrap();
+        // clear state
+        let wait_res: CallToolResult = server.wait(Parameters(WaitParams {})).await.unwrap();
+        let wait_value: WaitResult =
+            serde_json::from_str(&wait_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(wait_value.stdout.is_empty());
+        assert!(wait_value.stderr.is_empty());
+
+        let second = RunParams {
+            command: "echo second".into(),
+            stdin: None,
+        };
+        let second_res: CallToolResult = server.run(Parameters(second)).await.unwrap();
+        let second_value: WaitResult =
+            serde_json::from_str(&second_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(second_value.stdout.contains("second"));
+        assert!(second_value.stderr.is_empty());
+        assert_eq!(second_value.exit_code, Some(0));
         Ok(())
     }
 }
