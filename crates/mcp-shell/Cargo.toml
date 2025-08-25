@@ -1,0 +1,16 @@
+[package]
+name = "mcp-shell"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.99"
+bytes = "1.10.1"
+nix = { version = "0.30.1", features = ["signal", "process"] }
+rmcp = { version = "0.6.0", features = ["transport-io"] }
+schemars = { version = "1.0.4", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util"] }
+uuid = { version = "1.18.0", features = ["v4"] }
