@@ -255,13 +255,13 @@ fn spawn_command(
 
 #[derive(Deserialize, JsonSchema)]
 pub struct RunParams {
-    /// Command to execute.
+    /// Command to execute, any arguments and bash syntax included.
     command: String,
     /// Optional. Text to send to stdin.
     #[serde(default)]
     #[schemars(default)]
     stdin: Option<String>,
-    /// Optional. Working directory for the command. Defaults to the workspace directory.
+    /// Optional. Working directory to run within. Defaults to the workspace directory.
     #[serde(default)]
     #[schemars(default)]
     workdir: Option<String>,
@@ -297,7 +297,12 @@ fn is_false(b: &bool) -> bool {
 
 #[tool_router]
 impl ShellServer {
-    #[tool(description = "Run a command in the shell")]
+    #[tool(
+        description = r#"Run a command in a bash shell. Provides stdout, stderr and exit code.
+If the command times out you may continue waiting with `wait` or stop with `terminate`.
+Only one command may run at a time. Each command runs in a new shell.
+Only a maximum of 10k bytes or 200 lines will be returned."#
+    )]
     pub async fn run(
         &self,
         Parameters(params): Parameters<RunParams>,
@@ -343,7 +348,9 @@ impl ShellServer {
         )]))
     }
 
-    #[tool(description = "Wait for a running command for up to 10s")]
+    #[tool(
+        description = "Wait for the running command to finish. Provides the same output as run."
+    )]
     pub async fn wait(
         &self,
         Parameters(_p): Parameters<WaitParams>,

@@ -7,16 +7,19 @@ use tracing_subscriber::{self, EnvFilter};
 /// Run the Shell MCP server over stdio.
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging to stderr without ANSI color codes.
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()))
-        .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .init();
+    let args = Args::parse();
+    if args.trace {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()),
+            )
+            .with_writer(std::io::stderr)
+            .with_ansi(false)
+            .init();
+    }
 
     tracing::info!("Starting mcp-shell server");
 
-    let args = Args::parse();
     let server = if let Some(name) = args.container {
         ShellServer::new_podman(name, args.workdir).await?
     } else {
@@ -40,4 +43,7 @@ struct Args {
     /// Working directory for command execution
     #[arg(long)]
     workdir: String,
+    /// Show trace
+    #[arg(long)]
+    trace: bool,
 }
