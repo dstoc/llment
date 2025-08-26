@@ -351,6 +351,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_allows_no_trailing_newline() -> Result<()> {
+        let server = ShellServer::new_local().await?;
+
+        let first = RunParams {
+            command: "printf foo".into(),
+            stdin: None,
+        };
+        let first_res: CallToolResult = server.run(Parameters(first)).await.unwrap();
+        let first_value: WaitResult =
+            serde_json::from_str(&first_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(first_value.stdout.starts_with("foo"));
+        assert_eq!(first_value.exit_code, Some(0));
+
+        let second = RunParams {
+            command: "echo bar".into(),
+            stdin: None,
+        };
+        let second_res: CallToolResult = server.run(Parameters(second)).await.unwrap();
+        let second_value: WaitResult =
+            serde_json::from_str(&second_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(second_value.stdout.contains("bar"));
+        assert_eq!(second_value.exit_code, Some(0));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn omits_empty_output_fields() -> Result<()> {
         let server = ShellServer::new_local().await?;
         let params = RunParams {
