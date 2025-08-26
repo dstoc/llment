@@ -62,7 +62,7 @@ impl ServerHandler for ShellServer {}
 struct CommandState {
     stdout_rx: mpsc::Receiver<String>,
     stderr_rx: mpsc::Receiver<String>,
-    done_rx: oneshot::Receiver<Exit>,
+    done_rx: Option<oneshot::Receiver<Exit>>,
     pid: i32,
     stdout: String,
     stderr: String,
@@ -81,7 +81,7 @@ impl CommandState {
         Self {
             stdout_rx,
             stderr_rx,
-            done_rx,
+            done_rx: Some(done_rx),
             pid,
             stdout: String::new(),
             stderr: String::new(),
@@ -289,6 +289,14 @@ impl ShellServer {
             workdir,
         } = params;
         let dir = workdir.unwrap_or_else(|| DEFAULT_WORKDIR.to_string());
+        let dir = if std::fs::create_dir_all(&dir).is_ok() {
+            dir
+        } else {
+            std::env::current_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        };
         let mut run_slot = self.run.lock().await;
         if run_slot.is_some() {
             return Err(McpError::invalid_params("command already running", None));
@@ -399,10 +407,21 @@ async fn collect_output(state: &mut CommandState, limit: Duration) -> bool {
             break;
         }
     }
-    if let Ok(exit) = state.done_rx.try_recv() {
-        state.exit_code = Some(exit.code);
+    if state.stdout_closed && state.stderr_closed {
+        if let Some(done_rx) = state.done_rx.take() {
+            if let Ok(exit) = done_rx.await {
+                state.exit_code = Some(exit.code);
+            }
+        }
+        false
+    } else {
+        if let Some(done_rx) = state.done_rx.as_mut() {
+            if let Ok(exit) = done_rx.try_recv() {
+                state.exit_code = Some(exit.code);
+            }
+        }
+        true
     }
-    !(state.stdout_closed && state.stderr_closed && state.exit_code.is_some())
 }
 
 fn handle_chunk(state: &mut CommandState, is_stdout: bool, chunk: String) {
