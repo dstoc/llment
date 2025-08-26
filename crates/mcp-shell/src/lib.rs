@@ -20,7 +20,7 @@ use tokio::time::sleep;
 
 const OUTPUT_LIMIT: usize = 10_000;
 const TIME_LIMIT: Duration = Duration::from_secs(10);
-const DEFAULT_WORKDIR: &str = "/home/user/workspace";
+pub const DEFAULT_WORKDIR: &str = "/home/user/workspace";
 
 #[derive(Clone)]
 pub struct ShellServer {
@@ -28,32 +28,66 @@ pub struct ShellServer {
     container: Option<String>,
     run: Arc<Mutex<Option<CommandState>>>,
     time_limit: Duration,
+    workdir: String,
 }
 
 impl ShellServer {
-    async fn new(container: Option<String>, time_limit: Duration) -> Result<Self> {
+    async fn new(
+        container: Option<String>,
+        time_limit: Duration,
+        workdir: impl Into<String>,
+    ) -> Result<Self> {
+        let workdir = workdir.into();
+        std::fs::create_dir_all(&workdir).context("create workdir")?;
         Ok(Self {
             tool_router: Self::tool_router(),
             container,
             run: Arc::new(Mutex::new(None)),
             time_limit,
+            workdir,
         })
     }
 
     pub async fn new_local() -> Result<Self> {
-        Self::new(None, TIME_LIMIT).await
+        Self::new(None, TIME_LIMIT, DEFAULT_WORKDIR).await
     }
 
     pub async fn new_local_with_limit(limit: Duration) -> Result<Self> {
-        Self::new(None, limit).await
+        Self::new(None, limit, DEFAULT_WORKDIR).await
+    }
+
+    pub async fn new_local_with_workdir(workdir: impl Into<String>) -> Result<Self> {
+        Self::new(None, TIME_LIMIT, workdir).await
+    }
+
+    pub async fn new_local_with_limit_and_workdir(
+        limit: Duration,
+        workdir: impl Into<String>,
+    ) -> Result<Self> {
+        Self::new(None, limit, workdir).await
     }
 
     pub async fn new_podman(container: String) -> Result<Self> {
-        Self::new(Some(container), TIME_LIMIT).await
+        Self::new(Some(container), TIME_LIMIT, DEFAULT_WORKDIR).await
     }
 
     pub async fn new_podman_with_limit(container: String, limit: Duration) -> Result<Self> {
-        Self::new(Some(container), limit).await
+        Self::new(Some(container), limit, DEFAULT_WORKDIR).await
+    }
+
+    pub async fn new_podman_with_workdir(
+        container: String,
+        workdir: impl Into<String>,
+    ) -> Result<Self> {
+        Self::new(Some(container), TIME_LIMIT, workdir).await
+    }
+
+    pub async fn new_podman_with_limit_and_workdir(
+        container: String,
+        limit: Duration,
+        workdir: impl Into<String>,
+    ) -> Result<Self> {
+        Self::new(Some(container), limit, workdir).await
     }
 }
 
@@ -148,7 +182,7 @@ fn spawn_command(
     stdin: Option<String>,
     workdir: String,
 ) -> Result<RunHandle> {
-    std::fs::create_dir_all(&workdir).ok();
+    std::fs::create_dir_all(&workdir).context("create workdir")?;
     let mut cmd = if let Some(c) = container {
         let mut cmd = Command::new("podman");
         cmd.arg("exec").arg("-i");
@@ -289,15 +323,7 @@ impl ShellServer {
             stdin,
             workdir,
         } = params;
-        let dir = workdir.unwrap_or_else(|| DEFAULT_WORKDIR.to_string());
-        let dir = if std::fs::create_dir_all(&dir).is_ok() {
-            dir
-        } else {
-            std::env::current_dir()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned()
-        };
+        let dir = workdir.unwrap_or_else(|| self.workdir.clone());
         let mut run_slot = self.run.lock().await;
         if run_slot.is_some() {
             return Err(McpError::invalid_params("command already running", None));
