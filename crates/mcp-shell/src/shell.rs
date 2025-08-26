@@ -64,9 +64,10 @@ pub struct ContainerShell {
 struct Inner {
     child: Mutex<Child>,
     stdin: Mutex<ChildStdin>,
-    stdout_task: tokio::task::JoinHandle<()>,
-    stderr_task: tokio::task::JoinHandle<()>,
+    stdout_task: Mutex<tokio::task::JoinHandle<()>>,
+    stderr_task: Mutex<tokio::task::JoinHandle<()>>,
     run: Arc<Mutex<Option<RunState>>>,
+    backend: Box<dyn ShellBackend>,
 }
 
 struct RunState {
@@ -136,6 +137,7 @@ const END_PREFIX: &str = "\u{001E}__END__:";
 impl ContainerShell {
     /// Connect using any backend (Podman or Local).
     pub async fn connect_with<B: ShellBackend>(backend: B) -> Result<Self> {
+        let backend: Box<dyn ShellBackend> = Box::new(backend);
         let mut child = backend.spawn()?.spawn().context("spawning bash")?;
         let pid = child.id().ok_or_else(|| anyhow!("no child pid"))? as i32;
 
@@ -158,9 +160,10 @@ impl ContainerShell {
             inner: Arc::new(Inner {
                 child: Mutex::new(child),
                 stdin: Mutex::new(stdin),
-                stdout_task,
-                stderr_task,
+                stdout_task: Mutex::new(stdout_task),
+                stderr_task: Mutex::new(stderr_task),
                 run,
+                backend,
             }),
         })
     }
@@ -178,11 +181,54 @@ impl ContainerShell {
         Self::connect_with(LocalBashBackend).await
     }
 
+    pub async fn restart(&self) -> Result<()> {
+        self.inner.run.lock().await.take();
+        let mut child = self
+            .inner
+            .backend
+            .spawn()?
+            .spawn()
+            .context("spawning bash")?;
+        let pid = child.id().ok_or_else(|| anyhow!("no child pid"))? as i32;
+        let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+        let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
+
+        let run = self.inner.run.clone();
+        let stdout_task = tokio::spawn({
+            let run = run.clone();
+            async move { scanner_task(stdout, true, pid, &run).await }
+        });
+        let stderr_task = tokio::spawn({
+            let run = run.clone();
+            async move { scanner_task(stderr, false, pid, &run).await }
+        });
+
+        *self.inner.child.lock().await = child;
+        *self.inner.stdin.lock().await = stdin;
+        *self.inner.stdout_task.lock().await = stdout_task;
+        *self.inner.stderr_task.lock().await = stderr_task;
+        Ok(())
+    }
+
+    async fn ensure_running(&self) -> Result<()> {
+        let mut child = self.inner.child.lock().await;
+        match child.try_wait()? {
+            Some(_) => {
+                drop(child);
+                self.restart().await
+            }
+            None => Ok(()),
+        }
+    }
+
     pub async fn run(
         &self,
         command: impl AsRef<str>,
         stdin_bytes: impl Into<Option<Vec<u8>>>,
     ) -> Result<RunHandle> {
+        self.ensure_running().await?;
+
         let (out_tx, out_rx) = mpsc::channel::<String>(64);
         let (err_tx, err_rx) = mpsc::channel::<String>(64);
         let (done_tx, done_rx) = oneshot::channel::<Exit>();

@@ -28,7 +28,7 @@ MCP server exposing shell command execution.
     - once the 10k output limit is reached, further output is not returned
     - reports if extra output was produced after the limit
   - `terminate`
-    - sends SIGTERM to the running command
+    - sends SIGTERM to abort the running command and resets the shell
 - only one command may run at a time
   - finished commands free the slot immediately, allowing sequential runs
 - tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)
@@ -37,3 +37,4 @@ MCP server exposing shell command execution.
 - releases the run slot if command setup fails, avoiding phantom running state
 - timed-out commands keep running until waited or terminated
   - subsequent run calls error with "command already running"
+- automatically respawns the shell if it exits so new commands can run
