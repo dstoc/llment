@@ -34,3 +34,4 @@ MCP server exposing shell command execution.
 - tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)
 - tool results omit empty `stdout` and `stderr` fields
 - detects command completion even if output lacks a trailing newline
+- releases the run slot if command setup fails, avoiding phantom running state
