@@ -8,6 +8,8 @@ MCP server exposing shell command execution.
   - asynchronous runtime
 - nix
   - send signals to processes
+- clap
+  - parse CLI flags
 - serde, schemars
   - define tool parameters and results
 - anyhow
@@ -17,8 +19,8 @@ MCP server exposing shell command execution.
 
 ## Features, Requirements and Constraints
 - runs commands in a fresh bash process locally or in a Podman container
-  - `--container` and `--workdir` flags configure container name and default working directory
-  - defaults to local bash in `/home/user/workspace`
+  - `--container` flag selects container name
+  - `--workdir` flag sets required default working directory
 - tools
   - `run`
     - executes a single command with optional stdin

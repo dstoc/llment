@@ -20,7 +20,6 @@ use tokio::time::sleep;
 
 const OUTPUT_LIMIT: usize = 10_000;
 const TIME_LIMIT: Duration = Duration::from_secs(10);
-pub const DEFAULT_WORKDIR: &str = "/home/user/workspace";
 
 #[derive(Clone)]
 pub struct ShellServer {
@@ -48,41 +47,19 @@ impl ShellServer {
         })
     }
 
-    pub async fn new_local() -> Result<Self> {
-        Self::new(None, TIME_LIMIT, DEFAULT_WORKDIR).await
-    }
-
-    pub async fn new_local_with_limit(limit: Duration) -> Result<Self> {
-        Self::new(None, limit, DEFAULT_WORKDIR).await
-    }
-
-    pub async fn new_local_with_workdir(workdir: impl Into<String>) -> Result<Self> {
+    pub async fn new_local(workdir: impl Into<String>) -> Result<Self> {
         Self::new(None, TIME_LIMIT, workdir).await
     }
 
-    pub async fn new_local_with_limit_and_workdir(
-        limit: Duration,
-        workdir: impl Into<String>,
-    ) -> Result<Self> {
+    pub async fn new_local_with_limit(limit: Duration, workdir: impl Into<String>) -> Result<Self> {
         Self::new(None, limit, workdir).await
     }
 
-    pub async fn new_podman(container: String) -> Result<Self> {
-        Self::new(Some(container), TIME_LIMIT, DEFAULT_WORKDIR).await
-    }
-
-    pub async fn new_podman_with_limit(container: String, limit: Duration) -> Result<Self> {
-        Self::new(Some(container), limit, DEFAULT_WORKDIR).await
-    }
-
-    pub async fn new_podman_with_workdir(
-        container: String,
-        workdir: impl Into<String>,
-    ) -> Result<Self> {
+    pub async fn new_podman(container: String, workdir: impl Into<String>) -> Result<Self> {
         Self::new(Some(container), TIME_LIMIT, workdir).await
     }
 
-    pub async fn new_podman_with_limit_and_workdir(
+    pub async fn new_podman_with_limit(
         container: String,
         limit: Duration,
         workdir: impl Into<String>,
@@ -147,6 +124,7 @@ struct RunHandle {
     pid: i32,
 }
 
+#[allow(dead_code)]
 impl RunHandle {
     async fn recv_stdout(&mut self) -> Option<String> {
         self.stdout_rx.recv().await
@@ -483,9 +461,11 @@ fn handle_chunk(state: &mut CommandState, is_stdout: bool, chunk: String) {
 mod tests {
     use super::*;
 
+    const WORKDIR: &str = "/home/user/workspace";
+
     #[tokio::test]
     async fn run_captures_output() -> Result<()> {
-        let server = ShellServer::new_local().await?;
+        let server = ShellServer::new_local(WORKDIR).await?;
         let params = RunParams {
             command: "echo hi".into(),
             stdin: None,
@@ -507,7 +487,7 @@ mod tests {
         let path = dir.path();
         create_dir(path.join("sub")).unwrap();
         write(path.join("sub/test.txt"), b"ok").unwrap();
-        let server = ShellServer::new_local().await?;
+        let server = ShellServer::new_local(WORKDIR).await?;
         let params = RunParams {
             command: "cat test.txt".into(),
             stdin: None,
@@ -523,7 +503,7 @@ mod tests {
 
     #[tokio::test]
     async fn terminate_kills_command() -> Result<()> {
-        let server = ShellServer::new_local_with_limit(Duration::from_millis(100)).await?;
+        let server = ShellServer::new_local_with_limit(Duration::from_millis(100), WORKDIR).await?;
         let params = RunParams {
             command: "sleep 5".into(),
             stdin: None,
@@ -543,7 +523,7 @@ mod tests {
     #[tokio::test]
     async fn lists_tools() -> Result<()> {
         use rmcp::ServiceExt;
-        let server = ShellServer::new_local().await?;
+        let server = ShellServer::new_local(WORKDIR).await?;
         let (client_side, server_side) = tokio::io::duplex(1024);
         let server_task = tokio::spawn(async move {
             let svc = server.serve(server_side).await.unwrap();

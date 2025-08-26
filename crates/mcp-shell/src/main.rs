@@ -1,7 +1,6 @@
-use std::env;
-
 use anyhow::Result;
-use mcp_shell::{DEFAULT_WORKDIR, ShellServer};
+use clap::Parser;
+use mcp_shell::ShellServer;
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::{self, EnvFilter};
 
@@ -17,28 +16,11 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting mcp-shell server");
 
-    let mut args = env::args().skip(1);
-    let mut container: Option<String> = None;
-    let mut workdir = DEFAULT_WORKDIR.to_string();
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--container" => {
-                if let Some(name) = args.next() {
-                    container = Some(name);
-                }
-            }
-            "--workdir" => {
-                if let Some(dir) = args.next() {
-                    workdir = dir;
-                }
-            }
-            _ => {}
-        }
-    }
-    let server = if let Some(name) = container {
-        ShellServer::new_podman_with_workdir(name, workdir).await?
+    let args = Args::parse();
+    let server = if let Some(name) = args.container {
+        ShellServer::new_podman(name, args.workdir).await?
     } else {
-        ShellServer::new_local_with_workdir(workdir).await?
+        ShellServer::new_local(args.workdir).await?
     };
 
     let service = server.serve(stdio()).await.map_err(|e| {
@@ -48,4 +30,14 @@ async fn main() -> Result<()> {
 
     service.waiting().await?;
     Ok(())
+}
+
+#[derive(Parser)]
+struct Args {
+    /// Run commands inside a Podman container
+    #[arg(long)]
+    container: Option<String>,
+    /// Working directory for command execution
+    #[arg(long)]
+    workdir: String,
 }
