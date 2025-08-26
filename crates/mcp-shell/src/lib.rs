@@ -431,10 +431,61 @@ mod tests {
             .terminate(Parameters(TerminateParams {}))
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let wait_err = server.wait(Parameters(WaitParams {})).await;
         assert!(wait_err.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn timeout_then_retry_then_unstick() -> Result<()> {
+        let server = ShellServer::new_local_with_limit(Duration::from_millis(100)).await?;
+
+        // first run times out but command keeps running
+        let params = RunParams {
+            command: "sleep 0.2; echo first".into(),
+            stdin: None,
+        };
+        let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let run_value: WaitResult =
+            serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(run_value.timed_out);
+        assert!(run_value.exit_code.is_none());
+
+        // retrying another command reports slot still occupied
+        let params = RunParams {
+            command: "echo second".into(),
+            stdin: None,
+        };
+        let err = server.run(Parameters(params)).await.unwrap_err();
+        assert!(err.to_string().contains("already running"));
+
+        // waiting immediately still times out
+        let wait_res: CallToolResult = server.wait(Parameters(WaitParams {})).await.unwrap();
+        let wait_value: WaitResult =
+            serde_json::from_str(&wait_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(wait_value.timed_out);
+        assert!(wait_value.exit_code.is_none());
+
+        // once the original command finishes, waiting returns completion
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let wait_res: CallToolResult = server.wait(Parameters(WaitParams {})).await.unwrap();
+        let wait_value: WaitResult =
+            serde_json::from_str(&wait_res.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(wait_value.exit_code, Some(0));
+        assert!(wait_value.stdout.contains("first"));
+
+        // a new command can now run successfully
+        let params = RunParams {
+            command: "echo third".into(),
+            stdin: None,
+        };
+        let res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let value: WaitResult =
+            serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
+        assert!(value.stdout.contains("third"));
+        assert_eq!(value.exit_code, Some(0));
         Ok(())
     }
 
