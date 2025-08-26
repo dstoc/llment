@@ -21,6 +21,7 @@ MCP server exposing shell command execution.
 - runs commands in a fresh bash process locally or in a Podman container
   - `--container` flag selects container name
   - `--workdir` flag sets required default working directory
+    - the directory must already exist; it is not created automatically
 - tools
   - `run`
     - executes a single command with optional stdin
