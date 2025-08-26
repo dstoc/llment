@@ -35,3 +35,5 @@ MCP server exposing shell command execution.
 - tool results omit empty `stdout` and `stderr` fields
 - detects command completion even if output lacks a trailing newline
 - releases the run slot if command setup fails, avoiding phantom running state
+- timed-out commands keep running until waited or terminated
+  - subsequent run calls error with "command already running"
