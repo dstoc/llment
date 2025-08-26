@@ -22,9 +22,9 @@ MCP server exposing shell command execution.
   - `run`
     - executes a command with optional stdin
     - returns up to 10k characters of combined stdout/stderr
-    - waits at most 10 seconds for output or completion
+    - waits at most 10 seconds for output or completion (limit configurable)
   - `wait`
-    - waits up to another 10 seconds for additional output
+    - waits up to another 10 seconds for additional output (limit configurable)
     - once the 10k output limit is reached, further output is not returned
     - reports if extra output was produced after the limit
   - `terminate`
@@ -33,3 +33,4 @@ MCP server exposing shell command execution.
   - finished commands free the slot immediately, allowing sequential runs
 - tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)
 - tool results omit empty `stdout` and `stderr` fields
+- detects command completion even if output lacks a trailing newline
