@@ -37,7 +37,6 @@ impl ShellServer {
         workdir: impl Into<String>,
     ) -> Result<Self> {
         let workdir = workdir.into();
-        std::fs::create_dir_all(&workdir).context("create workdir")?;
         Ok(Self {
             tool_router: Self::tool_router(),
             container,
@@ -160,7 +159,6 @@ fn spawn_command(
     stdin: Option<String>,
     workdir: String,
 ) -> Result<RunHandle> {
-    std::fs::create_dir_all(&workdir).context("create workdir")?;
     let mut cmd = if let Some(c) = container {
         let mut cmd = Command::new("podman");
         cmd.arg("exec").arg("-i");
@@ -463,8 +461,13 @@ mod tests {
 
     const WORKDIR: &str = "/home/user/workspace";
 
+    fn ensure_workdir() {
+        std::fs::create_dir_all(WORKDIR).unwrap();
+    }
+
     #[tokio::test]
     async fn run_captures_output() -> Result<()> {
+        ensure_workdir();
         let server = ShellServer::new_local(WORKDIR).await?;
         let params = RunParams {
             command: "echo hi".into(),
@@ -483,6 +486,7 @@ mod tests {
     async fn run_respects_workdir() -> Result<()> {
         use std::fs::{create_dir, write};
         use tempfile::tempdir;
+        ensure_workdir();
         let dir = tempdir().unwrap();
         let path = dir.path();
         create_dir(path.join("sub")).unwrap();
@@ -503,6 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn terminate_kills_command() -> Result<()> {
+        ensure_workdir();
         let server = ShellServer::new_local_with_limit(Duration::from_millis(100), WORKDIR).await?;
         let params = RunParams {
             command: "sleep 5".into(),
@@ -523,6 +528,7 @@ mod tests {
     #[tokio::test]
     async fn lists_tools() -> Result<()> {
         use rmcp::ServiceExt;
+        ensure_workdir();
         let server = ShellServer::new_local(WORKDIR).await?;
         let (client_side, server_side) = tokio::io::duplex(1024);
         let server_task = tokio::spawn(async move {
