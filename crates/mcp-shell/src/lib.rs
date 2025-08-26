@@ -91,8 +91,10 @@ pub struct TerminateParams {
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct WaitResult {
     /// Newly collected stdout since the last poll
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     stdout: String,
     /// Newly collected stderr since the last poll
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     stderr: String,
     /// Exit code if the process has finished
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -159,10 +161,14 @@ impl ShellServer {
         let exit_code = state.exit_code;
         let truncated = state.truncated;
         let additional = state.additional_output;
-        state.stdout_pos = state.stdout.len();
-        state.stderr_pos = state.stderr.len();
-        state.additional_output = false;
-        *run_slot = Some(state);
+        if timed_out {
+            state.stdout_pos = state.stdout.len();
+            state.stderr_pos = state.stderr.len();
+            state.additional_output = false;
+            *run_slot = Some(state);
+        } else {
+            *run_slot = None;
+        }
         drop(run_slot);
         let result = WaitResult {
             stdout,
@@ -319,7 +325,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sequential_commands_flush() -> Result<()> {
+    async fn sequential_runs_without_wait() -> Result<()> {
         let server = ShellServer::new_local().await?;
 
         let first = RunParams {
@@ -327,14 +333,10 @@ mod tests {
             stdin: None,
         };
         let first_res: CallToolResult = server.run(Parameters(first)).await.unwrap();
-        let _: WaitResult =
+        let first_value: WaitResult =
             serde_json::from_str(&first_res.content[0].as_text().unwrap().text).unwrap();
-        // clear state
-        let wait_res: CallToolResult = server.wait(Parameters(WaitParams {})).await.unwrap();
-        let wait_value: WaitResult =
-            serde_json::from_str(&wait_res.content[0].as_text().unwrap().text).unwrap();
-        assert!(wait_value.stdout.is_empty());
-        assert!(wait_value.stderr.is_empty());
+        assert!(first_value.stdout.contains("first"));
+        assert_eq!(first_value.exit_code, Some(0));
 
         let second = RunParams {
             command: "echo second".into(),
@@ -344,8 +346,24 @@ mod tests {
         let second_value: WaitResult =
             serde_json::from_str(&second_res.content[0].as_text().unwrap().text).unwrap();
         assert!(second_value.stdout.contains("second"));
-        assert!(second_value.stderr.is_empty());
         assert_eq!(second_value.exit_code, Some(0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn omits_empty_output_fields() -> Result<()> {
+        let server = ShellServer::new_local().await?;
+        let params = RunParams {
+            command: "true".into(),
+            stdin: None,
+        };
+        let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let text = &run_res.content[0].as_text().unwrap().text;
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert!(json.get("stdout").is_none());
+        assert!(json.get("stderr").is_none());
+        let value: WaitResult = serde_json::from_str(text).unwrap();
+        assert_eq!(value.exit_code, Some(0));
         Ok(())
     }
 }

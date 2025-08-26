@@ -30,4 +30,6 @@ MCP server exposing shell command execution.
   - `terminate`
     - sends SIGTERM to the running command
 - only one command may run at a time
+  - finished commands free the slot immediately, allowing sequential runs
 - tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)
+- tool results omit empty `stdout` and `stderr` fields
