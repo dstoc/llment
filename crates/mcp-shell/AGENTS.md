@@ -17,11 +17,12 @@ MCP server exposing shell command execution.
 
 ## Features, Requirements and Constraints
 - runs commands in a fresh bash process locally or in a Podman container
-  - container name may be passed as the first CLI argument; defaults to local bash
+  - `--container` and `--workdir` flags configure container name and default working directory
+  - defaults to local bash in `/home/user/workspace`
 - tools
   - `run`
     - executes a single command with optional stdin
-    - accepts optional `workdir` (defaults to /home/user/workspace)
+    - accepts optional `workdir` overriding the server's default
     - returns up to 10k characters of combined stdout/stderr
     - waits at most 10 seconds for output or completion (limit configurable)
   - `wait`
