@@ -199,9 +199,13 @@ impl ContainerShell {
         }
 
         let mut stdin = self.inner.stdin.lock().await;
+        let run_slot = self.inner.run.clone();
 
         // BEGIN
-        stdin.write_all(BEGIN_PRINT).await.context("send begin")?;
+        if let Err(e) = stdin.write_all(BEGIN_PRINT).await {
+            run_slot.lock().await.take();
+            return Err(e).context("send begin");
+        }
 
         // heredoc for stdin
         let heredoc = "__IN__";
@@ -210,28 +214,37 @@ impl ContainerShell {
             cmd = command.as_ref(),
             tag = heredoc
         );
-        stdin
-            .write_all(run_script.as_bytes())
-            .await
-            .context("send command")?;
+        if let Err(e) = stdin.write_all(run_script.as_bytes()).await {
+            run_slot.lock().await.take();
+            return Err(e).context("send command");
+        }
 
         if let Some(bytes) = stdin_bytes.into() {
-            stdin.write_all(&bytes).await.context("send stdin")?;
+            if let Err(e) = stdin.write_all(&bytes).await {
+                run_slot.lock().await.take();
+                return Err(e).context("send stdin");
+            }
         }
         let close = format!("{tag}\n", tag = heredoc);
-        stdin
-            .write_all(close.as_bytes())
-            .await
-            .context("close heredoc")?;
+        if let Err(e) = stdin.write_all(close.as_bytes()).await {
+            run_slot.lock().await.take();
+            return Err(e).context("close heredoc");
+        }
 
         // END
         let end = format!(
             "status=$?; printf '{END_PREFIX}%s\\n' \"$status\"\n",
             END_PREFIX = END_PREFIX,
         );
-        stdin.write_all(end.as_bytes()).await.context("send end")?;
+        if let Err(e) = stdin.write_all(end.as_bytes()).await {
+            run_slot.lock().await.take();
+            return Err(e).context("send end");
+        }
 
-        stdin.flush().await.ok();
+        if let Err(e) = stdin.flush().await {
+            run_slot.lock().await.take();
+            return Err(e).context("flush");
+        }
 
         let pid = {
             let child = self.inner.child.lock().await;

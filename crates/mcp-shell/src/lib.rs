@@ -437,4 +437,47 @@ mod tests {
         assert!(wait_err.is_err());
         Ok(())
     }
+
+    #[tokio::test]
+    async fn clears_run_slot_on_write_failure() -> Result<()> {
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+
+        let server = ShellServer::new_local().await?;
+
+        // grab shell pid by running a no-op command
+        let h = server.shell.run("true", None).await?;
+        let pid = h.pid();
+        let _ = h.wait().await?;
+
+        // kill the shell to force subsequent write failure
+        let _ = kill(Pid::from_raw(pid), Signal::SIGKILL);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let params = RunParams {
+            command: "echo hi".into(),
+            stdin: None,
+        };
+
+        let err1 = server.run(Parameters(params)).await.unwrap_err();
+        assert!(err1.to_string().contains("send begin"));
+
+        let wait_err = server.wait(Parameters(WaitParams {})).await.unwrap_err();
+        assert!(wait_err.to_string().contains("no running command"));
+
+        let term_err = server
+            .terminate(Parameters(TerminateParams {}))
+            .await
+            .unwrap_err();
+        assert!(term_err.to_string().contains("no running command"));
+
+        let params = RunParams {
+            command: "echo hi".into(),
+            stdin: None,
+        };
+        let err2 = server.run(Parameters(params)).await.unwrap_err();
+        assert!(err2.to_string().contains("send begin"));
+
+        Ok(())
+    }
 }
