@@ -41,3 +41,6 @@ MCP server exposing shell command execution.
 - timed-out commands keep running until waited or terminated
   - subsequent run calls error with "command already running"
 - announces available tools to clients via MCP `list_tools`
+- parameter metadata
+  - tool parameters include descriptions and default values via rmcp
+  - optional parameters prefix descriptions with "Optional."

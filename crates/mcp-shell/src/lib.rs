@@ -255,16 +255,24 @@ fn spawn_command(
 
 #[derive(Deserialize, JsonSchema)]
 pub struct RunParams {
+    /// Command to execute.
     command: String,
-    stdin: Option<String>,
+    /// Optional. Text to send to stdin.
     #[serde(default)]
+    #[schemars(default)]
+    stdin: Option<String>,
+    /// Optional. Working directory for the command. Defaults to the workspace directory.
+    #[serde(default)]
+    #[schemars(default)]
     workdir: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
+/// Parameters for the `wait` tool.
 pub struct WaitParams {}
 
 #[derive(Deserialize, JsonSchema)]
+/// Parameters for the `terminate` tool.
 pub struct TerminateParams {}
 
 #[derive(Serialize, Deserialize, JsonSchema)]
