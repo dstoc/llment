@@ -458,17 +458,12 @@ fn handle_chunk(state: &mut CommandState, is_stdout: bool, chunk: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const WORKDIR: &str = "/home/user/workspace";
-
-    fn ensure_workdir() {
-        std::fs::create_dir_all(WORKDIR).unwrap();
-    }
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn run_captures_output() -> Result<()> {
-        ensure_workdir();
-        let server = ShellServer::new_local(WORKDIR).await?;
+        let dir = tempdir().unwrap();
+        let server = ShellServer::new_local(dir.path().to_string_lossy().to_string()).await?;
         let params = RunParams {
             command: "echo hi".into(),
             stdin: None,
@@ -485,13 +480,11 @@ mod tests {
     #[tokio::test]
     async fn run_respects_workdir() -> Result<()> {
         use std::fs::{create_dir, write};
-        use tempfile::tempdir;
-        ensure_workdir();
         let dir = tempdir().unwrap();
         let path = dir.path();
         create_dir(path.join("sub")).unwrap();
         write(path.join("sub/test.txt"), b"ok").unwrap();
-        let server = ShellServer::new_local(WORKDIR).await?;
+        let server = ShellServer::new_local(path.to_string_lossy().to_string()).await?;
         let params = RunParams {
             command: "cat test.txt".into(),
             stdin: None,
@@ -507,8 +500,12 @@ mod tests {
 
     #[tokio::test]
     async fn terminate_kills_command() -> Result<()> {
-        ensure_workdir();
-        let server = ShellServer::new_local_with_limit(Duration::from_millis(100), WORKDIR).await?;
+        let dir = tempdir().unwrap();
+        let server = ShellServer::new_local_with_limit(
+            Duration::from_millis(100),
+            dir.path().to_string_lossy().to_string(),
+        )
+        .await?;
         let params = RunParams {
             command: "sleep 5".into(),
             stdin: None,
@@ -528,8 +525,8 @@ mod tests {
     #[tokio::test]
     async fn lists_tools() -> Result<()> {
         use rmcp::ServiceExt;
-        ensure_workdir();
-        let server = ShellServer::new_local(WORKDIR).await?;
+        let dir = tempdir().unwrap();
+        let server = ShellServer::new_local(dir.path().to_string_lossy().to_string()).await?;
         let (client_side, server_side) = tokio::io::duplex(1024);
         let server_task = tokio::spawn(async move {
             let svc = server.serve(server_side).await.unwrap();
