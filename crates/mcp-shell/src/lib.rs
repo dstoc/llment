@@ -246,6 +246,10 @@ impl ShellServer {
             .ok_or_else(|| McpError::invalid_params("no running command".to_string(), None))?;
         kill(Pid::from_raw(state.pid), Signal::SIGTERM)
             .map_err(|e| McpError::internal_error(format!("terminate failed: {e}"), None))?;
+        self.shell
+            .restart()
+            .await
+            .map_err(|e| McpError::internal_error(format!("restart failed: {e}"), None))?;
         let result = serde_json::json!({});
         Ok(CallToolResult::success(vec![Content::text(
             result.to_string(),
@@ -490,7 +494,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clears_run_slot_on_write_failure() -> Result<()> {
+    async fn timeout_terminate_then_run() -> Result<()> {
+        let server = ShellServer::new_local_with_limit(Duration::from_millis(100)).await?;
+
+        let params = RunParams {
+            command: "sleep 5".into(),
+            stdin: None,
+        };
+        let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let run_value: WaitResult =
+            serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(run_value.timed_out);
+
+        let params = RunParams {
+            command: "echo two".into(),
+            stdin: None,
+        };
+        let err = server.run(Parameters(params)).await.unwrap_err();
+        assert!(err.to_string().contains("already running"));
+
+        let _ = server
+            .terminate(Parameters(TerminateParams {}))
+            .await
+            .unwrap();
+
+        let params = RunParams {
+            command: "echo after".into(),
+            stdin: None,
+        };
+        let res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let value: WaitResult =
+            serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
+        assert!(value.stdout.contains("after"));
+        assert_eq!(value.exit_code, Some(0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn restarts_shell_after_kill() -> Result<()> {
         use nix::sys::signal::{Signal, kill};
         use nix::unistd::Pid;
 
@@ -501,7 +543,7 @@ mod tests {
         let pid = h.pid();
         let _ = h.wait().await?;
 
-        // kill the shell to force subsequent write failure
+        // kill the shell to force restart
         let _ = kill(Pid::from_raw(pid), Signal::SIGKILL);
         tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -510,8 +552,10 @@ mod tests {
             stdin: None,
         };
 
-        let err1 = server.run(Parameters(params)).await.unwrap_err();
-        assert!(err1.to_string().contains("send begin"));
+        let res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let value: WaitResult =
+            serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
+        assert!(value.stdout.contains("hi"));
 
         let wait_err = server.wait(Parameters(WaitParams {})).await.unwrap_err();
         assert!(wait_err.to_string().contains("no running command"));
@@ -521,13 +565,6 @@ mod tests {
             .await
             .unwrap_err();
         assert!(term_err.to_string().contains("no running command"));
-
-        let params = RunParams {
-            command: "echo hi".into(),
-            stdin: None,
-        };
-        let err2 = server.run(Parameters(params)).await.unwrap_err();
-        assert!(err2.to_string().contains("send begin"));
 
         Ok(())
     }
