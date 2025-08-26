@@ -298,24 +298,34 @@ async fn scanner_task(
             Ok(n) => {
                 acc.extend_from_slice(&buf[..n]);
                 while let Some(pos) = acc.iter().position(|&b| b == b'\n') {
-                    let line = acc.split_to(pos + 1).freeze();
-                    // Try ascii-first for sentinel matching; if not utf8, deliver raw.
+                    let mut line = acc.split_to(pos + 1).freeze();
+
+                    if let Some(idx) = line
+                        .windows(END_PREFIX.len())
+                        .position(|w| w == END_PREFIX.as_bytes())
+                    {
+                        if idx > 0 {
+                            let before = line.split_to(idx);
+                            deliver(run, is_stdout, &mut utf, &before).await;
+                        }
+                        let status_bytes = &line[END_PREFIX.len()..line.len() - 1];
+                        let status = std::str::from_utf8(status_bytes)
+                            .unwrap_or("255")
+                            .trim()
+                            .parse::<i32>()
+                            .unwrap_or(255);
+                        if let Some(run) = run.lock().await.take() {
+                            let _ = run.done_tx.send(Exit { code: status });
+                        }
+                        continue;
+                    }
+
                     if let Ok(s) = std::str::from_utf8(&line) {
                         if s.starts_with(BEGIN) {
                             continue;
                         }
-                        if let Some(status_s) = s.strip_prefix(END_PREFIX) {
-                            let status = status_s
-                                .trim_end_matches('\n')
-                                .parse::<i32>()
-                                .unwrap_or(255);
-                            if let Some(run) = run.lock().await.take() {
-                                let _ = run.done_tx.send(Exit { code: status });
-                            }
-                            continue;
-                        }
                     }
-                    // normal payload
+
                     deliver(run, is_stdout, &mut utf, &line).await;
                 }
             }
@@ -435,6 +445,33 @@ mod tests {
         let exit = h.wait().await?;
         assert_eq!(exit.code, 0);
         assert_eq!(out, "hello-from-stdin\n");
+        shell.shutdown().await
+    }
+
+    #[tokio::test]
+    async fn sequential_after_no_newline_output() -> Result<()> {
+        let shell = ContainerShell::connect_local().await?;
+
+        // first command outputs without trailing newline
+        let mut h1 = shell.run("printf foo", None).await?;
+        let mut out1 = String::new();
+        while let Some(chunk) = h1.recv_stdout().await {
+            out1.push_str(&chunk);
+        }
+        let exit1 = h1.wait().await?;
+        assert_eq!(out1, "foo");
+        assert_eq!(exit1.code, 0);
+
+        // second command should run successfully
+        let mut h2 = shell.run("echo bar", None).await?;
+        let mut out2 = String::new();
+        while let Some(chunk) = h2.recv_stdout().await {
+            out2.push_str(&chunk);
+        }
+        let exit2 = h2.wait().await?;
+        assert_eq!(exit2.code, 0);
+        assert!(out2.contains("bar\n"));
+
         shell.shutdown().await
     }
 }

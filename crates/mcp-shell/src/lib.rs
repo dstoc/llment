@@ -27,6 +27,7 @@ pub struct ShellServer {
     tool_router: ToolRouter<Self>,
     shell: Arc<ContainerShell>,
     run: Arc<Mutex<Option<CommandState>>>,
+    time_limit: Duration,
 }
 
 struct CommandState {
@@ -118,21 +119,36 @@ fn is_false(b: &bool) -> bool {
 impl ShellServer {
     /// Connect to a local bash shell. Useful for tests and non-container use.
     pub async fn new_local() -> Result<Self> {
+        Self::new_local_with_limit(TIME_LIMIT).await
+    }
+
+    /// Connect to a local bash shell with a custom time limit.
+    pub async fn new_local_with_limit(limit: Duration) -> Result<Self> {
         let shell = ContainerShell::connect_local().await?;
         Ok(Self {
             tool_router: Self::tool_router(),
             shell: Arc::new(shell),
             run: Arc::new(Mutex::new(None)),
+            time_limit: limit,
         })
     }
 
     /// Connect to bash running inside a Podman container.
     pub async fn new_podman(container: impl Into<String>) -> Result<Self> {
+        Self::new_podman_with_limit(container, TIME_LIMIT).await
+    }
+
+    /// Connect to Podman bash with a custom time limit.
+    pub async fn new_podman_with_limit(
+        container: impl Into<String>,
+        limit: Duration,
+    ) -> Result<Self> {
         let shell = ContainerShell::connect_podman(container).await?;
         Ok(Self {
             tool_router: Self::tool_router(),
             shell: Arc::new(shell),
             run: Arc::new(Mutex::new(None)),
+            time_limit: limit,
         })
     }
 
@@ -155,7 +171,7 @@ impl ShellServer {
             .await
             .map_err(|e| McpError::internal_error(format!("spawn failed: {e}"), None))?;
         let mut state = CommandState::new(handle);
-        let timed_out = collect_output(&mut state).await;
+        let timed_out = collect_output(&mut state, self.time_limit).await;
         let stdout = state.stdout.clone();
         let stderr = state.stderr.clone();
         let exit_code = state.exit_code;
@@ -192,7 +208,7 @@ impl ShellServer {
         let state = run_slot
             .as_mut()
             .ok_or_else(|| McpError::invalid_params("no running command".to_string(), None))?;
-        let timed_out = collect_output(state).await;
+        let timed_out = collect_output(state, self.time_limit).await;
         let stdout = state.stdout[state.stdout_pos..].to_string();
         let stderr = state.stderr[state.stderr_pos..].to_string();
         state.stdout_pos = state.stdout.len();
@@ -240,8 +256,8 @@ impl ShellServer {
 #[tool_handler]
 impl ServerHandler for ShellServer {}
 
-async fn collect_output(state: &mut CommandState) -> bool {
-    let timeout_fut = sleep(TIME_LIMIT);
+async fn collect_output(state: &mut CommandState, limit: Duration) -> bool {
+    let timeout_fut = sleep(limit);
     tokio::pin!(timeout_fut);
     loop {
         tokio::select! {
@@ -300,6 +316,7 @@ fn handle_chunk(state: &mut CommandState, is_stdout: bool, chunk: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn captures_all_output_fields() -> Result<()> {
@@ -364,6 +381,60 @@ mod tests {
         assert!(json.get("stderr").is_none());
         let value: WaitResult = serde_json::from_str(text).unwrap();
         assert_eq!(value.exit_code, Some(0));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn timeout_and_wait() -> Result<()> {
+        let server = ShellServer::new_local_with_limit(Duration::from_millis(100)).await?;
+
+        let params = RunParams {
+            command: "sleep 0.2; echo done".into(),
+            stdin: None,
+        };
+        let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let run_value: WaitResult =
+            serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(run_value.timed_out);
+        assert!(run_value.exit_code.is_none());
+
+        let wait_res: CallToolResult = server.wait(Parameters(WaitParams {})).await.unwrap();
+        let wait_value: WaitResult =
+            serde_json::from_str(&wait_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(wait_value.timed_out);
+        assert!(wait_value.exit_code.is_none());
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let wait_res: CallToolResult = server.wait(Parameters(WaitParams {})).await.unwrap();
+        let wait_value: WaitResult =
+            serde_json::from_str(&wait_res.content[0].as_text().unwrap().text).unwrap();
+        assert_eq!(wait_value.exit_code, Some(0));
+        assert!(wait_value.stdout.contains("done"));
+        assert!(!wait_value.timed_out);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn terminate_allows_new_run() -> Result<()> {
+        let server = ShellServer::new_local_with_limit(Duration::from_millis(100)).await?;
+
+        let params = RunParams {
+            command: "sleep 5".into(),
+            stdin: None,
+        };
+        let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+        let run_value: WaitResult =
+            serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
+        assert!(run_value.timed_out);
+
+        let _ = server
+            .terminate(Parameters(TerminateParams {}))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let wait_err = server.wait(Parameters(WaitParams {})).await;
+        assert!(wait_err.is_err());
         Ok(())
     }
 }
