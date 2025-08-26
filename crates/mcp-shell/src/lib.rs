@@ -9,7 +9,7 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
     model::{CallToolResult, Content},
-    tool, tool_router,
+    tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -57,6 +57,7 @@ impl ShellServer {
     }
 }
 
+#[tool_handler]
 impl ServerHandler for ShellServer {}
 
 struct CommandState {
@@ -510,6 +511,26 @@ mod tests {
             .terminate(Parameters(TerminateParams {}))
             .await
             .unwrap();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn lists_tools() -> Result<()> {
+        use rmcp::ServiceExt;
+        let server = ShellServer::new_local().await?;
+        let (client_side, server_side) = tokio::io::duplex(1024);
+        let server_task = tokio::spawn(async move {
+            let svc = server.serve(server_side).await.unwrap();
+            svc.waiting().await.unwrap();
+        });
+        let client = ().serve(client_side).await.unwrap();
+        let tools = client.list_tools(Default::default()).await.unwrap();
+        let names: Vec<_> = tools.tools.into_iter().map(|t| t.name).collect();
+        assert!(names.contains(&"run".into()));
+        assert!(names.contains(&"wait".into()));
+        assert!(names.contains(&"terminate".into()));
+        client.cancel().await.unwrap();
+        server_task.await.unwrap();
         Ok(())
     }
 }

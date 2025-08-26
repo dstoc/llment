@@ -36,3 +36,4 @@ MCP server exposing shell command execution.
 - tool results omit empty `stdout` and `stderr` fields
 - timed-out commands keep running until waited or terminated
   - subsequent run calls error with "command already running"
+- announces available tools to clients via MCP `list_tools`
