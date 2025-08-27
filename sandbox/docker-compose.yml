@@ -1,0 +1,18 @@
+version: '3.9'
+
+services:
+  dev:
+    # network_mode: "none"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sandbox
+    container_name: sandbox
+    hostname: sandbox
+    tty: true
+    userns_mode: keep-id 
+    volumes:
+      - ./workspace:/home/user/workspace:rw
+
+x-podman:
+  in_pod: false

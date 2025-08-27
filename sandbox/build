@@ -1,0 +1,2 @@
+#!/bin/sh
+UID=$(id -u) GID=$(id -g) podman-compose build
