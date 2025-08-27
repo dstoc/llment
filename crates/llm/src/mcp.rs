@@ -50,7 +50,7 @@ pub async fn load_mcp_servers(
     let config: McpConfig = serde_json::from_str(&data)?;
     let mut services = Vec::new();
     let mut ctx = McpContext::default();
-    for server in config.mcp_servers.values() {
+    for (server_name, server) in config.mcp_servers.iter() {
         let mut cmd = Command::new(&server.command);
         cmd.args(&server.args);
         for (k, v) in &server.env {
@@ -61,12 +61,13 @@ pub async fn load_mcp_servers(
         let tools = service.list_tools(Default::default()).await?;
         {
             for tool in tools.tools {
+                let prefixed_name = format!("{server_name}.{}", tool.name);
                 ctx.tools
-                    .insert(tool.name.to_string(), service.peer().clone());
+                    .insert(prefixed_name.clone(), service.peer().clone());
                 let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
                 let description = tool.description.clone().unwrap_or_default().to_string();
                 ctx.tool_infos.push(ToolInfo {
-                    name: tool.name.to_string(),
+                    name: prefixed_name,
                     description,
                     parameters: schema,
                 });
@@ -97,9 +98,11 @@ impl ToolExecutor for McpToolExecutor {
         let peer = { self.ctx.tools.get(name).cloned() }
             .ok_or_else(|| format!("Tool {name} not found"))?;
 
+        let tool_name = name.rsplit_once('.').map(|(_, t)| t).unwrap_or(name);
+
         let result = peer
             .call_tool(CallToolRequestParam {
-                name: name.to_string().into(),
+                name: tool_name.to_string().into(),
                 arguments: args.as_object().cloned(),
             })
             .await?;

@@ -48,10 +48,11 @@ Trait-based LLM client implementations for multiple providers.
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
   - `tool_event_stream` spawns the loop and yields `ToolEvent`s
     - join handle resolves on completion with history updated in place
-  - `mcp` module
-    - `load_mcp_servers` starts configured MCP servers and collects tool schemas
-    - `McpToolExecutor` implements `ToolExecutor` for MCP calls
-    - `McpContext` stores MCP tool mappings and metadata
+- `mcp` module
+  - `load_mcp_servers` starts configured MCP servers and collects tool schemas
+    - tool names are prefixed with the server name
+  - `McpToolExecutor` implements `ToolExecutor` for MCP calls
+  - `McpContext` stores MCP tool mappings and metadata
       - tool call chunks insert assistant messages immediately before execution
       - accumulated streamed content is appended as an assistant message after the stream completes
       - contexts can be merged to combine tools and metadata
