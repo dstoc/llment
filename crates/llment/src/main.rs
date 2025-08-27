@@ -32,13 +32,13 @@ use llm::{self, Provider};
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[arg(long, value_enum, default_value_t = Provider::Ollama)]
+    #[arg(long, value_enum, default_value_t = Provider::Openai)]
     provider: Provider,
     /// Model identifier to use
     #[arg(long, default_value = "gpt-oss:20b")]
     model: String,
     /// LLM host URL, e.g. http://localhost:11434 for Ollama
-    #[arg(long, default_value = "http://127.0.0.1:11434")]
+    #[arg(long, default_value = "http://localhost:8000/v1")]
     host: String,
     /// Path to MCP configuration JSON
     #[arg(long)]
