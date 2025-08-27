@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "files": {
+      "command": "target/debug/mcp-edit"
+    },
+    "shell": {
+      "command": "target/debug/mcp-shell",
+      "args": [
+        "--workdir", "/home/user/workspace",
+        "--container", "sandbox"
+      ]
+    }
+  }
+}
