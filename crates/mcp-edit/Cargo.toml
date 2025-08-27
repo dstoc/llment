@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies]
+clap = { version = "4.5.45", features = ["derive"] }
 rmcp = { version = "0.4", features = ["transport-io"] }
 serde = { version = "1", features = ["derive"] }
 schemars = { version = "1", features = ["derive"] }
