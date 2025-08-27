@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use mcp_shell::ShellServer;
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::{self, EnvFilter};
@@ -22,8 +22,10 @@ async fn main() -> Result<()> {
 
     let server = if let Some(name) = args.container {
         ShellServer::new_podman(name, args.workdir).await?
-    } else {
+    } else if args.unsafe_local_access {
         ShellServer::new_local(args.workdir).await?
+    } else {
+        unreachable!()
     };
 
     let service = server.serve(stdio()).await.map_err(|e| {
@@ -36,10 +38,19 @@ async fn main() -> Result<()> {
 }
 
 #[derive(Parser)]
+#[command(group(
+    ArgGroup::new("required")
+        .required(true)
+        .multiple(false)
+        .args(&["container", "unsafe_local_access"]),
+))]
 struct Args {
     /// Run commands inside a Podman container
     #[arg(long)]
     container: Option<String>,
+    /// Run commands inside a local shell. Unsafe.
+    #[arg(long)]
+    unsafe_local_access: bool,
     /// Working directory for command execution
     #[arg(long)]
     workdir: String,
