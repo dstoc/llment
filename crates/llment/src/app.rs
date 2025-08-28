@@ -12,6 +12,7 @@ use crate::{
 };
 use clap::ValueEnum;
 use crossterm::event::Event;
+use globset::Glob;
 use llm::{
     ChatMessage, ChatMessageRequest, LlmClient, Provider,
     mcp::McpContext,
@@ -54,6 +55,21 @@ fn load_prompt(name: &str) -> Option<String> {
         }
         Ok(None)
     });
+    env.add_function(
+        "glob",
+        |pattern: String| -> Result<Vec<String>, minijinja::Error> {
+            let glob = Glob::new(&pattern).map_err(|e| {
+                minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())
+            })?;
+            let matcher = glob.compile_matcher();
+            let mut matches: Vec<String> = PromptAssets::iter()
+                .map(|f| f.as_ref().to_string())
+                .filter(|name| matcher.is_match(name))
+                .collect();
+            matches.sort();
+            Ok(matches)
+        },
+    );
     let jinja_name = format!("{}.md.jinja", name);
     if let Ok(tmpl) = env.get_template(&jinja_name) {
         tmpl.render(()).ok()
@@ -713,6 +729,12 @@ mod tests {
         assert!(content.contains("Outer."));
         assert!(content.contains("Inner."));
         assert!(content.contains("Deep."));
+    }
+
+    #[test]
+    fn load_md_jinja_with_glob() {
+        let content = load_prompt("sys/glob").unwrap();
+        assert!(content.contains("You are a helpful assistant."));
     }
 }
 

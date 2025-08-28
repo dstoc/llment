@@ -72,6 +72,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - `/prompt` loads a system/developer prompt from embedded markdown or jinja templates
             - supports `.md` and `.md.jinja` files
             - `.md.jinja` templates are rendered with miniJinja and may include other templates via `{% include %}`
+            - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
             - parameters correspond to `prompts/` paths without the extension
             - selected prompts replace existing system prompts and persist across `/clear`
     - dismissable error box above the input with an X button displays request errors
