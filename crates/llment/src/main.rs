@@ -22,6 +22,7 @@ use tokio_stream::wrappers::WatchStream;
 
 mod app;
 mod builtins;
+mod commands;
 mod component;
 mod components;
 mod conversation;
