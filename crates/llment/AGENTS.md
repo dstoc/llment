@@ -52,7 +52,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - cursor hidden when unfocused
       - trailing spaces do not move the cursor to the next line
       - recognizes `/` commands
-        - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/model`, and `/provider`
+        - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/model`, `/provider`, and `/prompt`
           - width adjusts to content
           - `Up`/`Down` navigate selection
           - `Tab` completes and `Enter` executes
@@ -67,6 +67,9 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - `/quit` exits the application
         - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
         - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
+        - `/prompt` loads a system/developer prompt from embedded markdown files
+            - parameters correspond to `prompts/` paths without the `.md` extension
+            - selected prompts replace existing system prompts and persist across `/clear`
     - dismissable error box above the input with an X button displays request errors
     - Esc exits the application
     - conversation pane has no keyboard interaction
