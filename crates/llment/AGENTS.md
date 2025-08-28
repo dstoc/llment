@@ -101,9 +101,11 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - code structure
     - conversation resides under `src/conversation` with modules for nodes and mutation helpers
     - command and parameter popups are separate components under `src/components` used by the prompt input
-    - bespoke component framework
+  - bespoke component framework
       - `Component` trait defines `init`, `handle_event`, `update`, `render`
       - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels
+  - terminal state management
+    - terminal modes enabled via `TerminalGuard` RAII to restore the screen even when the application panics
   - tool streaming
     - drains remaining events after request completes before clearing state
     - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
