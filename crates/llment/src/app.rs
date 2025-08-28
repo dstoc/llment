@@ -3,18 +3,16 @@ use std::sync::{Arc, Mutex};
 use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
-    components::{
-        ErrorPopup, Prompt,
-        completion::{Command, CommandInstance, Completion, CompletionResult},
-        input::PromptModel,
+    commands::{
+        ClearCommand, ModelCommand, PromptCommand, ProviderCommand, QuitCommand, RedoCommand,
     },
+    components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
 };
-use clap::ValueEnum;
 use crossterm::event::Event;
 use globset::Glob;
 use llm::{
-    ChatMessage, ChatMessageRequest, LlmClient, Provider,
+    ChatMessage, ChatMessageRequest, Provider,
     mcp::McpContext,
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -23,9 +21,8 @@ use ratatui::{prelude::*, widgets::Paragraph};
 use rust_embed::RustEmbed;
 use tokio::{
     sync::{
-        OnceCell,
         mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-        oneshot, watch,
+        watch,
     },
     task::JoinSet,
 };
@@ -35,17 +32,17 @@ use unicode_width::UnicodeWidthStr;
 
 #[derive(RustEmbed)]
 #[folder = "prompts"]
-struct PromptAssets;
+pub(crate) struct PromptAssets;
 
 #[cfg(test)]
 #[derive(RustEmbed)]
 #[folder = "tests/prompts"]
-struct TestPromptAssets;
+pub(crate) struct TestPromptAssets;
 
 #[cfg(test)]
-type Assets = TestPromptAssets;
+pub(crate) type Assets = TestPromptAssets;
 #[cfg(not(test))]
-type Assets = PromptAssets;
+pub(crate) type Assets = PromptAssets;
 
 fn load_prompt(name: &str) -> Option<String> {
     let mut env = Environment::new();
@@ -125,7 +122,7 @@ pub struct AppModel {
     pub should_quit: watch::Sender<bool>,
 }
 
-enum Update {
+pub(crate) enum Update {
     Prompt(String),
     Response(ToolEvent),
     History(Vec<ChatMessage>),
@@ -479,250 +476,6 @@ impl Component for App {
     }
 }
 
-struct ModelCommand {
-    client: Arc<Mutex<llm::Client>>,
-    tx: UnboundedSender<Update>,
-}
-
-impl Command for ModelCommand {
-    fn name(&self) -> &'static str {
-        "model"
-    }
-    fn description(&self) -> &'static str {
-        "Change the active model"
-    }
-    fn has_params(&self) -> bool {
-        true
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(ModelCommandInstance {
-            tx: self.tx.clone(),
-            client: self.client.clone(),
-            models: Arc::default(),
-            param: String::default(),
-        })
-    }
-}
-
-struct ModelCommandInstance {
-    tx: UnboundedSender<Update>,
-    client: Arc<Mutex<llm::Client>>,
-    models: Arc<OnceCell<Vec<String>>>,
-    param: String,
-}
-impl ModelCommandInstance {
-    fn matching(&self) -> Vec<Completion> {
-        if let Some(models) = self.models.get() {
-            let param = self.param.as_str();
-            models
-                .iter()
-                .filter(|model| model.starts_with(param))
-                .map(|model| Completion {
-                    name: model.clone(),
-                    description: "".to_string(),
-                    str: model.clone(),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }
-}
-impl CommandInstance for ModelCommandInstance {
-    fn update(&mut self, input: &str) -> CompletionResult {
-        let param = input.trim();
-        self.param = param.to_string();
-        if let Some(_) = self.models.get() {
-            let options = self.matching();
-            // TODO: if we don't match any, then it could be an error?
-            CompletionResult::Options { at: 0, options }
-        } else {
-            let client_handle = self.client.clone();
-            let models = self.models.clone();
-            let (tx, rx) = oneshot::channel();
-            tokio::spawn(async move {
-                let client = { client_handle.lock().unwrap().clone() };
-                let _ = models
-                    .get_or_init(|| async move {
-                        match client.list_models().await {
-                            Ok(models) => models,
-                            Err(_) => Vec::new(), // TODO: surface an error?
-                        }
-                    })
-                    .await;
-
-                let _ = tx.send(());
-            });
-            CompletionResult::Loading { at: 0, done: rx }
-        }
-    }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.param.is_empty() {
-            Err("no param".into())
-        } else {
-            println!("commit model??");
-            let _ = self.tx.send(Update::SetModel(self.param.clone()));
-            Ok(())
-        }
-    }
-}
-
-struct ProviderCommand {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl Command for ProviderCommand {
-    fn name(&self) -> &'static str {
-        "provider"
-    }
-    fn description(&self) -> &'static str {
-        "Change the active provider"
-    }
-    fn has_params(&self) -> bool {
-        true
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(ProviderCommandInstance {
-            needs_update: self.needs_update.clone(),
-            tx: self.update_tx.clone(),
-            param: String::new(),
-        })
-    }
-}
-
-struct ProviderCommandInstance {
-    needs_update: watch::Sender<bool>,
-    tx: UnboundedSender<Update>,
-    param: String,
-}
-
-impl ProviderCommandInstance {
-    fn provider_options(&self, typed: &str) -> Vec<Completion> {
-        Provider::value_variants()
-            .iter()
-            .filter_map(|p| {
-                let name = p.to_possible_value()?.get_name().to_string();
-                if name.starts_with(typed) {
-                    Some(Completion {
-                        name: name.clone(),
-                        description: String::new(),
-                        str: format!("{} ", name),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-}
-
-impl CommandInstance for ProviderCommandInstance {
-    fn update(&mut self, input: &str) -> CompletionResult {
-        self.param = input.trim().to_string();
-        let (prov, host_opt) = match self.param.split_once(' ') {
-            Some((p, h)) => (p, Some(h)),
-            None => (self.param.as_str(), None),
-        };
-        if host_opt.is_none() {
-            let options = self.provider_options(prov);
-            CompletionResult::Options { at: 0, options }
-        } else {
-            CompletionResult::Options {
-                at: 0,
-                options: vec![],
-            }
-        }
-    }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.param.is_empty() {
-            return Err("no provider".into());
-        }
-        let mut parts = self.param.split_whitespace();
-        let prov_str = parts.next().ok_or("no provider")?;
-        let provider = Provider::from_str(prov_str, true)?;
-        let host = parts.next().map(|s| s.to_string());
-        let _ = self.tx.send(Update::SetProvider(provider, host));
-        let _ = self.needs_update.send(true);
-        Ok(())
-    }
-}
-
-struct PromptCommand {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl Command for PromptCommand {
-    fn name(&self) -> &'static str {
-        "prompt"
-    }
-    fn description(&self) -> &'static str {
-        "Load a system prompt"
-    }
-    fn has_params(&self) -> bool {
-        true
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(PromptCommandInstance {
-            needs_update: self.needs_update.clone(),
-            update_tx: self.update_tx.clone(),
-            param: String::new(),
-        })
-    }
-}
-
-struct PromptCommandInstance {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-    param: String,
-}
-
-impl PromptCommandInstance {
-    fn prompt_options(&self, typed: &str) -> Vec<Completion> {
-        let mut names: Vec<String> = Assets::iter()
-            .filter_map(|f| {
-                let name = f.as_ref();
-                let name = name
-                    .strip_suffix(".md")
-                    .or_else(|| name.strip_suffix(".md.jinja"))?;
-                if name.starts_with(typed) {
-                    Some(name.to_string())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        names.sort();
-        names.dedup();
-        names
-            .into_iter()
-            .map(|name| Completion {
-                str: name.clone(),
-                description: String::new(),
-                name,
-            })
-            .collect()
-    }
-}
-
-impl CommandInstance for PromptCommandInstance {
-    fn update(&mut self, input: &str) -> CompletionResult {
-        self.param = input.trim().to_string();
-        let options = self.prompt_options(self.param.as_str());
-        CompletionResult::Options { at: 0, options }
-    }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.param.is_empty() {
-            Err("no prompt".into())
-        } else {
-            let _ = self.update_tx.send(Update::SetPrompt(self.param.clone()));
-            let _ = self.needs_update.send(true);
-            Ok(())
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::load_prompt;
@@ -745,118 +498,5 @@ mod tests {
     fn load_md_jinja_with_glob() {
         let content = load_prompt("sys/glob").unwrap();
         assert!(content.contains("You are a helpful assistant."));
-    }
-}
-
-struct QuitCommand {
-    should_quit: watch::Sender<bool>,
-}
-
-impl Command for QuitCommand {
-    fn name(&self) -> &'static str {
-        "quit"
-    }
-    fn description(&self) -> &'static str {
-        "Exit the application"
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(QuitCommandInstance {
-            should_quit: self.should_quit.clone(),
-        })
-    }
-}
-
-struct QuitCommandInstance {
-    should_quit: watch::Sender<bool>,
-}
-
-impl CommandInstance for QuitCommandInstance {
-    fn update(&mut self, _input: &str) -> CompletionResult {
-        CompletionResult::Options {
-            at: 0,
-            options: vec![],
-        }
-    }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let _ = self.should_quit.send(true);
-        Ok(())
-    }
-}
-
-struct RedoCommand {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl Command for RedoCommand {
-    fn name(&self) -> &'static str {
-        "redo"
-    }
-    fn description(&self) -> &'static str {
-        "Rewrite the last prompt"
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(RedoCommandInstance {
-            needs_update: self.needs_update.clone(),
-            update_tx: self.update_tx.clone(),
-        })
-    }
-}
-
-struct RedoCommandInstance {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl CommandInstance for RedoCommandInstance {
-    fn update(&mut self, _input: &str) -> CompletionResult {
-        CompletionResult::Options {
-            at: 0,
-            options: vec![],
-        }
-    }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let _ = self.update_tx.send(Update::Redo);
-        let _ = self.needs_update.send(true);
-        Ok(())
-    }
-}
-
-struct ClearCommand {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl Command for ClearCommand {
-    fn name(&self) -> &'static str {
-        "clear"
-    }
-    fn description(&self) -> &'static str {
-        "Clear the conversation history"
-    }
-    fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(ClearCommandInstance {
-            needs_update: self.needs_update.clone(),
-            update_tx: self.update_tx.clone(),
-        })
-    }
-}
-
-struct ClearCommandInstance {
-    needs_update: watch::Sender<bool>,
-    update_tx: UnboundedSender<Update>,
-}
-
-impl CommandInstance for ClearCommandInstance {
-    fn update(&mut self, _input: &str) -> CompletionResult {
-        CompletionResult::Options {
-            at: 0,
-            options: vec![],
-        }
-    }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let _ = self.update_tx.send(Update::Clear);
-        let _ = self.needs_update.send(true);
-        Ok(())
     }
 }
