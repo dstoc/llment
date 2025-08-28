@@ -27,10 +27,6 @@ impl McpContext {
         self.services.insert(service.prefix.clone(), service);
     }
 
-    pub fn merge(&mut self, other: McpContext) {
-        self.services.extend(other.services.into_iter());
-    }
-
     pub fn tool_infos(&self) -> Vec<ToolInfo> {
         let mut infos = Vec::new();
         for svc in self.services.values() {

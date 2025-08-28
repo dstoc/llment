@@ -56,7 +56,6 @@ Trait-based LLM client implementations for multiple providers.
     - implements `ToolExecutor` for MCP calls
     - tool call chunks insert assistant messages immediately before execution
     - accumulated streamed content is appended as an assistant message after the stream completes
-    - contexts can be merged to combine services
 - Test utilities
   - `TestProvider` implements `LlmClient`
     - captures `ChatMessageRequest`s for assertions
