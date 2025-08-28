@@ -32,7 +32,7 @@ use llm::{self, Provider};
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[arg(long, value_enum, default_value_t = Provider::Openai)]
+    #[arg(long, value_enum, default_value_t = Provider::LlamaServer)]
     provider: Provider,
     /// Model identifier to use
     #[arg(long, default_value = "gpt-oss:20b")]
