@@ -54,11 +54,11 @@ impl McpContext {
         self.services.insert(prefix, service);
     }
 
-    pub fn tool_infos(&self) -> Vec<ToolInfo> {
+    pub async fn tool_infos(&self) -> Vec<ToolInfo> {
         let mut infos = Vec::new();
         for svc in self.services.values() {
             let prefix = svc.service().prefix.clone();
-            let tools = svc.service().tools.blocking_read().clone();
+            let tools = svc.service().tools.read().await.clone();
             for tool in tools {
                 infos.push(ToolInfo {
                     name: format!("{}.{}", prefix, tool.name),
