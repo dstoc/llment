@@ -29,101 +29,103 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - minijinja
   - render prompt templates and includes
 
-## Features, Requirements and Constraints
+## Features
 - CLI arguments
   - `--provider` selects LLM backend
     - defaults to LlamaServer when omitted
   - `--model` sets the model identifier
   - `--host` optionally configures the LLM host URL; provider default used when omitted
   - `--mcp` loads MCP server configuration
-  - layout
-    - scrollable conversation pane
-      - mouse wheel adjusts scroll
-      - items snap to bottom with blank space above when short
-      - auto-scrolls when at bottom or after user sends a message
-      - collapsing or expanding assistant blocks preserves the current view
-    - text input field at the bottom
-      - supports multi-line editing without wrapping
-      - height expands to fit content
-      - Enter submits the message
-      - Ctrl-J inserts a new line
-      - standard shortcuts: Ctrl-W delete previous word, Ctrl-L clears input
-      - paste inserts clipboard text
-      - input starts focused to accept paste
-      - clicking the field focuses it
-      - cursor hidden when unfocused
-      - trailing spaces do not move the cursor to the next line
-      - recognizes `/` commands
-        - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/model`, `/provider`, and `/prompt`
-          - width adjusts to content
-          - `Up`/`Down` navigate selection
-          - `Tab` completes and `Enter` executes
-        - commands may accept parameters via a cursor-aligned popup
-        - `/model` offers available models from the connected provider
-            - `Up`/`Down` navigate model selection
-            - `Tab` completes the highlighted model
-            - switching model aborts in-flight requests without clearing history or resetting token counters
-          - `/provider` switches LLM backend and optional host
-            - host defaults to provider-specific configuration when omitted
-            - retains conversation history and token counters
-        - `/quit` exits the application
-        - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
-        - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
-        - `/prompt` loads a system/developer prompt from embedded markdown or jinja templates
-            - supports `.md` and `.md.jinja` files
-            - `.md.jinja` templates are rendered with miniJinja and may include other templates via `{% include %}`
-            - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
-            - parameters correspond to `prompts/` paths without the extension
-            - selected prompts replace existing system prompts and persist across `/clear`
-            - test templates live under `tests/prompts` and are only embedded in test builds
-    - dismissable error box above the input with an X button displays request errors
-    - Esc exits the application
-    - conversation pane has no keyboard interaction
-    - 1-line status area
-      - shows state, provider, and model on the left
-      - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
-    - conversation state tracking
-      - states: idle, thinking, calling tool, responding
-      - thinking chunks switch to thinking state
-      - content chunks switch to responding state
-      - tool start switches to calling tool state
-      - history, error, or clear updates reset to idle
-    - conversation items
-      - initialized with empty history
-      - user messages render inside a right-aligned rounded block
-      - assistant messages show working steps and final response
-        - working and tool sections toggle with mouse click
-        - final responses render markdown via termimad
-        - streaming updates append thinking text, tool calls, and tool results
-        - wrapped lines prefix continuation lines with `│`
-        - tool step headers show tool name italic and underlined
-          - failed tools display the name in red
-        - header displays status line summarizing assistant progress
-          - before response: "Thinking" plus completed tool count and current tool with spinner
-          - after response: "Thought for Ns" with completed tool count
-        - each assistant block tracks input, output, and total token usage
-    - items stored as a strongly typed `Node` enum implementing `ConvNode`
-      - helper methods append items and steps, bumping `content_rev` for caching
-    - partial items are clipped when scrolled
-    - line caches invalidate on width or content changes
-    - clicking items toggles collapse without selection
-  - code structure
-    - conversation resides under `src/conversation` with modules for nodes and mutation helpers
-    - command and parameter popups are separate components under `src/components` used by the prompt input
-    - app commands live in `src/commands` with one module per command
-      - `/prompt` embeds prompt assets and exposes a `load_prompt` helper
-  - bespoke component framework
-      - `Component` trait defines `init`, `handle_event`, `update`, `render`
-      - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels
-  - terminal state management
-    - terminal modes enabled via `TerminalGuard` RAII to restore the screen even when the application panics
-  - tool streaming
-    - drains remaining events after request completes before clearing state
-    - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
-  - MCP integration
+- Layout
+  - scrollable conversation pane
+    - mouse wheel adjusts scroll
+    - items snap to bottom with blank space above when short
+    - auto-scrolls when at bottom or after user sends a message
+    - collapsing or expanding assistant blocks preserves the current view
+  - text input field at the bottom
+    - supports multi-line editing without wrapping
+    - height expands to fit content
+    - Enter submits the message
+    - Ctrl-J inserts a new line
+    - standard shortcuts: Ctrl-W delete previous word, Ctrl-L clears input
+    - paste inserts clipboard text
+    - input starts focused to accept paste
+    - clicking the field focuses it
+    - cursor hidden when unfocused
+    - recognizes `/` commands
+      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/model`, `/provider`, and `/prompt`
+        - width adjusts to content
+        - `Up`/`Down` navigate selection
+        - `Tab` completes and `Enter` executes
+      - commands may accept parameters via a cursor-aligned popup
+      - `/model` offers available models from the connected provider
+        - `Up`/`Down` navigate model selection
+        - `Tab` completes the highlighted model
+      - `/provider` switches LLM backend and optional host
+        - host defaults to provider-specific configuration when omitted
+        - retains conversation history and token counters
+      - `/quit` exits the application
+      - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
+      - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
+      - `/prompt` loads a system/developer prompt from embedded markdown or jinja templates
+        - supports `.md` and `.md.jinja` files
+        - `.md.jinja` templates are rendered with miniJinja and may include other templates via `{% include %}`
+        - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
+        - parameters correspond to `prompts/` paths without the extension
+        - selected prompts replace existing system prompts and persist across `/clear`
+  - dismissable error box above the input with an X button displays request errors
+  - Esc exits the application
+  - 1-line status area
+    - shows state, provider, and model on the left
+    - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
+  - conversation state tracking
+    - states: idle, thinking, calling tool, responding
+    - thinking chunks switch to thinking state
+    - content chunks switch to responding state
+    - tool start switches to calling tool state
+    - history, error, or clear updates reset to idle
+  - conversation items
+    - initialized with empty history
+    - user messages render inside a right-aligned rounded block
+    - assistant messages show working steps and final response
+      - working and tool sections toggle with mouse click
+      - final responses render markdown via termimad
+      - streaming updates append thinking text, tool calls, and tool results
+      - wrapped lines prefix continuation lines with `│`
+      - tool step headers show tool name italic and underlined
+        - failed tools display the name in red
+      - header displays status line summarizing assistant progress
+        - before response: "Thinking" plus completed tool count and current tool with spinner
+        - after response: "Thought for Ns" with completed tool count
+      - each assistant block tracks input, output, and total token usage
+  - items stored as a strongly typed `Node` enum implementing `ConvNode`
+    - helper methods append items and steps, bumping `content_rev` for caching
+  - line caches invalidate on width or content changes
+  - clicking items toggles collapse without selection
+- Code structure
+  - conversation resides under `src/conversation` with modules for nodes and mutation helpers
+  - command and parameter popups are separate components under `src/components` used by the prompt input
+  - app commands live in `src/commands` with one module per command
+    - `/prompt` embeds prompt assets and exposes a `load_prompt` helper
+- Bespoke component framework
+  - `Component` trait defines `init`, `handle_event`, `update`, `render`
+  - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels
+- Terminal state management
+  - terminal modes enabled via `TerminalGuard` RAII to restore the screen even when the application panics
+- Tool streaming
+  - drains remaining events after request completes before clearing state
+  - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
+- MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
-  - MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix
-- built-in tools registered via `setup_builtin_tools`
-    - `setup_builtin_tools` returns a running `McpService` inserted into the shared `McpContext`
-    - `McpContext` retains running service handles
-    - `get_message_count` returns the number of chat messages
+- Built-in tools registered via `setup_builtin_tools`
+  - `setup_builtin_tools` returns a running `McpService` inserted into the shared `McpContext`
+  - `McpContext` retains running service handles
+  - `get_message_count` returns the number of chat messages
+
+## Constraints
+- trailing spaces do not move the cursor to the next line
+- test templates live under `tests/prompts` and are only embedded in test builds
+- conversation pane has no keyboard interaction
+- switching model aborts in-flight requests without clearing history or resetting token counters
+- partial items are clipped when scrolled
+- MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix

@@ -17,30 +17,32 @@ MCP server exposing shell command execution.
 - tracing, tracing-subscriber
   - structured logging
 
-## Features, Requirements and Constraints
+## Features
 - runs commands in a fresh bash process locally or in a Podman container
   - `--container` flag selects container name
-  - `--workdir` flag sets required default working directory
-    - the directory must already exist; it is not created automatically
+  - `--workdir` flag sets default working directory
 - tools
   - `run`
     - executes a single command with optional stdin
     - accepts optional `workdir` overriding the server's default
-    - returns up to 10k characters of combined stdout/stderr
-    - waits at most 10 seconds for output or completion (limit configurable)
   - `wait`
-    - waits up to another 10 seconds for additional output (limit configurable)
-    - once the 10k output limit is reached, further output is not returned
     - reports if extra output was produced after the limit
   - `terminate`
     - sends SIGTERM to abort the running command
-- only one command may run at a time
-  - finished commands free the slot immediately, allowing sequential runs
 - tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)
 - tool results omit empty `stdout` and `stderr` fields
-- timed-out commands keep running until waited or terminated
-  - subsequent run calls error with "command already running"
 - announces available tools to clients via MCP `list_tools`
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
   - optional parameters prefix descriptions with "Optional."
+
+## Constraints
+- working directory must already exist; it is not created automatically
+- `run` returns up to 10k characters of combined stdout/stderr
+- `run` waits at most 10 seconds for output or completion (limit configurable)
+- `wait` waits up to another 10 seconds for additional output (limit configurable)
+- once the 10k output limit is reached, further output is not returned
+- only one command may run at a time
+  - finished commands free the slot immediately, allowing sequential runs
+- timed-out commands keep running until waited or terminated
+  - subsequent `run` calls error with "command already running"

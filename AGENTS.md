@@ -19,11 +19,11 @@ The project is divided into crates:
 MCP: Model Context Protocol
 
 # AGENTS.md protocol
-Each crate/component has its own AGENTS.md file that summarizes the component and the features/requirements/constraints that have been established so far.
+Each crate/component has its own AGENTS.md file that summarizes the component and the features and constraints that have been established so far.
 
 At the end of each task, for the corresponding AGENTS.md files:
-* check that no listed features/requirements/constraints have been accidentally removed or violated.
-* update the list to add/remove/update any features/requirements/constraints involved in this specific task.
+* check that no listed features or constraints have been accidentally removed or violated.
+* update the list to add, remove, or modify any features or constraints involved in this specific task.
 
 The list should always be formatted as brief bullet points with hierarchical structure. Sub-lists may be nested as deeply as necessary. Minor/unimportant details should be omitted. e.g:
 * The textbox allows both prompts and commands
@@ -39,5 +39,8 @@ Brief description of the component.
 ## Dependencies
 A bullet-point list of key dependencies and the reason they are needed. Minor dependencies are omitted.
 
-# Features, Requirements and Constraints
+## Features
 A bullet-point list of the component's features.
+
+## Constraints
+A bullet-point list of the component's constraints.

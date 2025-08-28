@@ -10,9 +10,12 @@ Simple MCP server that provides a greeting tool.
   - structured logging
   - uses `tracing-subscriber` for output formatting
 
-## Features, Requirements and Constraints
+## Features
 - tools
   - `hello`
     - returns "Hello, world!"
 - server
   - runs over stdio
+
+## Constraints
+- None
