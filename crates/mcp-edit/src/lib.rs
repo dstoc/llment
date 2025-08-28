@@ -97,8 +97,8 @@ struct ReadManyFilesParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
-struct WriteFileParams {
-    /// Path where the file will be written.
+struct CreateFileParams {
+    /// Path where the file will be created.
     file_path: String,
     /// Content to write to the file.
     content: String,
@@ -588,12 +588,12 @@ impl FsServer {
         Ok(CallToolResult::success(contents))
     }
 
-    #[tool(description = "Write content to a file, creating it if necessary.")]
-    pub async fn write_file(
+    #[tool(description = "Create a new file with the given content.")]
+    pub async fn create_file(
         &self,
-        Parameters(params): Parameters<WriteFileParams>,
+        Parameters(params): Parameters<CreateFileParams>,
     ) -> Result<CallToolResult, McpError> {
-        let WriteFileParams { file_path, content } = params;
+        let CreateFileParams { file_path, content } = params;
         let canonical_path = self.resolve_for_write(&file_path)?;
         if canonical_path.exists() {
             return Err(McpError::invalid_params(
@@ -609,14 +609,14 @@ impl FsServer {
         fs::write(&canonical_path, content).map_err(|e| {
             McpError::internal_error(
                 format!(
-                    "failed to write file {}: {e}",
+                    "failed to create file {}: {e}",
                     self.display_path(&canonical_path)
                 ),
                 None,
             )
         })?;
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "Wrote file: {}",
+            "Created file: {}",
             self.display_path(&canonical_path)
         ))]))
     }
@@ -921,12 +921,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_file_writes_content() {
+    async fn create_file_writes_content() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("new.txt");
         let server = FsServer::new(dir.path());
         server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: file_path.to_string_lossy().to_string(),
                 content: "hello".into(),
             }))
@@ -937,13 +937,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_file_errors_if_exists() {
+    async fn create_file_errors_if_exists() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("new.txt");
         fs::write(&file_path, "hi").unwrap();
         let server = FsServer::new(dir.path());
         let err = server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: file_path.to_string_lossy().to_string(),
                 content: "bye".into(),
             }))
@@ -1048,11 +1048,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_file_parent_missing_uses_mount_point() {
+    async fn create_file_parent_missing_uses_mount_point() {
         let dir = tempdir().unwrap();
         let server = FsServer::new(dir.path());
         let err = server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: "subdir/new.txt".into(),
                 content: "hi".into(),
             }))
@@ -1078,12 +1078,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_file_path_is_directory() {
+    async fn create_file_path_is_directory() {
         let dir = tempdir().unwrap();
         fs::create_dir(dir.path().join("dir")).unwrap();
         let server = FsServer::new(dir.path());
         let err = server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: "dir".into(),
                 content: "hi".into(),
             }))
@@ -1141,12 +1141,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_file_outside_workspace() {
+    async fn create_file_outside_workspace() {
         let workspace = tempdir().unwrap();
         let outside = tempdir().unwrap();
         let server = FsServer::new(workspace.path());
         let err = server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: outside.path().join("a.txt").to_string_lossy().to_string(),
                 content: "hi".into(),
             }))
@@ -1259,7 +1259,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_file_outside_workspace_masks_existence() {
+    async fn create_file_outside_workspace_masks_existence() {
         let workspace = tempdir().unwrap();
         let outside = tempdir().unwrap();
         let existing = outside.path().join("exists.txt");
@@ -1267,14 +1267,14 @@ mod tests {
         let missing = outside.path().join("missing.txt");
         let server = FsServer::new(workspace.path());
         let err_existing = server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: existing.to_string_lossy().to_string(),
                 content: "new".into(),
             }))
             .await
             .unwrap_err();
         let err_missing = server
-            .write_file(Parameters(WriteFileParams {
+            .create_file(Parameters(CreateFileParams {
                 file_path: missing.to_string_lossy().to_string(),
                 content: "new".into(),
             }))

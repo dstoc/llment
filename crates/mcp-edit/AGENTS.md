@@ -35,7 +35,7 @@ MCP server offering file system editing utilities.
     - supports offset/limit and base64-encoded images
   - `read_many_files`
     - reads and concatenates multiple files using glob patterns
-  - `write_file`
+  - `create_file`
     - creates parent directories as needed
     - errors if file already exists
   - `glob`
