@@ -84,7 +84,8 @@ impl App {
         let mcp_context = Arc::new(McpContext::default());
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
-        let client = llm::client_from(args.provider, args.model.clone(), Some(&args.host)).unwrap();
+        let client =
+            llm::client_from(args.provider, args.model.clone(), args.host.as_deref()).unwrap();
         let client = Arc::new(Mutex::new(client));
         let tasks = JoinSet::new();
         let request_tasks = JoinSet::new();
