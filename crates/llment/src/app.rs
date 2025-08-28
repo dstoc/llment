@@ -18,6 +18,7 @@ use llm::{
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
+use rust_embed::RustEmbed;
 use tokio::{
     sync::{
         OnceCell,
@@ -29,6 +30,10 @@ use tokio::{
 use tokio_stream::{StreamExt, wrappers::WatchStream};
 use tui_realm_stdlib::states::SpinnerStates;
 use unicode_width::UnicodeWidthStr;
+
+#[derive(RustEmbed)]
+#[folder = "prompts"]
+struct PromptAssets;
 
 enum ConversationState {
     Idle,
@@ -56,6 +61,7 @@ pub struct App {
     update_rx: UnboundedReceiver<Update>,
     ignore_responses: bool,
     error: ErrorPopup,
+    selected_prompt: Option<String>,
 }
 
 pub struct AppModel {
@@ -71,6 +77,7 @@ enum Update {
     Error(String),
     SetModel(String),
     SetProvider(Provider, Option<String>),
+    SetPrompt(String),
     Redo,
     Clear,
 }
@@ -103,6 +110,10 @@ impl App {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
+                    Box::new(PromptCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
                     Box::new(RedoCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
@@ -130,6 +141,7 @@ impl App {
             update_rx,
             ignore_responses: false,
             error: ErrorPopup::new(needs_redraw),
+            selected_prompt: None,
         }
     }
 
@@ -179,6 +191,19 @@ impl App {
                     Err(e) => (format!("Tool Failed: {}", e), true),
                 };
                 self.conversation.update_tool_result(id, text, failed);
+            }
+        }
+    }
+
+    fn apply_prompt(&mut self) {
+        if let Some(name) = &self.selected_prompt {
+            if let Some(file) = PromptAssets::get(&format!("{}.md", name)) {
+                let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
+                let mut history = self.chat_history.lock().unwrap();
+                while matches!(history.first(), Some(ChatMessage::System(_))) {
+                    history.remove(0);
+                }
+                history.insert(0, ChatMessage::system(content));
             }
         }
     }
@@ -320,6 +345,10 @@ impl Component for App {
                         let _ = self.model.needs_redraw.send(true);
                     }
                 }
+                Ok(Update::SetPrompt(name)) => {
+                    self.selected_prompt = Some(name);
+                    self.apply_prompt();
+                }
                 Ok(Update::Clear) => {
                     self.abort_requests();
                     self.chat_history.lock().unwrap().clear();
@@ -327,6 +356,7 @@ impl Component for App {
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
                     self.state = ConversationState::Idle;
+                    self.apply_prompt();
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
@@ -561,6 +591,75 @@ impl CommandInstance for ProviderCommandInstance {
         let _ = self.tx.send(Update::SetProvider(provider, host));
         let _ = self.needs_update.send(true);
         Ok(())
+    }
+}
+
+struct PromptCommand {
+    needs_update: watch::Sender<bool>,
+    update_tx: UnboundedSender<Update>,
+}
+
+impl Command for PromptCommand {
+    fn name(&self) -> &'static str {
+        "prompt"
+    }
+    fn description(&self) -> &'static str {
+        "Load a system prompt"
+    }
+    fn has_params(&self) -> bool {
+        true
+    }
+    fn instance(&self) -> Box<dyn CommandInstance> {
+        Box::new(PromptCommandInstance {
+            needs_update: self.needs_update.clone(),
+            update_tx: self.update_tx.clone(),
+            param: String::new(),
+        })
+    }
+}
+
+struct PromptCommandInstance {
+    needs_update: watch::Sender<bool>,
+    update_tx: UnboundedSender<Update>,
+    param: String,
+}
+
+impl PromptCommandInstance {
+    fn prompt_options(&self, typed: &str) -> Vec<Completion> {
+        let mut options: Vec<Completion> = PromptAssets::iter()
+            .filter_map(|f| {
+                let name = f.as_ref();
+                if let Some(name) = name.strip_suffix(".md") {
+                    if name.starts_with(typed) {
+                        return Some(Completion {
+                            name: name.to_string(),
+                            description: String::new(),
+                            str: name.to_string(),
+                        });
+                    }
+                }
+                None
+            })
+            .collect();
+        options.sort_by(|a, b| a.name.cmp(&b.name));
+        options
+    }
+}
+
+impl CommandInstance for PromptCommandInstance {
+    fn update(&mut self, input: &str) -> CompletionResult {
+        self.param = input.trim().to_string();
+        let options = self.prompt_options(self.param.as_str());
+        CompletionResult::Options { at: 0, options }
+    }
+    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.param.is_empty() {
+            Err("no prompt".into())
+        } else {
+            let _ = self.update_tx.send(Update::SetPrompt(self.param.clone()));
+            let _ = self.needs_update.send(true);
+            Ok(())
+        }
     }
 }
 
