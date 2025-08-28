@@ -17,6 +17,7 @@ use llm::{
     mcp::McpContext,
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
+use minijinja::{Environment, Source, State};
 use ratatui::{prelude::*, widgets::Paragraph};
 use rust_embed::RustEmbed;
 use tokio::{
@@ -34,6 +35,40 @@ use unicode_width::UnicodeWidthStr;
 #[derive(RustEmbed)]
 #[folder = "prompts"]
 struct PromptAssets;
+
+fn include_template(state: &State, name: String) -> Result<String, minijinja::Error> {
+    let tmpl_name = if name.ends_with(".md.jinja") {
+        name
+    } else {
+        format!("{}.md.jinja", name)
+    };
+    let tmpl = state.env().get_template(&tmpl_name)?;
+    tmpl.render(())
+}
+
+fn load_prompt(name: &str) -> Option<String> {
+    let mut env = Environment::new();
+    env.add_function("include", include_template);
+    let mut source = Source::new();
+    for f in PromptAssets::iter() {
+        let fname = f.as_ref();
+        if fname.ends_with(".md.jinja") {
+            if let Some(file) = PromptAssets::get(fname) {
+                let content = std::str::from_utf8(file.data.as_ref()).unwrap();
+                source.add_template(fname, content).unwrap();
+            }
+        }
+    }
+    env.set_source(source);
+    let jinja_name = format!("{}.md.jinja", name);
+    if let Ok(tmpl) = env.get_template(&jinja_name) {
+        tmpl.render(()).ok()
+    } else if let Some(file) = PromptAssets::get(&format!("{}.md", name)) {
+        Some(String::from_utf8_lossy(file.data.as_ref()).to_string())
+    } else {
+        None
+    }
+}
 
 enum ConversationState {
     Idle,
@@ -197,8 +232,7 @@ impl App {
 
     fn apply_prompt(&mut self) {
         if let Some(name) = &self.selected_prompt {
-            if let Some(file) = PromptAssets::get(&format!("{}.md", name)) {
-                let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
+            if let Some(content) = load_prompt(name) {
                 let mut history = self.chat_history.lock().unwrap();
                 while matches!(history.first(), Some(ChatMessage::System(_))) {
                     history.remove(0);
@@ -626,23 +660,29 @@ struct PromptCommandInstance {
 
 impl PromptCommandInstance {
     fn prompt_options(&self, typed: &str) -> Vec<Completion> {
-        let mut options: Vec<Completion> = PromptAssets::iter()
+        let mut names: Vec<String> = PromptAssets::iter()
             .filter_map(|f| {
                 let name = f.as_ref();
-                if let Some(name) = name.strip_suffix(".md") {
-                    if name.starts_with(typed) {
-                        return Some(Completion {
-                            name: name.to_string(),
-                            description: String::new(),
-                            str: name.to_string(),
-                        });
-                    }
+                let name = name
+                    .strip_suffix(".md")
+                    .or_else(|| name.strip_suffix(".md.jinja"))?;
+                if name.starts_with(typed) {
+                    Some(name.to_string())
+                } else {
+                    None
                 }
-                None
             })
             .collect();
-        options.sort_by(|a, b| a.name.cmp(&b.name));
-        options
+        names.sort();
+        names.dedup();
+        names
+            .into_iter()
+            .map(|name| Completion {
+                str: name.clone(),
+                description: String::new(),
+                name,
+            })
+            .collect()
     }
 }
 
@@ -660,6 +700,25 @@ impl CommandInstance for PromptCommandInstance {
             let _ = self.needs_update.send(true);
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_prompt;
+
+    #[test]
+    fn load_md_prompt() {
+        let content = load_prompt("sys/hello").unwrap();
+        assert!(content.contains("You are a helpful assistant."));
+    }
+
+    #[test]
+    fn load_md_jinja_with_include() {
+        let content = load_prompt("sys/outer").unwrap();
+        assert!(content.contains("Outer."));
+        assert!(content.contains("Inner."));
+        assert!(content.contains("Deep."));
     }
 }
 

@@ -1586,6 +1586,7 @@ dependencies = [
  "futures",
  "insta",
  "llm",
+ "minijinja",
  "ratatui",
  "rmcp 0.4.0",
  "rust-embed",
@@ -1718,6 +1719,15 @@ checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
 dependencies = [
  "mime",
  "unicase",
+]
+
+[[package]]
+name = "minijinja"
+version = "2.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9f264d75233323f4b7d2f03aefe8a990690cdebfbfe26ea86bcbaec5e9ac990"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
