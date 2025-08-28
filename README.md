@@ -38,6 +38,9 @@ Run with defaults (preferred):
 > ```
 
 ## Model Context Protocol servers
+> [!WARNING]
+> There are currently no approval steps in order for an agent to execute functions exposed by MCP servers.
+
 `--mcp file.json` loads a claude-code like mcp.json file.
 
 For example, the following configuration loads two STDIO based MCP servers.
