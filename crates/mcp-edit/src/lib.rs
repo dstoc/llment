@@ -137,6 +137,7 @@ pub struct FsServer {
     tool_router: ToolRouter<Self>,
     workspace_root: PathBuf,
     mount_point: PathBuf,
+    modification_disabled: bool,
 }
 
 impl FsServer {
@@ -243,7 +244,14 @@ impl FsServer {
             tool_router: Self::tool_router(),
             workspace_root,
             mount_point: mount_point.into(),
+            modification_disabled: false,
         }
+    }
+
+    pub fn disable_modification_tools(&mut self) {
+        self.modification_disabled = true;
+        self.tool_router.remove_route::<(), ()>("replace");
+        self.tool_router.remove_route::<(), ()>("create_file");
     }
 
     #[tool(
@@ -253,6 +261,10 @@ impl FsServer {
         &self,
         Parameters(params): Parameters<ReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
+        assert!(
+            !self.modification_disabled,
+            "replace called when modification tools disabled"
+        );
         let ReplaceParams {
             file_path,
             old_string,
@@ -593,6 +605,10 @@ impl FsServer {
         &self,
         Parameters(params): Parameters<CreateFileParams>,
     ) -> Result<CallToolResult, McpError> {
+        assert!(
+            !self.modification_disabled,
+            "create_file called when modification tools disabled"
+        );
         let CreateFileParams { file_path, content } = params;
         let canonical_path = self.resolve_for_write(&file_path)?;
         if canonical_path.exists() {
@@ -1282,5 +1298,16 @@ mod tests {
             .unwrap_err();
         assert_eq!(err_existing.message, err_missing.message);
         assert_eq!(err_existing.message, "path must be within the workspace");
+    }
+
+    #[test]
+    fn disable_modification_tools_removes_routes() {
+        let dir = tempdir().unwrap();
+        let mut server = FsServer::new(dir.path());
+        assert!(server.tool_router.has_route("replace"));
+        assert!(server.tool_router.has_route("create_file"));
+        server.disable_modification_tools();
+        assert!(!server.tool_router.has_route("replace"));
+        assert!(!server.tool_router.has_route("create_file"));
     }
 }
