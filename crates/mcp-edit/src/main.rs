@@ -22,13 +22,14 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting mcp-edit server");
 
-    let service = FsServer::new_with_mount_point(args.workspace_root, args.mount_point)
-        .serve(stdio())
-        .await
-        .map_err(|e| {
-            tracing::error!("serving error: {:?}", e);
-            e
-        })?;
+    let mut server = FsServer::new_with_mount_point(args.workspace_root, args.mount_point);
+    if !args.allow_modification {
+        server.disable_modification_tools();
+    }
+    let service = server.serve(stdio()).await.map_err(|e| {
+        tracing::error!("serving error: {:?}", e);
+        e
+    })?;
 
     service.waiting().await?;
     Ok(())
@@ -47,4 +48,8 @@ struct Args {
     /// Show trace
     #[arg(long)]
     trace: bool,
+
+    /// Allow tools that modify files
+    #[arg(long)]
+    allow_modification: bool,
 }

@@ -70,7 +70,9 @@ No other "mcp.json" options or features beyond those used above are currently su
 The mcp-edit server provides a set of file system tools similar to [gemini-cli](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/file-system.md).
 
 > [!WARNING]
-> By default, mcp-server will provide access to the current working directory.
+> By default, mcp-edit provides read-only access to the current working directory.
+
+Pass `--allow-modification` to enable file modification tools.
 
 ```
 Usage: mcp-edit [OPTIONS] [WORKSPACE_ROOT] [MOUNT_POINT]
@@ -80,8 +82,9 @@ Arguments:
   [MOUNT_POINT]     Mount point path used in responses (default: `/home/user/workspace`) [default: /home/user/workspace]
 
 Options:
-      --trace  Show trace
-  -h, --help   Print help
+      --trace               Show trace
+      --allow-modification  Enable file modification tools
+  -h, --help                Print help
 ```
 
 ### mcp-shell
