@@ -30,6 +30,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 ## Features, Requirements and Constraints
 - CLI arguments
   - `--provider` selects LLM backend
+    - defaults to LlamaServer when omitted
   - `--model` sets the model identifier
   - `--host` optionally configures the LLM host URL; provider default used when omitted
   - `--mcp` loads MCP server configuration
