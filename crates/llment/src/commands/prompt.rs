@@ -10,17 +10,17 @@ use crate::{
 
 #[derive(RustEmbed)]
 #[folder = "prompts"]
-pub(crate) struct PromptAssets;
+struct PromptAssets;
 
 #[cfg(test)]
 #[derive(RustEmbed)]
 #[folder = "tests/prompts"]
-pub(crate) struct TestPromptAssets;
+struct TestPromptAssets;
 
 #[cfg(test)]
-pub(crate) type Assets = TestPromptAssets;
+type Assets = TestPromptAssets;
 #[cfg(not(test))]
-pub(crate) type Assets = PromptAssets;
+type Assets = PromptAssets;
 
 pub(crate) fn load_prompt(name: &str) -> Option<String> {
     let mut env = Environment::new();
