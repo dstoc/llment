@@ -111,8 +111,8 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - in-flight request tasks tracked in a dedicated `JoinSet` to support cancellation
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
-  - MCP tool names are prefixed with the server name
-  - built-in tools registered in a separate context returned by `setup_builtin_tools`
-    - `setup_builtin_tools` returns the context and a running service handle
-    - `App` retains service handles to keep MCP transports alive
+  - MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix
+  - built-in tools registered via `setup_builtin_tools`
+    - `setup_builtin_tools` returns an `McpService` inserted into the shared `McpContext`
+    - `McpContext` retains running service handles
     - `get_message_count` returns the number of chat messages

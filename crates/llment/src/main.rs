@@ -81,10 +81,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let (mcp_ctx, services) = if let Some(path) = &args.mcp {
+    let mcp_ctx = if let Some(path) = &args.mcp {
         load_mcp_servers(path).await.expect("mcp")
     } else {
-        (McpContext::default(), Vec::new())
+        McpContext::default()
     };
 
     let _guard = TerminalGuard::new()?;
@@ -105,7 +105,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         },
         args,
     );
-    app.init(mcp_ctx, services).await;
+    app.init(mcp_ctx).await;
     Component::init(&mut app);
 
     tokio::spawn(event_loop(tx));
