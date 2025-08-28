@@ -24,12 +24,13 @@ Trait-based LLM client implementations for multiple providers.
 ## Features, Requirements and Constraints
 - LLM clients
   - `LlmClient` trait streams chat responses and lists supported model names
-  - implementations for Ollama, OpenAI, and Gemini
+  - implementations for Ollama, OpenAI, LlamaServer, and Gemini
 - Provider selection
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider and model
     - stores provider and model names for later retrieval
     - uses provider-specific default host when none is supplied
+      - LlamaServer defaults to `http://localhost:8000/v1` and wraps the OpenAI client
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
