@@ -1,38 +1,67 @@
 use async_trait::async_trait;
 use rmcp::{
+    ClientHandler,
     model::{CallToolRequestParam, RawContent},
-    service::{RoleClient, RunningService, ServiceExt},
+    service::{NotificationContext, RoleClient, RunningService, ServiceExt},
     transport::TokioChildProcess,
 };
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use tokio::process::Command;
+use tokio::{process::Command, sync::RwLock};
 
 use crate::{Schema, ToolInfo, tools::ToolExecutor};
 
 pub struct McpService {
     pub prefix: String,
-    pub tools: Vec<ToolInfo>,
-    pub service: RunningService<RoleClient, ()>,
+    pub tools: RwLock<Vec<ToolInfo>>,
+}
+
+impl ClientHandler for McpService {
+    fn on_tool_list_changed(
+        &self,
+        context: NotificationContext<RoleClient>,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
+        async move {
+            if let Ok(tools) = context.peer.list_all_tools().await {
+                let mut infos = Vec::new();
+                for tool in tools {
+                    if let Ok(schema) =
+                        serde_json::from_value::<Schema>(tool.schema_as_json_value())
+                    {
+                        let description = tool.description.clone().unwrap_or_default().to_string();
+                        infos.push(ToolInfo {
+                            name: tool.name.to_string(),
+                            description,
+                            parameters: schema,
+                        });
+                    }
+                }
+                *self.tools.write().await = infos;
+            }
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct McpContext {
-    services: HashMap<String, McpService>,
+    services: HashMap<String, RunningService<RoleClient, McpService>>,
 }
 
 impl McpContext {
-    pub fn insert(&mut self, service: McpService) {
-        self.services.insert(service.prefix.clone(), service);
+    pub fn insert(&mut self, service: RunningService<RoleClient, McpService>) {
+        let prefix = service.service().prefix.clone();
+        self.services.insert(prefix, service);
     }
 
     pub fn tool_infos(&self) -> Vec<ToolInfo> {
         let mut infos = Vec::new();
         for svc in self.services.values() {
-            for tool in &svc.tools {
+            let prefix = svc.service().prefix.clone();
+            let tools = svc.service().tools.blocking_read().clone();
+            for tool in tools {
                 infos.push(ToolInfo {
-                    name: format!("{}.{}", svc.prefix, tool.name),
+                    name: format!("{}.{}", prefix, tool.name),
                     description: tool.description.clone(),
                     parameters: tool.parameters.clone(),
                 });
@@ -56,7 +85,7 @@ impl ToolExecutor for McpContext {
             .services
             .get(prefix)
             .ok_or_else(|| format!("Service {prefix} not found"))?;
-        let peer = svc.service.peer().clone();
+        let peer = svc.peer().clone();
         let result = peer
             .call_tool(CallToolRequestParam {
                 name: tool_name.to_string().into(),
@@ -110,10 +139,14 @@ pub async fn load_mcp_servers(
             cmd.env(k, v);
         }
         let process = TokioChildProcess::new(cmd)?;
-        let service = ().serve(process).await?;
-        let tools = service.list_tools(Default::default()).await?;
+        let handler = McpService {
+            prefix: server_name.clone(),
+            tools: RwLock::new(Vec::new()),
+        };
+        let service = handler.serve(process).await?;
+        let tools = service.peer().list_all_tools().await?;
         let mut infos = Vec::new();
-        for tool in tools.tools {
+        for tool in tools {
             let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
             let description = tool.description.clone().unwrap_or_default().to_string();
             infos.push(ToolInfo {
@@ -122,11 +155,8 @@ pub async fn load_mcp_servers(
                 parameters: schema,
             });
         }
-        ctx.insert(McpService {
-            prefix: server_name.clone(),
-            tools: infos,
-            service,
-        });
+        *service.service().tools.write().await = infos;
+        ctx.insert(service);
     }
     Ok(ctx)
 }
