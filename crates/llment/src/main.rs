@@ -86,9 +86,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let (needs_update_tx, needs_update_rx) = watch::channel(false);
     let (should_quit_tx, should_quit_rx) = watch::channel(false);
     let (mcp_ctx, services) = if let Some(path) = &args.mcp {
-        load_mcp_servers(path, needs_update_tx.clone())
-            .await
-            .expect("mcp")
+        load_mcp_servers(path).await.expect("mcp")
     } else {
         (Arc::new(RwLock::new(McpContext::default())), Vec::new())
     };
@@ -107,8 +105,6 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         },
         args,
     );
-    let services: Vec<Box<dyn std::any::Any + Send>> =
-        services.into_iter().map(|s| Box::new(s) as _).collect();
     app.init(mcp_ctx, services).await;
     Component::init(&mut app);
 

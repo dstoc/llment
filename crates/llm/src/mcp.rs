@@ -11,7 +11,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::{process::Command, sync::watch};
+use tokio::process::Command;
 
 use crate::{Schema, ToolInfo, tools::ToolExecutor};
 
@@ -47,7 +47,12 @@ struct McpServer {
 pub struct McpClient {
     server_name: String,
     ctx: Arc<RwLock<McpContext>>,
-    needs_update: watch::Sender<bool>,
+}
+
+impl McpClient {
+    pub fn new(server_name: String, ctx: Arc<RwLock<McpContext>>) -> Self {
+        Self { server_name, ctx }
+    }
 }
 
 impl ClientHandler for McpClient {
@@ -57,7 +62,6 @@ impl ClientHandler for McpClient {
     ) -> impl std::future::Future<Output = ()> + Send + '_ {
         let server = self.server_name.clone();
         let ctx = self.ctx.clone();
-        let needs_update = self.needs_update.clone();
         async move {
             if let Ok(tools) = context.peer.list_tools(Default::default()).await {
                 let mut new_tools = HashMap::new();
@@ -85,7 +89,6 @@ impl ClientHandler for McpClient {
                     guard.tools.extend(new_tools);
                     guard.tool_infos.extend(new_infos);
                 }
-                let _ = needs_update.send(true);
             }
         }
     }
@@ -93,7 +96,6 @@ impl ClientHandler for McpClient {
 
 pub async fn load_mcp_servers(
     path: &str,
-    needs_update: watch::Sender<bool>,
 ) -> Result<
     (
         Arc<RwLock<McpContext>>,
@@ -112,11 +114,7 @@ pub async fn load_mcp_servers(
             cmd.env(k, v);
         }
         let process = TokioChildProcess::new(cmd)?;
-        let handler = McpClient {
-            server_name: server_name.clone(),
-            ctx: ctx.clone(),
-            needs_update: needs_update.clone(),
-        };
+        let handler = McpClient::new(server_name.clone(), ctx.clone());
         let service = handler.serve(process).await?;
         let tools = service.list_tools(Default::default()).await?;
         {

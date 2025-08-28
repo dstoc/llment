@@ -14,10 +14,11 @@ use clap::ValueEnum;
 use crossterm::event::Event;
 use llm::{
     ChatMessage, ChatMessageRequest, LlmClient, Provider,
-    mcp::{McpContext, McpToolExecutor},
+    mcp::{McpClient, McpContext, McpToolExecutor},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
+use rmcp::service::{RoleClient, RunningService};
 use tokio::{
     sync::{
         OnceCell,
@@ -45,7 +46,7 @@ pub struct App {
     client: Arc<Mutex<llm::Client>>,
     tool_executor: Arc<dyn ToolExecutor>,
     mcp_context: Arc<RwLock<McpContext>>,
-    mcp_services: Vec<Box<dyn std::any::Any + Send>>,
+    mcp_services: Vec<RunningService<RoleClient, McpClient>>,
     session_in_tokens: u32,
     session_out_tokens: u32,
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
@@ -142,14 +143,14 @@ impl App {
     pub async fn init(
         &mut self,
         mcp_context: Arc<RwLock<McpContext>>,
-        mut services: Vec<Box<dyn std::any::Any + Send>>,
+        mut services: Vec<RunningService<RoleClient, McpClient>>,
     ) {
         let (builtin_ctx, builtin_service) = setup_builtin_tools(self.chat_history.clone()).await;
         {
             let mut guard = mcp_context.write().unwrap();
             guard.merge(builtin_ctx);
         }
-        services.push(Box::new(builtin_service));
+        services.push(builtin_service);
         self.mcp_context = mcp_context;
         self.mcp_services = services;
         self.tool_executor = Arc::new(McpToolExecutor::new(self.mcp_context.clone()));

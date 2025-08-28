@@ -1,6 +1,9 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
-use llm::{ChatMessage, ToolInfo, mcp::McpContext};
+use llm::{
+    ChatMessage, ToolInfo,
+    mcp::{McpClient, McpContext},
+};
 use rmcp::{
     ServerHandler,
     handler::server::router::tool::ToolRouter,
@@ -51,12 +54,16 @@ impl ServerHandler for BuiltinTools {
 
 pub async fn setup_builtin_tools(
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
-) -> (McpContext, RunningService<RoleClient, ()>) {
+) -> (McpContext, RunningService<RoleClient, McpClient>) {
     let builtins = BuiltinTools::new(chat_history);
     let (server_transport, client_transport) = duplex(64);
+    let handler = McpClient::new(
+        "builtin".into(),
+        Arc::new(RwLock::new(McpContext::default())),
+    );
     let (server_res, client_res) = tokio::join!(
         builtins.clone().serve(server_transport),
-        ().serve(client_transport)
+        handler.serve(client_transport)
     );
     let server = server_res.expect("builtin server");
     let client_service = client_res.expect("builtin client");
