@@ -32,7 +32,7 @@ Run with defaults (preferred):
  
 `--model` and `--host` can be used to customize further, e.g.
 
-> Ollama (e.g. with custom endpoint):
+> Ollama (with custom model and endpoint):
 > ```sh
 > > llment --provider ollama --model qwen3:30b --host https://my-ollama.tailc.ts.net:11434
 > ```
@@ -40,7 +40,10 @@ Run with defaults (preferred):
 ## Model Context Protocol servers
 `--mcp file.json` loads a claude-code like mcp.json file.
 
-For example the following configuration loads two STDIO based MCP servers. The functions from `mcp-edit` will be prefixed with `files.` as in `files.create_file`, similarly with `shell.` for `mcp-shell`. The commands are launched with the same working directory that `llment` was.
+For example, the following configuration loads two STDIO based MCP servers.
+The functions from `mcp-edit` will be prefixed with `files.` as in `files.create_file`, similarly with `shell.` for `mcp-shell`.
+The server commands are launched with the same working directory that `llment` was.
+
 ```json
 {
   "mcpServers": {
@@ -66,14 +69,32 @@ The mcp-edit server provides a set of file system tools similar to [gemini-cli](
 > [!WARNING]
 > By default, mcp-server will provide access to the current working directory.
 
-Specify a custom root:
-```sh
-> mcp-edit --workspace_root /home/me/some-path
 ```
-The files in the workspace root are reflected as if they were in `/home/user/workspace`. Alternatively, specify a custom mount point:
-```sh
-> mcp-edit --mount_point /home/agent/code
+Usage: mcp-edit [OPTIONS] [WORKSPACE_ROOT] [MOUNT_POINT]
+
+Arguments:
+  [WORKSPACE_ROOT]  Workspace root directory (default: current directory) [default: .]
+  [MOUNT_POINT]     Mount point path used in responses (default: `/home/user/workspace`) [default: /home/user/workspace]
+
+Options:
+      --trace  Show trace
+  -h, --help   Print help
 ```
 
 ### mcp-shell
-TODO!
+The mcp-shell server provides the ability to execute shell commands inside a container.
+
+An example container configuration is provided in [`./sandbox`](./sandbox).
+
+```
+Usage: mcp-shell [OPTIONS] --workdir <WORKDIR> <--container <CONTAINER>|--unsafe-local-access>
+
+Options:
+      --container <CONTAINER>  Run commands inside a Podman container
+      --unsafe-local-access    Run commands inside a local shell. Unsafe
+      --workdir <WORKDIR>      Working directory for command execution
+      --trace                  Show trace
+  -h, --help                   Print help
+```
+
+Commands are executed in the named container using `podman exec`
