@@ -123,6 +123,7 @@ pub enum Provider {
     #[default]
     Ollama,
     Openai,
+    LlamaServer,
     Gemini,
 }
 
@@ -169,6 +170,9 @@ pub fn client_from(
     let inner: Arc<dyn LlmClient> = match provider {
         Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
         Provider::Openai => Arc::new(openai::OpenAiClient::new(host)),
+        Provider::LlamaServer => Arc::new(openai::OpenAiClient::new(Some(
+            host.unwrap_or("http://localhost:8000/v1"),
+        ))),
         Provider::Gemini => Arc::new(gemini::GeminiClient::new(host)),
     };
     Ok(Client {
