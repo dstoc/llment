@@ -5,12 +5,12 @@ use rmcp::{
     ServerHandler,
     handler::server::router::tool::ToolRouter,
     model::{ServerCapabilities, ServerInfo},
-    service::ServiceExt,
+    service::{RoleClient, RunningService, ServiceExt},
     tool, tool_handler, tool_router,
 };
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
-use tokio::io::duplex;
+use tokio::{io::duplex, sync::RwLock};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct GetMessageCountParams {}
@@ -49,25 +49,27 @@ impl ServerHandler for BuiltinTools {
     }
 }
 
-pub async fn setup_builtin_tools(chat_history: Arc<Mutex<Vec<ChatMessage>>>) -> McpService {
+pub async fn setup_builtin_tools(
+    chat_history: Arc<Mutex<Vec<ChatMessage>>>,
+) -> RunningService<RoleClient, McpService> {
     let builtins = BuiltinTools::new(chat_history);
     let (server_transport, client_transport) = duplex(64);
     let (server_res, client_res) = tokio::join!(
         builtins.clone().serve(server_transport),
-        ().serve(client_transport)
+        McpService {
+            prefix: "chat".into(),
+            tools: RwLock::new(vec![ToolInfo {
+                name: "get_message_count".into(),
+                description: "Returns the number of chat messages".into(),
+                parameters: schema_for!(GetMessageCountParams),
+            }]),
+        }
+        .serve(client_transport)
     );
     let server = server_res.expect("builtin server");
     let client_service = client_res.expect("builtin client");
     tokio::spawn(async move {
         let _ = server.waiting().await;
     });
-    McpService {
-        prefix: "chat".into(),
-        tools: vec![ToolInfo {
-            name: "get_message_count".into(),
-            description: "Returns the number of chat messages".into(),
-            parameters: schema_for!(GetMessageCountParams),
-        }],
-        service: client_service,
-    }
+    client_service
 }
