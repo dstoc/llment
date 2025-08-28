@@ -188,26 +188,27 @@ impl App {
         let _ = self.model.needs_redraw.send(true);
         self.conversation.push_user(prompt.clone());
         self.conversation.push_assistant_block();
-        let tool_infos = self.mcp_context.tool_infos();
-        let model_name = { self.client.lock().unwrap().model().to_string() };
         {
             let mut history = self.chat_history.lock().unwrap();
             history.push(ChatMessage::user(prompt));
         }
-        let request_history = { self.chat_history.lock().unwrap().clone() };
-        let request = ChatMessageRequest::new(model_name, request_history)
-            .tools(tool_infos)
-            .think(true);
-        let client = { Arc::new(self.client.lock().unwrap().clone()) };
-        let history = self.chat_history.clone();
-        let tool_executor = self.mcp_context.clone() as Arc<dyn ToolExecutor>;
-        let (mut stream, handle) =
-            tool_event_stream(client, request, tool_executor, history.clone());
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
         let needs_update = self.model.needs_update.clone();
+        let history = self.chat_history.clone();
+        let mcp_context = self.mcp_context.clone();
+        let client = { Arc::new(self.client.lock().unwrap().clone()) };
         self.request_tasks.spawn(async move {
+            let tool_infos = mcp_context.tool_infos().await;
+            let model_name = { client.model().to_string() };
+            let request_history = { history.lock().unwrap().clone() };
+            let request = ChatMessageRequest::new(model_name, request_history)
+                .tools(tool_infos)
+                .think(true);
+            let tool_executor = mcp_context.clone() as Arc<dyn ToolExecutor>;
+            let (mut stream, handle) =
+                tool_event_stream(client, request, tool_executor, history.clone());
             while let Some(event) = stream.next().await {
                 let _ = update_tx.send(Update::Response(event));
                 let _ = needs_update.send(true);
