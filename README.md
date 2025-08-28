@@ -72,8 +72,6 @@ The mcp-edit server provides a set of file system tools similar to [gemini-cli](
 > [!WARNING]
 > By default, mcp-edit provides read-only access to the current working directory.
 
-Pass `--allow-modification` to enable file modification tools.
-
 ```
 Usage: mcp-edit [OPTIONS] [WORKSPACE_ROOT] [MOUNT_POINT]
 
