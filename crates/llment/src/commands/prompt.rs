@@ -1,9 +1,69 @@
+use globset::Glob;
+use minijinja::Environment;
+use rust_embed::RustEmbed;
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
 use crate::{
-    app::{Assets, Update},
+    app::Update,
     components::completion::{Command, CommandInstance, Completion, CompletionResult},
 };
+
+#[derive(RustEmbed)]
+#[folder = "prompts"]
+pub(crate) struct PromptAssets;
+
+#[cfg(test)]
+#[derive(RustEmbed)]
+#[folder = "tests/prompts"]
+pub(crate) struct TestPromptAssets;
+
+#[cfg(test)]
+pub(crate) type Assets = TestPromptAssets;
+#[cfg(not(test))]
+pub(crate) type Assets = PromptAssets;
+
+pub(crate) fn load_prompt(name: &str) -> Option<String> {
+    let mut env = Environment::new();
+    env.set_loader(|name| {
+        let mut candidates: Vec<String> = vec![name.to_string()];
+        if !name.ends_with(".md.jinja") {
+            candidates.push(format!("{}.md.jinja", name));
+        }
+        if !name.ends_with(".md") {
+            candidates.push(format!("{}.md", name));
+        }
+        for candidate in candidates {
+            if let Some(file) = Assets::get(&candidate) {
+                let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
+                return Ok(Some(content));
+            }
+        }
+        Ok(None)
+    });
+    env.add_function(
+        "glob",
+        |pattern: String| -> Result<Vec<String>, minijinja::Error> {
+            let glob = Glob::new(&pattern).map_err(|e| {
+                minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())
+            })?;
+            let matcher = glob.compile_matcher();
+            let mut matches: Vec<String> = Assets::iter()
+                .map(|f| f.as_ref().to_string())
+                .filter(|name| matcher.is_match(name))
+                .collect();
+            matches.sort();
+            Ok(matches)
+        },
+    );
+    let jinja_name = format!("{}.md.jinja", name);
+    if let Ok(tmpl) = env.get_template(&jinja_name) {
+        tmpl.render(()).ok()
+    } else if let Some(file) = Assets::get(&format!("{}.md", name)) {
+        Some(String::from_utf8_lossy(file.data.as_ref()).to_string())
+    } else {
+        None
+    }
+}
 
 pub struct PromptCommand {
     pub(crate) needs_update: watch::Sender<bool>,
@@ -77,5 +137,30 @@ impl CommandInstance for PromptCommandInstance {
             let _ = self.needs_update.send(true);
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_prompt;
+
+    #[test]
+    fn load_md_prompt() {
+        let content = load_prompt("sys/hello").unwrap();
+        assert!(content.contains("You are a helpful assistant."));
+    }
+
+    #[test]
+    fn load_md_jinja_with_include() {
+        let content = load_prompt("sys/outer").unwrap();
+        assert!(content.contains("Outer."));
+        assert!(content.contains("Inner."));
+        assert!(content.contains("Deep."));
+    }
+
+    #[test]
+    fn load_md_jinja_with_glob() {
+        let content = load_prompt("sys/glob").unwrap();
+        assert!(content.contains("You are a helpful assistant."));
     }
 }
