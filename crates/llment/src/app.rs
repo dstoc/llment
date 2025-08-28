@@ -17,7 +17,7 @@ use llm::{
     mcp::McpContext,
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
-use minijinja::{Environment, Source, State};
+use minijinja::Environment;
 use ratatui::{prelude::*, widgets::Paragraph};
 use rust_embed::RustEmbed;
 use tokio::{
@@ -36,30 +36,24 @@ use unicode_width::UnicodeWidthStr;
 #[folder = "prompts"]
 struct PromptAssets;
 
-fn include_template(state: &State, name: String) -> Result<String, minijinja::Error> {
-    let tmpl_name = if name.ends_with(".md.jinja") {
-        name
-    } else {
-        format!("{}.md.jinja", name)
-    };
-    let tmpl = state.env().get_template(&tmpl_name)?;
-    tmpl.render(())
-}
-
 fn load_prompt(name: &str) -> Option<String> {
     let mut env = Environment::new();
-    env.add_function("include", include_template);
-    let mut source = Source::new();
-    for f in PromptAssets::iter() {
-        let fname = f.as_ref();
-        if fname.ends_with(".md.jinja") {
-            if let Some(file) = PromptAssets::get(fname) {
-                let content = std::str::from_utf8(file.data.as_ref()).unwrap();
-                source.add_template(fname, content).unwrap();
+    env.set_loader(|name| {
+        let mut candidates: Vec<String> = vec![name.to_string()];
+        if !name.ends_with(".md.jinja") {
+            candidates.push(format!("{}.md.jinja", name));
+        }
+        if !name.ends_with(".md") {
+            candidates.push(format!("{}.md", name));
+        }
+        for candidate in candidates {
+            if let Some(file) = PromptAssets::get(&candidate) {
+                let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
+                return Ok(Some(content));
             }
         }
-    }
-    env.set_source(source);
+        Ok(None)
+    });
     let jinja_name = format!("{}.md.jinja", name);
     if let Ok(tmpl) = env.get_template(&jinja_name) {
         tmpl.render(()).ok()
