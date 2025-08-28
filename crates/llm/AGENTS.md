@@ -21,7 +21,7 @@ Trait-based LLM client implementations for multiple providers.
 - schemars
   - define and manipulate tool schemas
 
-## Features, Requirements and Constraints
+## Features
 - LLM clients
   - `LlmClient` trait streams chat responses and lists supported model names
   - implementations for Ollama, OpenAI, LlamaServer, and Gemini
@@ -29,8 +29,6 @@ Trait-based LLM client implementations for multiple providers.
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider and model
     - stores provider and model names for later retrieval
-    - uses provider-specific default host when none is supplied
-      - LlamaServer defaults to `http://localhost:8000/v1` and wraps the OpenAI client
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
@@ -43,15 +41,14 @@ Trait-based LLM client implementations for multiple providers.
   - chunks include optional content, tool calls, optional thinking text, and usage metrics on the final chunk
   - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
   - OpenAI client parses `reasoning_content` from streamed responses into thinking text
-  - deprecated `function_call` streaming is no longer supported
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
   - `tool_event_stream` spawns the loop and yields `ToolEvent`s
     - join handle resolves on completion with history updated in place
 - `mcp` module
-  - `load_mcp_servers` starts configured MCP servers and collects tool schemas
-    - tool names are prefixed with the server name
+- `load_mcp_servers` starts configured MCP servers and collects tool schemas
+  - tool names are prefixed with the server name
   - `McpService` implements `ClientHandler`
     - `on_tool_list_changed` refreshes tool metadata from the service
   - `McpContext` stores running service handles keyed by prefix
@@ -63,3 +60,8 @@ Trait-based LLM client implementations for multiple providers.
   - `TestProvider` implements `LlmClient`
     - captures `ChatMessageRequest`s for assertions
     - streams queued `ResponseChunk`s for iterative testing
+
+## Constraints
+- uses provider-specific default host when none is supplied
+  - LlamaServer defaults to `http://localhost:8000/v1` and wraps the OpenAI client
+- deprecated `function_call` streaming is no longer supported
