@@ -30,6 +30,35 @@ mod markdown;
 use llm::mcp::{McpContext, load_mcp_servers};
 use llm::{self, Provider};
 
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn new() -> std::io::Result<Self> {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(
+            stdout(),
+            EnterAlternateScreen,
+            crossterm::cursor::Hide,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = crossterm::execute!(
+            stdout(),
+            DisableBracketedPaste,
+            DisableMouseCapture,
+            LeaveAlternateScreen,
+            crossterm::cursor::Show
+        );
+        let _ = crossterm::terminal::disable_raw_mode();
+    }
+}
+
 #[derive(Parser, Debug)]
 pub struct Args {
     #[arg(long, value_enum, default_value_t = Provider::LlamaServer)]
@@ -48,16 +77,17 @@ pub struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+    run(args).await
+}
+
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let (mcp_ctx, services) = if let Some(path) = &args.mcp {
         load_mcp_servers(path).await.expect("mcp")
     } else {
         (McpContext::default(), Vec::new())
     };
 
-    crossterm::terminal::enable_raw_mode()?;
-    crossterm::execute!(stdout(), EnterAlternateScreen, crossterm::cursor::Hide)?;
-    crossterm::execute!(stdout(), EnableMouseCapture)?;
-    crossterm::execute!(stdout(), EnableBracketedPaste)?;
+    let _guard = TerminalGuard::new()?;
 
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
@@ -137,10 +167,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    crossterm::execute!(stdout(), DisableBracketedPaste)?;
-    crossterm::execute!(stdout(), DisableMouseCapture)?;
-    crossterm::execute!(stdout(), LeaveAlternateScreen, crossterm::cursor::Show)?;
-    crossterm::terminal::disable_raw_mode()?;
     Ok(())
 }
 
