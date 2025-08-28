@@ -1,13 +1,17 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use rmcp::{
+    ClientHandler,
     model::{CallToolRequestParam, RawContent},
-    service::{RoleClient, RunningService, ServerSink, ServiceExt},
+    service::{NotificationContext, RoleClient, RunningService, ServerSink, ServiceExt},
     transport::TokioChildProcess,
 };
 use serde::Deserialize;
 use serde_json::Value;
-use tokio::process::Command;
+use tokio::{process::Command, sync::watch};
 
 use crate::{Schema, ToolInfo, tools::ToolExecutor};
 
@@ -40,16 +44,67 @@ struct McpServer {
     env: HashMap<String, String>,
 }
 
+pub struct McpClient {
+    server_name: String,
+    ctx: Arc<RwLock<McpContext>>,
+    needs_update: watch::Sender<bool>,
+}
+
+impl ClientHandler for McpClient {
+    fn on_tool_list_changed(
+        &self,
+        context: NotificationContext<RoleClient>,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
+        let server = self.server_name.clone();
+        let ctx = self.ctx.clone();
+        let needs_update = self.needs_update.clone();
+        async move {
+            if let Ok(tools) = context.peer.list_tools(Default::default()).await {
+                let mut new_tools = HashMap::new();
+                let mut new_infos = Vec::new();
+                for tool in tools.tools {
+                    let prefixed_name = format!("{server}.{}", tool.name);
+                    new_tools.insert(prefixed_name.clone(), context.peer.clone());
+                    if let Ok(schema) = serde_json::from_value(tool.schema_as_json_value()) {
+                        let description = tool.description.clone().unwrap_or_default().to_string();
+                        new_infos.push(ToolInfo {
+                            name: prefixed_name,
+                            description,
+                            parameters: schema,
+                        });
+                    }
+                }
+                {
+                    let mut guard = ctx.write().unwrap();
+                    guard
+                        .tools
+                        .retain(|name, _| !name.starts_with(&format!("{server}.")));
+                    guard
+                        .tool_infos
+                        .retain(|info| !info.name.starts_with(&format!("{server}.")));
+                    guard.tools.extend(new_tools);
+                    guard.tool_infos.extend(new_infos);
+                }
+                let _ = needs_update.send(true);
+            }
+        }
+    }
+}
+
 pub async fn load_mcp_servers(
     path: &str,
+    needs_update: watch::Sender<bool>,
 ) -> Result<
-    (McpContext, Vec<RunningService<RoleClient, ()>>),
+    (
+        Arc<RwLock<McpContext>>,
+        Vec<RunningService<RoleClient, McpClient>>,
+    ),
     Box<dyn std::error::Error + Send + Sync>,
 > {
     let data = tokio::fs::read_to_string(path).await?;
     let config: McpConfig = serde_json::from_str(&data)?;
     let mut services = Vec::new();
-    let mut ctx = McpContext::default();
+    let ctx = Arc::new(RwLock::new(McpContext::default()));
     for (server_name, server) in config.mcp_servers.iter() {
         let mut cmd = Command::new(&server.command);
         cmd.args(&server.args);
@@ -57,16 +112,23 @@ pub async fn load_mcp_servers(
             cmd.env(k, v);
         }
         let process = TokioChildProcess::new(cmd)?;
-        let service = ().serve(process).await?;
+        let handler = McpClient {
+            server_name: server_name.clone(),
+            ctx: ctx.clone(),
+            needs_update: needs_update.clone(),
+        };
+        let service = handler.serve(process).await?;
         let tools = service.list_tools(Default::default()).await?;
         {
+            let mut guard = ctx.write().unwrap();
             for tool in tools.tools {
                 let prefixed_name = format!("{server_name}.{}", tool.name);
-                ctx.tools
+                guard
+                    .tools
                     .insert(prefixed_name.clone(), service.peer().clone());
                 let schema: Schema = serde_json::from_value(tool.schema_as_json_value())?;
                 let description = tool.description.clone().unwrap_or_default().to_string();
-                ctx.tool_infos.push(ToolInfo {
+                guard.tool_infos.push(ToolInfo {
                     name: prefixed_name,
                     description,
                     parameters: schema,
@@ -79,11 +141,11 @@ pub async fn load_mcp_servers(
 }
 
 pub struct McpToolExecutor {
-    ctx: Arc<McpContext>,
+    ctx: Arc<RwLock<McpContext>>,
 }
 
 impl McpToolExecutor {
-    pub fn new(ctx: Arc<McpContext>) -> Self {
+    pub fn new(ctx: Arc<RwLock<McpContext>>) -> Self {
         Self { ctx }
     }
 }
@@ -95,8 +157,11 @@ impl ToolExecutor for McpToolExecutor {
         name: &str,
         args: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let peer = { self.ctx.tools.get(name).cloned() }
-            .ok_or_else(|| format!("Tool {name} not found"))?;
+        let peer = {
+            let guard = self.ctx.read().unwrap();
+            guard.tools.get(name).cloned()
+        }
+        .ok_or_else(|| format!("Tool {name} not found"))?;
 
         let tool_name = name.rsplit_once('.').map(|(_, t)| t).unwrap_or(name);
 

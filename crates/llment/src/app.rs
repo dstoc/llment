@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::{
     Args, Component,
@@ -18,7 +18,6 @@ use llm::{
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
-use rmcp::service::{RoleClient, RunningService};
 use tokio::{
     sync::{
         OnceCell,
@@ -45,8 +44,8 @@ pub struct App {
 
     client: Arc<Mutex<llm::Client>>,
     tool_executor: Arc<dyn ToolExecutor>,
-    mcp_context: Arc<McpContext>,
-    mcp_services: Vec<RunningService<RoleClient, ()>>,
+    mcp_context: Arc<RwLock<McpContext>>,
+    mcp_services: Vec<Box<dyn std::any::Any + Send>>,
     session_in_tokens: u32,
     session_out_tokens: u32,
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
@@ -81,7 +80,7 @@ enum Update {
 impl App {
     pub fn new(model: AppModel, args: Args) -> Self {
         let (update_tx, update_rx) = unbounded_channel();
-        let mcp_context = Arc::new(McpContext::default());
+        let mcp_context = Arc::new(RwLock::new(McpContext::default()));
         let tool_executor: Arc<dyn ToolExecutor> =
             Arc::new(McpToolExecutor::new(mcp_context.clone()));
         let client =
@@ -142,13 +141,16 @@ impl App {
 
     pub async fn init(
         &mut self,
-        mut mcp_context: McpContext,
-        mut services: Vec<RunningService<RoleClient, ()>>,
+        mcp_context: Arc<RwLock<McpContext>>,
+        mut services: Vec<Box<dyn std::any::Any + Send>>,
     ) {
         let (builtin_ctx, builtin_service) = setup_builtin_tools(self.chat_history.clone()).await;
-        mcp_context.merge(builtin_ctx);
-        services.push(builtin_service);
-        self.mcp_context = Arc::new(mcp_context);
+        {
+            let mut guard = mcp_context.write().unwrap();
+            guard.merge(builtin_ctx);
+        }
+        services.push(Box::new(builtin_service));
+        self.mcp_context = mcp_context;
         self.mcp_services = services;
         self.tool_executor = Arc::new(McpToolExecutor::new(self.mcp_context.clone()));
     }
@@ -202,7 +204,10 @@ impl App {
         let _ = self.model.needs_redraw.send(true);
         self.conversation.push_user(prompt.clone());
         self.conversation.push_assistant_block();
-        let tool_infos = self.mcp_context.tool_infos.clone();
+        let tool_infos = {
+            let guard = self.mcp_context.read().unwrap();
+            guard.tool_infos.clone()
+        };
         let model_name = { self.client.lock().unwrap().model().to_string() };
         {
             let mut history = self.chat_history.lock().unwrap();

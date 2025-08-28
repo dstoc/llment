@@ -112,6 +112,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - MCP integration
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
   - MCP tool names are prefixed with the server name
+  - tool lists refresh automatically when servers send `notifications/tools/list_changed`
   - built-in tools registered in a separate context returned by `setup_builtin_tools`
     - `setup_builtin_tools` returns the context and a running service handle
     - `App` retains service handles to keep MCP transports alive

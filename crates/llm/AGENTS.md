@@ -52,8 +52,9 @@ Trait-based LLM client implementations for multiple providers.
 - `mcp` module
   - `load_mcp_servers` starts configured MCP servers and collects tool schemas
     - tool names are prefixed with the server name
+    - listens for `notifications/tools/list_changed` to refresh tools at runtime
   - `McpToolExecutor` implements `ToolExecutor` for MCP calls
-  - `McpContext` stores MCP tool mappings and metadata
+  - `McpContext` stores MCP tool mappings and metadata behind a `RwLock`
       - tool call chunks insert assistant messages immediately before execution
       - accumulated streamed content is appended as an assistant message after the stream completes
       - contexts can be merged to combine tools and metadata
