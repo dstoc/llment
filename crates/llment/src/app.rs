@@ -37,6 +37,16 @@ use unicode_width::UnicodeWidthStr;
 #[folder = "prompts"]
 struct PromptAssets;
 
+#[cfg(test)]
+#[derive(RustEmbed)]
+#[folder = "tests/prompts"]
+struct TestPromptAssets;
+
+#[cfg(test)]
+type Assets = TestPromptAssets;
+#[cfg(not(test))]
+type Assets = PromptAssets;
+
 fn load_prompt(name: &str) -> Option<String> {
     let mut env = Environment::new();
     env.set_loader(|name| {
@@ -48,7 +58,7 @@ fn load_prompt(name: &str) -> Option<String> {
             candidates.push(format!("{}.md", name));
         }
         for candidate in candidates {
-            if let Some(file) = PromptAssets::get(&candidate) {
+            if let Some(file) = Assets::get(&candidate) {
                 let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
                 return Ok(Some(content));
             }
@@ -62,7 +72,7 @@ fn load_prompt(name: &str) -> Option<String> {
                 minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())
             })?;
             let matcher = glob.compile_matcher();
-            let mut matches: Vec<String> = PromptAssets::iter()
+            let mut matches: Vec<String> = Assets::iter()
                 .map(|f| f.as_ref().to_string())
                 .filter(|name| matcher.is_match(name))
                 .collect();
@@ -73,7 +83,7 @@ fn load_prompt(name: &str) -> Option<String> {
     let jinja_name = format!("{}.md.jinja", name);
     if let Ok(tmpl) = env.get_template(&jinja_name) {
         tmpl.render(()).ok()
-    } else if let Some(file) = PromptAssets::get(&format!("{}.md", name)) {
+    } else if let Some(file) = Assets::get(&format!("{}.md", name)) {
         Some(String::from_utf8_lossy(file.data.as_ref()).to_string())
     } else {
         None
@@ -670,7 +680,7 @@ struct PromptCommandInstance {
 
 impl PromptCommandInstance {
     fn prompt_options(&self, typed: &str) -> Vec<Completion> {
-        let mut names: Vec<String> = PromptAssets::iter()
+        let mut names: Vec<String> = Assets::iter()
             .filter_map(|f| {
                 let name = f.as_ref();
                 let name = name

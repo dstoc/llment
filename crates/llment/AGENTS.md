@@ -75,6 +75,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
             - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
             - parameters correspond to `prompts/` paths without the extension
             - selected prompts replace existing system prompts and persist across `/clear`
+            - test templates live under `tests/prompts` and are only embedded in test builds
     - dismissable error box above the input with an X button displays request errors
     - Esc exits the application
     - conversation pane has no keyboard interaction
