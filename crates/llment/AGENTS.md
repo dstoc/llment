@@ -111,6 +111,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - conversation resides under `src/conversation` with modules for nodes and mutation helpers
     - command and parameter popups are separate components under `src/components` used by the prompt input
     - app commands live in `src/commands` with one module per command
+      - `/prompt` embeds prompt assets and exposes a `load_prompt` helper
   - bespoke component framework
       - `Component` trait defines `init`, `handle_event`, `update`, `render`
       - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels

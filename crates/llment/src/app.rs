@@ -4,21 +4,18 @@ use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
     commands::{
-        ClearCommand, ModelCommand, PromptCommand, ProviderCommand, QuitCommand, RedoCommand,
+        self, ClearCommand, ModelCommand, PromptCommand, ProviderCommand, QuitCommand, RedoCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
 };
 use crossterm::event::Event;
-use globset::Glob;
 use llm::{
     ChatMessage, ChatMessageRequest, Provider,
     mcp::McpContext,
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
-use minijinja::Environment;
 use ratatui::{prelude::*, widgets::Paragraph};
-use rust_embed::RustEmbed;
 use tokio::{
     sync::{
         mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -29,63 +26,6 @@ use tokio::{
 use tokio_stream::{StreamExt, wrappers::WatchStream};
 use tui_realm_stdlib::states::SpinnerStates;
 use unicode_width::UnicodeWidthStr;
-
-#[derive(RustEmbed)]
-#[folder = "prompts"]
-pub(crate) struct PromptAssets;
-
-#[cfg(test)]
-#[derive(RustEmbed)]
-#[folder = "tests/prompts"]
-pub(crate) struct TestPromptAssets;
-
-#[cfg(test)]
-pub(crate) type Assets = TestPromptAssets;
-#[cfg(not(test))]
-pub(crate) type Assets = PromptAssets;
-
-fn load_prompt(name: &str) -> Option<String> {
-    let mut env = Environment::new();
-    env.set_loader(|name| {
-        let mut candidates: Vec<String> = vec![name.to_string()];
-        if !name.ends_with(".md.jinja") {
-            candidates.push(format!("{}.md.jinja", name));
-        }
-        if !name.ends_with(".md") {
-            candidates.push(format!("{}.md", name));
-        }
-        for candidate in candidates {
-            if let Some(file) = Assets::get(&candidate) {
-                let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
-                return Ok(Some(content));
-            }
-        }
-        Ok(None)
-    });
-    env.add_function(
-        "glob",
-        |pattern: String| -> Result<Vec<String>, minijinja::Error> {
-            let glob = Glob::new(&pattern).map_err(|e| {
-                minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())
-            })?;
-            let matcher = glob.compile_matcher();
-            let mut matches: Vec<String> = Assets::iter()
-                .map(|f| f.as_ref().to_string())
-                .filter(|name| matcher.is_match(name))
-                .collect();
-            matches.sort();
-            Ok(matches)
-        },
-    );
-    let jinja_name = format!("{}.md.jinja", name);
-    if let Ok(tmpl) = env.get_template(&jinja_name) {
-        tmpl.render(()).ok()
-    } else if let Some(file) = Assets::get(&format!("{}.md", name)) {
-        Some(String::from_utf8_lossy(file.data.as_ref()).to_string())
-    } else {
-        None
-    }
-}
 
 enum ConversationState {
     Idle,
@@ -249,7 +189,7 @@ impl App {
 
     fn apply_prompt(&mut self) {
         if let Some(name) = &self.selected_prompt {
-            if let Some(content) = load_prompt(name) {
+            if let Some(content) = commands::prompt::load_prompt(name) {
                 let mut history = self.chat_history.lock().unwrap();
                 while matches!(history.first(), Some(ChatMessage::System(_))) {
                     history.remove(0);
@@ -473,30 +413,5 @@ impl Component for App {
             Paragraph::new(status_right).alignment(Alignment::Right),
             status_chunks[1],
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::load_prompt;
-
-    #[test]
-    fn load_md_prompt() {
-        let content = load_prompt("sys/hello").unwrap();
-        assert!(content.contains("You are a helpful assistant."));
-    }
-
-    #[test]
-    fn load_md_jinja_with_include() {
-        let content = load_prompt("sys/outer").unwrap();
-        assert!(content.contains("Outer."));
-        assert!(content.contains("Inner."));
-        assert!(content.contains("Deep."));
-    }
-
-    #[test]
-    fn load_md_jinja_with_glob() {
-        let content = load_prompt("sys/glob").unwrap();
-        assert!(content.contains("You are a helpful assistant."));
     }
 }
