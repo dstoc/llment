@@ -52,11 +52,11 @@ Trait-based LLM client implementations for multiple providers.
 - `mcp` module
   - `load_mcp_servers` starts configured MCP servers and collects tool schemas
     - tool names are prefixed with the server name
-  - `McpToolExecutor` implements `ToolExecutor` for MCP calls
-  - `McpContext` stores MCP tool mappings and metadata
-      - tool call chunks insert assistant messages immediately before execution
-      - accumulated streamed content is appended as an assistant message after the stream completes
-      - contexts can be merged to combine tools and metadata
+  - `McpContext` stores running services and tool metadata keyed by prefix
+    - implements `ToolExecutor` for MCP calls
+    - tool call chunks insert assistant messages immediately before execution
+    - accumulated streamed content is appended as an assistant message after the stream completes
+    - contexts can be merged to combine services
 - Test utilities
   - `TestProvider` implements `LlmClient`
     - captures `ChatMessageRequest`s for assertions

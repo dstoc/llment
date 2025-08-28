@@ -14,11 +14,10 @@ use clap::ValueEnum;
 use crossterm::event::Event;
 use llm::{
     ChatMessage, ChatMessageRequest, LlmClient, Provider,
-    mcp::{McpContext, McpToolExecutor},
+    mcp::McpContext,
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
-use rmcp::service::{RoleClient, RunningService};
 use tokio::{
     sync::{
         OnceCell,
@@ -44,9 +43,7 @@ pub struct App {
     prompt: Prompt,
 
     client: Arc<Mutex<llm::Client>>,
-    tool_executor: Arc<dyn ToolExecutor>,
     mcp_context: Arc<McpContext>,
-    mcp_services: Vec<RunningService<RoleClient, ()>>,
     session_in_tokens: u32,
     session_out_tokens: u32,
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
@@ -82,8 +79,6 @@ impl App {
     pub fn new(model: AppModel, args: Args) -> Self {
         let (update_tx, update_rx) = unbounded_channel();
         let mcp_context = Arc::new(McpContext::default());
-        let tool_executor: Arc<dyn ToolExecutor> =
-            Arc::new(McpToolExecutor::new(mcp_context.clone()));
         let client =
             llm::client_from(args.provider, args.model.clone(), args.host.as_deref()).unwrap();
         let client = Arc::new(Mutex::new(client));
@@ -125,9 +120,7 @@ impl App {
             client,
             session_in_tokens: 0,
             session_out_tokens: 0,
-            tool_executor,
             mcp_context,
-            mcp_services: Vec::new(),
             chat_history: Arc::new(Mutex::new(vec![])),
             state: ConversationState::Idle,
             spinner: spinner,
@@ -140,17 +133,10 @@ impl App {
         }
     }
 
-    pub async fn init(
-        &mut self,
-        mut mcp_context: McpContext,
-        mut services: Vec<RunningService<RoleClient, ()>>,
-    ) {
-        let (builtin_ctx, builtin_service) = setup_builtin_tools(self.chat_history.clone()).await;
-        mcp_context.merge(builtin_ctx);
-        services.push(builtin_service);
+    pub async fn init(&mut self, mut mcp_context: McpContext) {
+        let builtin_service = setup_builtin_tools(self.chat_history.clone()).await;
+        mcp_context.insert(builtin_service);
         self.mcp_context = Arc::new(mcp_context);
-        self.mcp_services = services;
-        self.tool_executor = Arc::new(McpToolExecutor::new(self.mcp_context.clone()));
     }
 
     fn handle_tool_event(&mut self, ev: ToolEvent) {
@@ -202,7 +188,7 @@ impl App {
         let _ = self.model.needs_redraw.send(true);
         self.conversation.push_user(prompt.clone());
         self.conversation.push_assistant_block();
-        let tool_infos = self.mcp_context.tool_infos.clone();
+        let tool_infos = self.mcp_context.tool_infos();
         let model_name = { self.client.lock().unwrap().model().to_string() };
         {
             let mut history = self.chat_history.lock().unwrap();
@@ -214,8 +200,9 @@ impl App {
             .think(true);
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
         let history = self.chat_history.clone();
+        let tool_executor = self.mcp_context.clone() as Arc<dyn ToolExecutor>;
         let (mut stream, handle) =
-            tool_event_stream(client, request, self.tool_executor.clone(), history.clone());
+            tool_event_stream(client, request, tool_executor, history.clone());
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
