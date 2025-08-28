@@ -31,7 +31,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - CLI arguments
   - `--provider` selects LLM backend
   - `--model` sets the model identifier
-  - `--host` configures the LLM host URL
+  - `--host` optionally configures the LLM host URL; provider default used when omitted
   - `--mcp` loads MCP server configuration
   - layout
     - scrollable conversation pane

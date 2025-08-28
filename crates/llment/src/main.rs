@@ -37,9 +37,9 @@ pub struct Args {
     /// Model identifier to use
     #[arg(long, default_value = "gpt-oss:20b")]
     model: String,
-    /// LLM host URL, e.g. http://localhost:11434 for Ollama
-    #[arg(long, default_value = "http://localhost:8000/v1")]
-    host: String,
+    /// Optional LLM host URL, e.g. http://localhost:11434 for Ollama
+    #[arg(long)]
+    host: Option<String>,
     /// Path to MCP configuration JSON
     #[arg(long)]
     mcp: Option<String>,
