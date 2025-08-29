@@ -1,3 +1,4 @@
+{% if tool_enabled("shell.run") %}
 You have access to the `apply_patch` command to edit files. Follow these rules exactly.
 
 **Contract**
@@ -47,3 +48,4 @@ You have access to the `apply_patch` command to edit files. Follow these rules e
 * Using `applypatch` or `apply-patch` (invalid names). The tool name is `apply_patch`.
 * Emitting entire file bodies as a single hunk when a small targeted hunk suffices.
 * Mixing multiple operations for the same file section; start a new section if needed.
+{% endif %}
