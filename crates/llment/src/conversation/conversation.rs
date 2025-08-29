@@ -186,20 +186,6 @@ impl Conversation {
         self.scroll_to_bottom();
     }
 
-    pub fn push_assistant_block(&mut self) {
-        let at_bottom = self.is_at_bottom();
-        self.items.push(Node::Assistant(AssistantBlock::new(
-            false,
-            Vec::new(),
-            String::new(),
-        )));
-        self.needs_layout = true;
-        self.ensure_layout(self.width);
-        if at_bottom {
-            self.scroll_to_bottom();
-        }
-    }
-
     pub fn append_thinking(&mut self, text: &str) {
         let at_bottom = self.is_at_bottom();
         let block = self.ensure_last_assistant();
@@ -289,8 +275,7 @@ impl Conversation {
     }
 
     pub fn redo_last(&mut self) -> Option<String> {
-        if matches!(self.items.last(), Some(Node::Assistant(_))) {
-            self.items.pop();
+        while !self.items.is_empty() {
             if let Some(Node::User(user)) = self.items.pop() {
                 self.needs_layout = true;
                 self.ensure_layout(self.width);

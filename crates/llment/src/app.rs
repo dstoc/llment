@@ -216,7 +216,6 @@ impl App {
                 history.push(ChatMessage::user(prompt));
             }
         }
-        self.conversation.push_assistant_block();
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
