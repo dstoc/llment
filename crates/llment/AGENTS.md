@@ -73,7 +73,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
         - templates may call `tool_enabled("name")` to check for available tools
         - parameters correspond to `prompts/` paths without the extension
-        - selected prompts replace existing system prompts and persist across `/clear`
+        - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
       - command commit behavior
         - on successful commit, the router clears the active command instance
         - on commit error, the active command instance remains for user correction
