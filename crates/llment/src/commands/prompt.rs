@@ -26,9 +26,6 @@ pub(crate) fn load_prompt(name: &str) -> Option<String> {
     let mut env = Environment::new();
     env.set_loader(|name| {
         let mut candidates: Vec<String> = vec![name.to_string()];
-        if !name.ends_with(".md.jinja") {
-            candidates.push(format!("{}.md.jinja", name));
-        }
         if !name.ends_with(".md") {
             candidates.push(format!("{}.md", name));
         }
@@ -55,14 +52,12 @@ pub(crate) fn load_prompt(name: &str) -> Option<String> {
             Ok(matches)
         },
     );
-    let jinja_name = format!("{}.md.jinja", name);
-    if let Ok(tmpl) = env.get_template(&jinja_name) {
-        tmpl.render(()).ok()
-    } else if let Some(file) = Assets::get(&format!("{}.md", name)) {
-        Some(String::from_utf8_lossy(file.data.as_ref()).to_string())
-    } else {
-        None
+    if let Ok(tmpl) = env.get_template(name) {
+        if let Ok(rendered) = tmpl.render(()) {
+            return Some(rendered);
+        }
     }
+    None
 }
 
 pub struct PromptCommand {
@@ -100,9 +95,7 @@ impl PromptCommandInstance {
         let mut names: Vec<String> = Assets::iter()
             .filter_map(|f| {
                 let name = f.as_ref();
-                let name = name
-                    .strip_suffix(".md")
-                    .or_else(|| name.strip_suffix(".md.jinja"))?;
+                let name = name.strip_suffix(".md")?;
                 if name.starts_with(typed) {
                     Some(name.to_string())
                 } else {
@@ -151,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn load_md_jinja_with_include() {
+    fn load_md_with_include() {
         let content = load_prompt("sys/outer").unwrap();
         assert!(content.contains("Outer."));
         assert!(content.contains("Inner."));
@@ -159,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn load_md_jinja_with_glob() {
+    fn load_md_with_glob() {
         let content = load_prompt("sys/glob").unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
