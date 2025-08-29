@@ -24,6 +24,7 @@ rmcp = { version = "0.4.0", features = ["client"] }
 rust-embed = "8.7.2"
 minijinja = { version = "2", features = ["loader"] }
 globset = "0.4"
+arc-swap = "1.7.1"
 
 [dev-dependencies]
 insta = "1.43.1"

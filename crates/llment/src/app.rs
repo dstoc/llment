@@ -189,7 +189,8 @@ impl App {
 
     fn apply_prompt(&mut self) {
         if let Some(name) = &self.selected_prompt {
-            if let Some(content) = commands::prompt::load_prompt(name) {
+            let tool_names = self.mcp_context.tool_names();
+            if let Some(content) = commands::prompt::load_prompt(name, tool_names) {
                 let mut history = self.chat_history.lock().unwrap();
                 while matches!(history.first(), Some(ChatMessage::System(_))) {
                     history.remove(0);
@@ -216,7 +217,7 @@ impl App {
         let mcp_context = self.mcp_context.clone();
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
         self.request_tasks.spawn(async move {
-            let tool_infos = mcp_context.tool_infos().await;
+            let tool_infos = mcp_context.tool_infos();
             let model_name = { client.model().to_string() };
             let request_history = { history.lock().unwrap().clone() };
             let request = ChatMessageRequest::new(model_name, request_history)

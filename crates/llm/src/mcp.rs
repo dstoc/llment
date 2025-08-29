@@ -1,3 +1,4 @@
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use rmcp::{
     ClientHandler,
@@ -7,14 +8,14 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashMap;
-use tokio::{process::Command, sync::RwLock};
+use std::{collections::HashMap, sync::Arc};
+use tokio::process::Command;
 
 use crate::{Schema, ToolInfo, tools::ToolExecutor};
 
 pub struct McpService {
     pub prefix: String,
-    pub tools: RwLock<Vec<ToolInfo>>,
+    pub tools: ArcSwap<Vec<ToolInfo>>,
 }
 
 impl ClientHandler for McpService {
@@ -37,7 +38,7 @@ impl ClientHandler for McpService {
                         });
                     }
                 }
-                *self.tools.write().await = infos;
+                self.tools.store(Arc::new(infos));
             }
         }
     }
@@ -54,12 +55,12 @@ impl McpContext {
         self.services.insert(prefix, service);
     }
 
-    pub async fn tool_infos(&self) -> Vec<ToolInfo> {
+    pub fn tool_infos(&self) -> Vec<ToolInfo> {
         let mut infos = Vec::new();
         for svc in self.services.values() {
             let prefix = svc.service().prefix.clone();
-            let tools = svc.service().tools.read().await.clone();
-            for tool in tools {
+            let tools = svc.service().tools.load();
+            for tool in tools.iter() {
                 infos.push(ToolInfo {
                     name: format!("{}.{}", prefix, tool.name),
                     description: tool.description.clone(),
@@ -68,6 +69,18 @@ impl McpContext {
             }
         }
         infos
+    }
+
+    pub fn tool_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for svc in self.services.values() {
+            let prefix = svc.service().prefix.clone();
+            let tools = svc.service().tools.load();
+            for tool in tools.iter() {
+                names.push(format!("{}.{}", prefix, tool.name));
+            }
+        }
+        names
     }
 }
 
@@ -141,7 +154,7 @@ pub async fn load_mcp_servers(
         let process = TokioChildProcess::new(cmd)?;
         let handler = McpService {
             prefix: server_name.clone(),
-            tools: RwLock::new(Vec::new()),
+            tools: ArcSwap::new(Arc::new(Vec::new())),
         };
         let service = handler.serve(process).await?;
         let tools = service.peer().list_all_tools().await?;
@@ -155,7 +168,7 @@ pub async fn load_mcp_servers(
                 parameters: schema,
             });
         }
-        *service.service().tools.write().await = infos;
+        service.service().tools.store(Arc::new(infos));
         ctx.insert(service);
     }
     Ok(ctx)
