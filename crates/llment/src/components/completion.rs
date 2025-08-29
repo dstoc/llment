@@ -153,7 +153,7 @@ pub trait Command {
 /// cache the completion state and hold on to task handles.
 pub trait CommandInstance {
     fn update(&mut self, input: &str) -> CompletionResult;
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>>;
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub struct CommandRouter {
@@ -250,10 +250,15 @@ impl CommandInstance for CommandRouter {
         }
     }
 
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.active
-            .as_ref()
-            .map(|(_, inst)| inst.commit())
-            .unwrap_or_else(|| Err("no active command instance to commit".into()))
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some((_, inst)) = &mut self.active {
+            let res = inst.commit();
+            if res.is_ok() {
+                self.active = None;
+            }
+            res
+        } else {
+            Err("no active command instance to commit".into())
+        }
     }
 }

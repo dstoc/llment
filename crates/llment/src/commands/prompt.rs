@@ -130,7 +130,7 @@ impl CommandInstance for PromptCommandInstance {
         let options = self.prompt_options(self.param.as_str());
         CompletionResult::Options { at: 0, options }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
             Err("no prompt".into())
         } else {

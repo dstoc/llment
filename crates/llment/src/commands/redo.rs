@@ -37,7 +37,7 @@ impl CommandInstance for RedoCommandInstance {
             options: vec![],
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let _ = self.update_tx.send(Update::Redo);
         let _ = self.needs_update.send(true);
         Ok(())

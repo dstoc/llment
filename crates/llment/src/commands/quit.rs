@@ -31,7 +31,7 @@ impl CommandInstance for QuitCommandInstance {
             options: vec![],
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let _ = self.should_quit.send(true);
         Ok(())
     }

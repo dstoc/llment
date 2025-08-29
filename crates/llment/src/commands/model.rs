@@ -87,7 +87,7 @@ impl CommandInstance for ModelCommandInstance {
             CompletionResult::Loading { at: 0, done: rx }
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
             Err("no param".into())
         } else {

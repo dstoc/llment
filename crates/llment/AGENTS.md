@@ -74,6 +74,9 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - templates may call `tool_enabled("name")` to check for available tools
         - parameters correspond to `prompts/` paths without the extension
         - selected prompts replace existing system prompts and persist across `/clear`
+      - command commit behavior
+        - on successful commit, the router clears the active command instance
+        - on commit error, the active command instance remains for user correction
   - dismissable error box above the input with an X button displays request errors
   - Esc exits the application
   - 1-line status area
