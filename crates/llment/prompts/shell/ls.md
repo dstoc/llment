@@ -1,3 +1,4 @@
+{% if tool_enabled("shell.run") %}
 ## Searching and Listing Files
 
 Use `rg` -- ripgrep. Always use `rg` instead of `grep`.
@@ -22,3 +23,4 @@ To filter the list of files, use rg recursively.
 ```bash
 rg --files | rg 'md$'
 ```
+{% endif %}
