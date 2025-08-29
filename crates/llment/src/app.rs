@@ -4,11 +4,12 @@ use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
     commands::{
-        self, ClearCommand, ContinueCommand, ModelCommand, PromptCommand, ProviderCommand,
-        QuitCommand, RedoCommand,
+        ClearCommand, ContinueCommand, ModelCommand, PromptCommand, ProviderCommand, QuitCommand,
+        RedoCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
+    prompts,
 };
 use crossterm::event::Event;
 use llm::{
@@ -196,7 +197,7 @@ impl App {
     fn apply_prompt(&mut self) {
         if let Some(name) = &self.selected_prompt {
             let tool_names = self.mcp_context.tool_names();
-            if let Some(content) = commands::prompt::load_prompt(name, tool_names) {
+            if let Some(content) = prompts::load_prompt(name, tool_names) {
                 let mut history = self.chat_history.lock().unwrap();
                 while matches!(history.first(), Some(ChatMessage::System(_))) {
                     history.remove(0);

@@ -27,6 +27,7 @@ mod component;
 mod components;
 mod conversation;
 mod markdown;
+mod prompts;
 
 use llm::mcp::{McpContext, load_mcp_servers};
 use llm::{self, Provider};
