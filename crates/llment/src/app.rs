@@ -208,6 +208,7 @@ impl App {
     }
 
     fn send_request(&mut self, prompt: Option<String>) {
+        self.apply_prompt();
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
         if let Some(prompt) = prompt {
@@ -350,7 +351,6 @@ impl Component for App {
                 }
                 Ok(Update::SetPrompt(name)) => {
                     self.selected_prompt = Some(name);
-                    self.apply_prompt();
                 }
                 Ok(Update::Clear) => {
                     self.abort_requests();
@@ -359,7 +359,6 @@ impl Component for App {
                     self.session_in_tokens = 0;
                     self.session_out_tokens = 0;
                     self.state = ConversationState::Idle;
-                    self.apply_prompt();
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
