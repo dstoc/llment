@@ -74,7 +74,7 @@ impl CommandInstance for ProviderCommandInstance {
             }
         }
     }
-    fn commit(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
             return Err("no provider".into());
         }
