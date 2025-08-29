@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use arc_swap::ArcSwap;
 use llm::{ChatMessage, ToolInfo, mcp::McpService};
 use rmcp::{
     ServerHandler,
@@ -10,7 +11,7 @@ use rmcp::{
 };
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
-use tokio::{io::duplex, sync::RwLock};
+use tokio::io::duplex;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct GetMessageCountParams {}
@@ -58,11 +59,11 @@ pub async fn setup_builtin_tools(
         builtins.clone().serve(server_transport),
         McpService {
             prefix: "chat".into(),
-            tools: RwLock::new(vec![ToolInfo {
+            tools: ArcSwap::new(Arc::new(vec![ToolInfo {
                 name: "get_message_count".into(),
                 description: "Returns the number of chat messages".into(),
                 parameters: schema_for!(GetMessageCountParams),
-            }]),
+            }])),
         }
         .serve(client_transport)
     );

@@ -51,8 +51,10 @@ Trait-based LLM client implementations for multiple providers.
   - tool names are prefixed with the server name
   - `McpService` implements `ClientHandler`
     - `on_tool_list_changed` refreshes tool metadata from the service
+    - tool metadata stored in an `ArcSwap` for lock-free snapshots
   - `McpContext` stores running service handles keyed by prefix
     - exposes merged `tool_infos` from all services
+    - provides a non-blocking `tool_names` snapshot of available tools
     - implements `ToolExecutor` for MCP calls
     - tool call chunks insert assistant messages immediately before execution
     - accumulated streamed content is appended as an assistant message after the stream completes

@@ -1,6 +1,7 @@
 use globset::Glob;
 use minijinja::Environment;
 use rust_embed::RustEmbed;
+use std::collections::HashSet;
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
 use crate::{
@@ -22,7 +23,11 @@ type Assets = TestPromptAssets;
 #[cfg(not(test))]
 type Assets = PromptAssets;
 
-pub(crate) fn load_prompt(name: &str) -> Option<String> {
+pub(crate) fn load_prompt(
+    name: &str,
+    enabled_tools: impl IntoIterator<Item = String>,
+) -> Option<String> {
+    let enabled_tools: HashSet<String> = enabled_tools.into_iter().collect();
     let mut env = Environment::new();
     env.set_loader(|name| {
         let mut candidates: Vec<String> = vec![name.to_string()];
@@ -52,6 +57,9 @@ pub(crate) fn load_prompt(name: &str) -> Option<String> {
             Ok(matches)
         },
     );
+    env.add_function("tool_enabled", move |t: String| {
+        Ok(enabled_tools.contains(&t))
+    });
     if let Ok(tmpl) = env.get_template(name) {
         if let Ok(rendered) = tmpl.render(()) {
             return Some(rendered);
@@ -139,13 +147,13 @@ mod tests {
 
     #[test]
     fn load_md_prompt() {
-        let content = load_prompt("sys/hello").unwrap();
+        let content = load_prompt("sys/hello", Vec::new()).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn load_md_with_include() {
-        let content = load_prompt("sys/outer").unwrap();
+        let content = load_prompt("sys/outer", Vec::new()).unwrap();
         assert!(content.contains("Outer."));
         assert!(content.contains("Inner."));
         assert!(content.contains("Deep."));
@@ -153,7 +161,15 @@ mod tests {
 
     #[test]
     fn load_md_with_glob() {
-        let content = load_prompt("sys/glob").unwrap();
+        let content = load_prompt("sys/glob", Vec::new()).unwrap();
         assert!(content.contains("You are a helpful assistant."));
+    }
+
+    #[test]
+    fn tool_enabled_fn() {
+        let content = load_prompt("sys/tool", vec!["shell.run".to_string()]).unwrap();
+        assert!(content.contains("Enabled!"));
+        let content = load_prompt("sys/tool", Vec::new()).unwrap();
+        assert!(content.contains("Disabled!"));
     }
 }
