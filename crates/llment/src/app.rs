@@ -4,7 +4,8 @@ use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
     commands::{
-        self, ClearCommand, ModelCommand, PromptCommand, ProviderCommand, QuitCommand, RedoCommand,
+        self, ClearCommand, ContinueCommand, ModelCommand, PromptCommand, ProviderCommand,
+        QuitCommand, RedoCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
@@ -72,6 +73,7 @@ pub(crate) enum Update {
     SetPrompt(String),
     Redo,
     Clear,
+    Continue,
 }
 
 impl App {
@@ -107,6 +109,10 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(RedoCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(ContinueCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -200,15 +206,17 @@ impl App {
         }
     }
 
-    fn send_request(&mut self, prompt: String) -> () {
+    fn send_request(&mut self, prompt: Option<String>) {
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
-        self.conversation.push_user(prompt.clone());
-        self.conversation.push_assistant_block();
-        {
-            let mut history = self.chat_history.lock().unwrap();
-            history.push(ChatMessage::user(prompt));
+        if let Some(prompt) = prompt {
+            self.conversation.push_user(prompt.clone());
+            {
+                let mut history = self.chat_history.lock().unwrap();
+                history.push(ChatMessage::user(prompt));
+            }
         }
+        self.conversation.push_assistant_block();
 
         self.ignore_responses = false;
         let update_tx = self.update_tx.clone();
@@ -296,8 +304,11 @@ impl Component for App {
             match self.update_rx.try_recv() {
                 Ok(Update::Prompt(prompt)) => {
                     if !prompt.is_empty() {
-                        self.send_request(prompt);
+                        self.send_request(Some(prompt));
                     }
+                }
+                Ok(Update::Continue) => {
+                    self.send_request(None);
                 }
                 Ok(Update::Response(event)) => {
                     if !self.ignore_responses {
