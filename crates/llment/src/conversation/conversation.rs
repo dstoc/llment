@@ -1,6 +1,7 @@
 use crossterm::event::{Event, MouseButton, MouseEventKind};
-use llm::Usage;
+use llm::{ChatMessage, Usage};
 use ratatui::{Frame, layout::Rect};
+use serde_json::to_string;
 
 use crate::component::Component;
 
@@ -286,6 +287,80 @@ impl Conversation {
         None
     }
 
+    pub fn repair(&mut self) -> bool {
+        let mut removed = false;
+        self.items.retain(|item| {
+            if let Node::Assistant(block) = item {
+                let has_response = !block.response.trim().is_empty();
+                let has_tool = block.steps.iter().any(|s| matches!(s, Node::Tool(_)));
+                if !has_response && !has_tool {
+                    removed = true;
+                    return false;
+                }
+            }
+            true
+        });
+        if removed {
+            self.needs_layout = true;
+            self.ensure_layout(self.width);
+            self.scroll_to_bottom();
+        }
+        removed
+    }
+
+    pub fn set_history(&mut self, history: &[ChatMessage]) {
+        self.clear();
+        let mut i = 0usize;
+        let mut tool_id = 0usize;
+        while i < history.len() {
+            match &history[i] {
+                ChatMessage::User(u) => {
+                    self.push_user(u.content.clone());
+                }
+                ChatMessage::Assistant(a) => {
+                    let mut steps = Vec::new();
+                    if let Some(thinking) = &a.thinking {
+                        if !thinking.is_empty() {
+                            steps.push(Node::Thought(ThoughtStep::new(thinking.clone())));
+                        }
+                    }
+                    for call in &a.tool_calls {
+                        let args = to_string(&call.arguments).unwrap_or_default();
+                        let mut step =
+                            ToolStep::new(call.name.clone(), tool_id, args, String::new(), false);
+                        tool_id += 1;
+                        if i + 1 < history.len() {
+                            if let ChatMessage::Tool(tmsg) = &history[i + 1] {
+                                if tmsg.id == call.id {
+                                    step.result = tmsg.content.to_string();
+                                    step.done = true;
+                                    i += 1;
+                                }
+                            }
+                        }
+                        steps.push(Node::Tool(step));
+                    }
+                    let mut response = a.content.clone();
+                    if response.is_empty() && i + 1 < history.len() {
+                        if let ChatMessage::Assistant(next) = &history[i + 1] {
+                            if next.tool_calls.is_empty() {
+                                response = next.content.clone();
+                                i += 1;
+                            }
+                        }
+                    }
+                    self.items
+                        .push(Node::Assistant(AssistantBlock::new(false, steps, response)));
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        self.needs_layout = true;
+        self.ensure_layout(self.width);
+        self.scroll_to_bottom();
+    }
+
     pub fn context_tokens(&self) -> u32 {
         self.items
             .iter()
@@ -390,5 +465,19 @@ mod tests {
 [Reset,Reset]│ word4 word5 word6
 [Reset,Reset]│ word7 word8 word9
 [Reset,Reset]│ word10 word11");
+    }
+
+    #[test]
+    fn repair_removes_empty_blocks() {
+        let mut conv = Conversation::new();
+        conv.items.push(Node::Assistant(AssistantBlock::new(
+            false,
+            vec![Node::Thought(ThoughtStep::new("thinking".into()))],
+            String::new(),
+        )));
+        conv.items.push(Node::User(UserBubble::new("hi".into())));
+        assert!(conv.repair());
+        assert_eq!(conv.items.len(), 1);
+        assert!(matches!(conv.items[0], Node::User(_)));
     }
 }
