@@ -67,7 +67,7 @@ pub struct AppModel {
 pub(crate) enum Update {
     Prompt(String),
     Response(ToolEvent),
-    History(Vec<ChatMessage>),
+    ResponseComplete,
     Error(String),
     SetModel(String),
     SetProvider(Provider, Option<String>),
@@ -246,8 +246,7 @@ impl App {
             }
             match handle.await {
                 Ok(Ok(())) => {
-                    let history = { history.lock().unwrap().clone() };
-                    let _ = update_tx.send(Update::History(history));
+                    let _ = update_tx.send(Update::ResponseComplete);
                 }
                 Ok(Err(err)) => {
                     let _ = update_tx.send(Update::Error(err.to_string()));
@@ -323,11 +322,7 @@ impl Component for App {
                         let _ = self.model.needs_redraw.send(true);
                     }
                 }
-                Ok(Update::History(history)) => {
-                    if !self.ignore_responses {
-                        self.conversation.set_history(&history);
-                        *self.chat_history.lock().unwrap() = history;
-                    }
+                Ok(Update::ResponseComplete) => {
                     self.state = ConversationState::Idle;
                     let _ = self.model.needs_redraw.send(true);
                 }
