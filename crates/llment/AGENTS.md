@@ -53,7 +53,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - clicking the field focuses it
     - cursor hidden when unfocused
     - recognizes `/` commands
-      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/continue`, `/model`, `/provider`, and `/prompt`
+      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/model`, `/provider`, and `/prompt`
         - width adjusts to content
         - `Up`/`Down` navigate selection
         - `Tab` completes and `Enter` executes
@@ -67,6 +67,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/quit` exits the application
       - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
       - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
+      - `/repair` removes assistant blocks with no content or tool calls
       - `/continue` resends the conversation without adding a new user message
       - `/prompt` loads a system/developer prompt from embedded markdown templates
         - `.md` files are rendered with miniJinja and may include other templates via `{% include %}`
@@ -90,6 +91,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - history, error, or clear updates reset to idle
   - conversation items
     - initialized with empty history
+    - history can be rebuilt from a full `ChatMessage` sequence
     - user messages render inside a right-aligned rounded block
     - assistant messages show working steps and final response
       - working and tool sections toggle with mouse click

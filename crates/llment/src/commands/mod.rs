@@ -5,6 +5,7 @@ pub mod prompt;
 pub mod provider;
 pub mod quit;
 pub mod redo;
+pub mod repair;
 
 pub use clear::ClearCommand;
 pub use r#continue::ContinueCommand;
@@ -13,3 +14,4 @@ pub use prompt::PromptCommand;
 pub use provider::ProviderCommand;
 pub use quit::QuitCommand;
 pub use redo::RedoCommand;
+pub use repair::RepairCommand;
