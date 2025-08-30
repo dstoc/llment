@@ -95,6 +95,8 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - history can be rebuilt from a full `ChatMessage` sequence
     - user messages render inside a right-aligned rounded block
     - assistant messages show working steps and final response
+      - may include multiple responses before tool calls
+      - collapsed blocks display only the latest response
       - working and tool sections toggle with mouse click
       - final responses render markdown via termimad
       - streaming updates append thinking text, tool calls, and tool results
