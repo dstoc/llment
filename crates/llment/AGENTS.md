@@ -71,7 +71,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/repair` removes assistant blocks with no content or tool calls
       - `/continue` resends the conversation without adding a new user message
       - `/save` writes conversation history to a file
-      - `/load` restores conversation history from a file
+      - `/load` restores conversation history from a file and aborts any pending request
       - `/prompt` loads a system/developer prompt from embedded markdown templates
         - `.md` files are rendered with miniJinja and may include other templates via `{% include %}`
         - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
