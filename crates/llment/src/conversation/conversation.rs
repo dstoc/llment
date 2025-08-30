@@ -6,7 +6,10 @@ use serde_json::to_string;
 use crate::component::Component;
 
 use super::node::ConvNode;
-use super::{Node, ThoughtStep, UserBubble, assistant_block::AssistantBlock, tool_step::ToolStep};
+use super::{
+    Node, ThoughtStep, UserBubble, assistant_block::AssistantBlock, response_step::ResponseStep,
+    tool_step::ToolStep,
+};
 
 pub struct Conversation {
     items: Vec<Node>,
@@ -225,6 +228,10 @@ impl Conversation {
         let at_bottom = self.is_at_bottom();
         let block = self.ensure_last_assistant();
         block.record_activity();
+        if !block.response.is_empty() {
+            let resp = std::mem::take(&mut block.response);
+            block.steps.push(Node::Response(ResponseStep::new(resp)));
+        }
         block.steps.push(step);
         block.content_rev += 1;
         self.needs_layout = true;
@@ -298,35 +305,52 @@ impl Conversation {
                 }
                 ChatMessage::Assistant(a) => {
                     let mut steps = Vec::new();
-                    if let Some(thinking) = &a.thinking {
-                        if !thinking.is_empty() {
-                            steps.push(Node::Thought(ThoughtStep::new(thinking.clone())));
+                    let mut response = String::new();
+                    let mut current = a.clone();
+                    loop {
+                        if let Some(thinking) = &current.thinking {
+                            if !thinking.is_empty() {
+                                steps.push(Node::Thought(ThoughtStep::new(thinking.clone())));
+                            }
                         }
-                    }
-                    for call in &a.tool_calls {
-                        let args = to_string(&call.arguments).unwrap_or_default();
-                        let mut step =
-                            ToolStep::new(call.name.clone(), tool_id, args, String::new(), false);
-                        tool_id += 1;
-                        if i + 1 < history.len() {
-                            if let ChatMessage::Tool(tmsg) = &history[i + 1] {
-                                if tmsg.id == call.id {
-                                    step.result = tmsg.content.to_string();
-                                    step.done = true;
-                                    i += 1;
+                        if !current.content.is_empty() {
+                            if current.tool_calls.is_empty() {
+                                response = current.content.clone();
+                            } else {
+                                steps.push(Node::Response(ResponseStep::new(
+                                    current.content.clone(),
+                                )));
+                            }
+                        }
+                        for call in &current.tool_calls {
+                            let args = to_string(&call.arguments).unwrap_or_default();
+                            let mut step = ToolStep::new(
+                                call.name.clone(),
+                                tool_id,
+                                args,
+                                String::new(),
+                                false,
+                            );
+                            tool_id += 1;
+                            if i + 1 < history.len() {
+                                if let ChatMessage::Tool(tmsg) = &history[i + 1] {
+                                    if tmsg.id == call.id {
+                                        step.result = tmsg.content.to_string();
+                                        step.done = true;
+                                        i += 1;
+                                    }
                                 }
                             }
+                            steps.push(Node::Tool(step));
                         }
-                        steps.push(Node::Tool(step));
-                    }
-                    let mut response = a.content.clone();
-                    if response.is_empty() && i + 1 < history.len() {
-                        if let ChatMessage::Assistant(next) = &history[i + 1] {
-                            if next.tool_calls.is_empty() {
-                                response = next.content.clone();
+                        if i + 1 < history.len() {
+                            if let ChatMessage::Assistant(next) = &history[i + 1] {
+                                current = next.clone();
                                 i += 1;
+                                continue;
                             }
                         }
+                        break;
                     }
                     self.items
                         .push(Node::Assistant(AssistantBlock::new(false, steps, response)));

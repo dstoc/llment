@@ -2,8 +2,8 @@ use crossterm::event::KeyCode;
 use ratatui::{Frame, layout::Rect};
 
 use super::{
-    assistant_block::AssistantBlock, thought_step::ThoughtStep, tool_step::ToolStep,
-    user_bubble::UserBubble,
+    assistant_block::AssistantBlock, response_step::ResponseStep, thought_step::ThoughtStep,
+    tool_step::ToolStep, user_bubble::UserBubble,
 };
 
 pub trait ConvNode {
@@ -30,6 +30,7 @@ pub enum Node {
     Assistant(AssistantBlock),
     Thought(ThoughtStep),
     Tool(ToolStep),
+    Response(ResponseStep),
 }
 
 impl ConvNode for Node {
@@ -39,6 +40,7 @@ impl ConvNode for Node {
             Node::Assistant(n) => n.height(width),
             Node::Thought(n) => n.height(width),
             Node::Tool(n) => n.height(width),
+            Node::Response(n) => n.height(width),
         }
     }
 
@@ -55,6 +57,7 @@ impl ConvNode for Node {
             Node::Assistant(n) => n.render(frame, area, selected, start, max_height),
             Node::Thought(n) => n.render(frame, area, selected, start, max_height),
             Node::Tool(n) => n.render(frame, area, selected, start, max_height),
+            Node::Response(n) => n.render(frame, area, selected, start, max_height),
         }
     }
 
@@ -64,6 +67,7 @@ impl ConvNode for Node {
             Node::Assistant(n) => n.activate(),
             Node::Thought(n) => n.activate(),
             Node::Tool(n) => n.activate(),
+            Node::Response(n) => n.activate(),
         }
     }
 
@@ -73,6 +77,7 @@ impl ConvNode for Node {
             Node::Assistant(n) => n.on_key(key),
             Node::Thought(n) => n.on_key(key),
             Node::Tool(n) => n.on_key(key),
+            Node::Response(n) => n.on_key(key),
         }
     }
 
@@ -82,6 +87,7 @@ impl ConvNode for Node {
             Node::Assistant(n) => n.click(line),
             Node::Thought(n) => n.click(line),
             Node::Tool(n) => n.click(line),
+            Node::Response(n) => n.click(line),
         }
     }
 }
