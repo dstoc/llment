@@ -212,12 +212,6 @@ impl ConvNode for AssistantBlock {
                     return;
                 }
             }
-        } else {
-            line_idx += self
-                .steps
-                .iter_mut()
-                .map(|s| s.height(area.width))
-                .sum::<u16>();
         }
 
         if remaining > 0 {
