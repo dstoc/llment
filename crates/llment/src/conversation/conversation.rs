@@ -2,6 +2,7 @@ use crossterm::event::{Event, MouseButton, MouseEventKind};
 use llm::{ChatMessage, Usage};
 use ratatui::{Frame, layout::Rect};
 use serde_json::to_string;
+use std::collections::HashMap;
 
 use crate::component::Component;
 
@@ -296,74 +297,55 @@ impl Conversation {
 
     pub fn set_history(&mut self, history: &[ChatMessage]) {
         self.clear();
-        let mut i = 0usize;
         let mut tool_id = 0usize;
-        while i < history.len() {
-            match &history[i] {
+        let mut call_ids: HashMap<String, usize> = HashMap::new();
+        for msg in history {
+            match msg {
                 ChatMessage::User(u) => {
                     self.push_user(u.content.clone());
                 }
                 ChatMessage::Assistant(a) => {
-                    let mut current = a.clone();
-                    loop {
-                        if let Some(thinking) = &current.thinking {
-                            if !thinking.is_empty() {
-                                self.append_thinking(thinking);
-                            }
+                    if let Some(thinking) = &a.thinking {
+                        if !thinking.is_empty() {
+                            self.append_thinking(thinking);
                         }
-                        if !current.content.is_empty() {
-                            self.append_response(&current.content);
-                        }
-                        for call in &current.tool_calls {
-                            let args = to_string(&call.arguments).unwrap_or_default();
-                            let step_id = tool_id;
-                            tool_id += 1;
-                            self.add_tool_step(ToolStep::new(
-                                call.name.clone(),
-                                step_id,
-                                args,
-                                String::new(),
-                                false,
-                            ));
-                            if i + 1 < history.len() {
-                                if let ChatMessage::Tool(tmsg) = &history[i + 1] {
-                                    if tmsg.id == call.id {
-                                        self.update_tool_result(
-                                            step_id,
-                                            tmsg.content.to_string(),
-                                            false,
-                                        );
-                                        i += 1;
-                                    }
-                                }
-                            }
-                        }
-                        if i + 1 < history.len() {
-                            if let ChatMessage::Assistant(next) = &history[i + 1] {
-                                current = next.clone();
-                                i += 1;
-                                continue;
-                            }
-                        }
-                        break;
+                    }
+                    if !a.content.is_empty() {
+                        self.append_response(&a.content);
+                    }
+                    for call in &a.tool_calls {
+                        let args = to_string(&call.arguments).unwrap_or_default();
+                        let step_id = tool_id;
+                        tool_id += 1;
+                        self.add_tool_step(ToolStep::new(
+                            call.name.clone(),
+                            step_id,
+                            args,
+                            String::new(),
+                            false,
+                        ));
+                        call_ids.insert(call.id.clone(), step_id);
                     }
                 }
                 ChatMessage::Tool(tmsg) => {
-                    let step_id = tool_id;
-                    tool_id += 1;
-                    let mut step = ToolStep::new(
-                        tmsg.id.clone(),
-                        step_id,
-                        String::new(),
-                        tmsg.content.to_string(),
-                        false,
-                    );
-                    step.done = true;
-                    self.add_tool_step(step);
+                    if let Some(step_id) = call_ids.get(&tmsg.id) {
+                        self.update_tool_result(*step_id, tmsg.content.to_string(), false);
+                    } else {
+                        let step_id = tool_id;
+                        tool_id += 1;
+                        let mut step = ToolStep::new(
+                            tmsg.id.clone(),
+                            step_id,
+                            String::new(),
+                            tmsg.content.to_string(),
+                            false,
+                        );
+                        step.done = true;
+                        self.add_tool_step(step);
+                    }
                 }
                 _ => {}
             }
-            i += 1;
         }
     }
 
