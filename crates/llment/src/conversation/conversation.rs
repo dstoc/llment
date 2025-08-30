@@ -304,44 +304,39 @@ impl Conversation {
                     self.push_user(u.content.clone());
                 }
                 ChatMessage::Assistant(a) => {
-                    let mut steps = Vec::new();
-                    let mut response = String::new();
                     let mut current = a.clone();
                     loop {
                         if let Some(thinking) = &current.thinking {
                             if !thinking.is_empty() {
-                                steps.push(Node::Thought(ThoughtStep::new(thinking.clone())));
+                                self.append_thinking(thinking);
                             }
                         }
                         if !current.content.is_empty() {
-                            if current.tool_calls.is_empty() {
-                                response = current.content.clone();
-                            } else {
-                                steps.push(Node::Response(ResponseStep::new(
-                                    current.content.clone(),
-                                )));
-                            }
+                            self.append_response(&current.content);
                         }
                         for call in &current.tool_calls {
                             let args = to_string(&call.arguments).unwrap_or_default();
-                            let mut step = ToolStep::new(
+                            let step_id = tool_id;
+                            tool_id += 1;
+                            self.add_tool_step(ToolStep::new(
                                 call.name.clone(),
-                                tool_id,
+                                step_id,
                                 args,
                                 String::new(),
                                 false,
-                            );
-                            tool_id += 1;
+                            ));
                             if i + 1 < history.len() {
                                 if let ChatMessage::Tool(tmsg) = &history[i + 1] {
                                     if tmsg.id == call.id {
-                                        step.result = tmsg.content.to_string();
-                                        step.done = true;
+                                        self.update_tool_result(
+                                            step_id,
+                                            tmsg.content.to_string(),
+                                            false,
+                                        );
                                         i += 1;
                                     }
                                 }
                             }
-                            steps.push(Node::Tool(step));
                         }
                         if i + 1 < history.len() {
                             if let ChatMessage::Assistant(next) = &history[i + 1] {
@@ -352,16 +347,11 @@ impl Conversation {
                         }
                         break;
                     }
-                    self.items
-                        .push(Node::Assistant(AssistantBlock::new(false, steps, response)));
                 }
                 _ => {}
             }
             i += 1;
         }
-        self.needs_layout = true;
-        self.ensure_layout(self.width);
-        self.scroll_to_bottom();
     }
 
     pub fn context_tokens(&self) -> u32 {
