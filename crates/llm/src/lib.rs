@@ -5,10 +5,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use clap::ValueEnum;
 use schemars::Schema;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, to_value};
 use tokio_stream::Stream;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "role", rename_all = "snake_case")]
 pub enum ChatMessage {
     User(UserMessage),
     Assistant(AssistantMessage),
@@ -42,48 +44,50 @@ impl ChatMessage {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserMessage {
     pub content: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AssistantMessage {
     pub content: String,
+    #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
     pub thinking: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SystemMessage {
     pub content: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolMessage {
     pub id: String,
     pub content: Value,
     pub tool_name: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolInfo {
     pub name: String,
     pub description: String,
     pub parameters: Schema,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChatMessageRequest {
     pub model_name: String,
     pub messages: Vec<ChatMessage>,
+    #[serde(default)]
     pub tools: Vec<ToolInfo>,
     pub think: Option<bool>,
 }
@@ -182,20 +186,21 @@ pub fn client_from(
     })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ResponseMessage {
     pub content: Option<String>,
+    #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
     pub thinking: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ResponseChunk {
     pub message: ResponseMessage,
     pub done: bool,

@@ -4,8 +4,8 @@ use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
     commands::{
-        ClearCommand, ContinueCommand, ModelCommand, PromptCommand, ProviderCommand, QuitCommand,
-        RedoCommand, RepairCommand,
+        ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand, ProviderCommand,
+        QuitCommand, RedoCommand, RepairCommand, SaveCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
@@ -76,6 +76,8 @@ pub(crate) enum Update {
     Clear,
     Repair,
     Continue,
+    Save(String),
+    Load(String),
 }
 
 impl App {
@@ -119,6 +121,14 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(ContinueCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(SaveCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(LoadCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -389,6 +399,35 @@ impl Component for App {
                     }
                     let _ = self.model.needs_redraw.send(true);
                 }
+                Ok(Update::Save(path)) => {
+                    let history = { self.chat_history.lock().unwrap().clone() };
+                    if let Err(err) =
+                        std::fs::write(&path, serde_json::to_string_pretty(&history).unwrap())
+                    {
+                        self.error.set(format!("failed to save: {}", err));
+                        let _ = self.model.needs_redraw.send(true);
+                    }
+                }
+                Ok(Update::Load(path)) => match std::fs::read_to_string(&path) {
+                    Ok(data) => match serde_json::from_str::<Vec<ChatMessage>>(&data) {
+                        Ok(history) => {
+                            *self.chat_history.lock().unwrap() = history.clone();
+                            self.conversation.set_history(&history);
+                            self.session_in_tokens = 0;
+                            self.session_out_tokens = 0;
+                            self.state = ConversationState::Idle;
+                            let _ = self.model.needs_redraw.send(true);
+                        }
+                        Err(err) => {
+                            self.error.set(format!("failed to parse: {}", err));
+                            let _ = self.model.needs_redraw.send(true);
+                        }
+                    },
+                    Err(err) => {
+                        self.error.set(format!("failed to load: {}", err));
+                        let _ = self.model.needs_redraw.send(true);
+                    }
+                },
                 Err(_) => break,
             }
         }
