@@ -42,6 +42,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - items snap to bottom with blank space above when short
     - auto-scrolls when at bottom or after user sends a message
     - collapsing or expanding assistant blocks preserves the current view
+      - collapsed assistant blocks exclude hidden step heights from layout and render offsets to keep scroll bounds accurate
   - text input field at the bottom
     - supports multi-line editing without wrapping
     - height expands to fit content
@@ -135,4 +136,5 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - conversation pane has no keyboard interaction
 - switching model aborts in-flight requests without clearing history or resetting token counters
 - partial items are clipped when scrolled
+- collapsed content does not contribute to layout height
 - MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix
