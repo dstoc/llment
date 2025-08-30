@@ -93,6 +93,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - conversation items
     - initialized with empty history
     - history can be rebuilt from a full `ChatMessage` sequence
+      - standalone `Tool` messages are supported
     - user messages render inside a right-aligned rounded block
     - assistant messages show working steps and final response
       - may include multiple responses before tool calls

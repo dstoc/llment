@@ -348,6 +348,19 @@ impl Conversation {
                         break;
                     }
                 }
+                ChatMessage::Tool(tmsg) => {
+                    let step_id = tool_id;
+                    tool_id += 1;
+                    let mut step = ToolStep::new(
+                        tmsg.id.clone(),
+                        step_id,
+                        String::new(),
+                        tmsg.content.to_string(),
+                        false,
+                    );
+                    step.done = true;
+                    self.add_tool_step(step);
+                }
                 _ => {}
             }
             i += 1;
