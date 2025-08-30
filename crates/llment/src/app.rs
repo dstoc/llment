@@ -408,26 +408,29 @@ impl Component for App {
                         let _ = self.model.needs_redraw.send(true);
                     }
                 }
-                Ok(Update::Load(path)) => match std::fs::read_to_string(&path) {
-                    Ok(data) => match serde_json::from_str::<Vec<ChatMessage>>(&data) {
-                        Ok(history) => {
-                            *self.chat_history.lock().unwrap() = history.clone();
-                            self.conversation.set_history(&history);
-                            self.session_in_tokens = 0;
-                            self.session_out_tokens = 0;
-                            self.state = ConversationState::Idle;
-                            let _ = self.model.needs_redraw.send(true);
-                        }
+                Ok(Update::Load(path)) => {
+                    self.abort_requests();
+                    match std::fs::read_to_string(&path) {
+                        Ok(data) => match serde_json::from_str::<Vec<ChatMessage>>(&data) {
+                            Ok(history) => {
+                                *self.chat_history.lock().unwrap() = history.clone();
+                                self.conversation.set_history(&history);
+                                self.session_in_tokens = 0;
+                                self.session_out_tokens = 0;
+                                self.state = ConversationState::Idle;
+                                let _ = self.model.needs_redraw.send(true);
+                            }
+                            Err(err) => {
+                                self.error.set(format!("failed to parse: {}", err));
+                                let _ = self.model.needs_redraw.send(true);
+                            }
+                        },
                         Err(err) => {
-                            self.error.set(format!("failed to parse: {}", err));
+                            self.error.set(format!("failed to load: {}", err));
                             let _ = self.model.needs_redraw.send(true);
                         }
-                    },
-                    Err(err) => {
-                        self.error.set(format!("failed to load: {}", err));
-                        let _ = self.model.needs_redraw.send(true);
                     }
-                },
+                }
                 Err(_) => break,
             }
         }
