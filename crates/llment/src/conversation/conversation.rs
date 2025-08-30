@@ -287,27 +287,6 @@ impl Conversation {
         None
     }
 
-    pub fn repair(&mut self) -> bool {
-        let mut removed = false;
-        self.items.retain(|item| {
-            if let Node::Assistant(block) = item {
-                let has_response = !block.response.trim().is_empty();
-                let has_tool = block.steps.iter().any(|s| matches!(s, Node::Tool(_)));
-                if !has_response && !has_tool {
-                    removed = true;
-                    return false;
-                }
-            }
-            true
-        });
-        if removed {
-            self.needs_layout = true;
-            self.ensure_layout(self.width);
-            self.scroll_to_bottom();
-        }
-        removed
-    }
-
     pub fn set_history(&mut self, history: &[ChatMessage]) {
         self.clear();
         let mut i = 0usize;
@@ -465,19 +444,5 @@ mod tests {
 [Reset,Reset]│ word4 word5 word6
 [Reset,Reset]│ word7 word8 word9
 [Reset,Reset]│ word10 word11");
-    }
-
-    #[test]
-    fn repair_removes_empty_blocks() {
-        let mut conv = Conversation::new();
-        conv.items.push(Node::Assistant(AssistantBlock::new(
-            false,
-            vec![Node::Thought(ThoughtStep::new("thinking".into()))],
-            String::new(),
-        )));
-        conv.items.push(Node::User(UserBubble::new("hi".into())));
-        assert!(conv.repair());
-        assert_eq!(conv.items.len(), 1);
-        assert!(matches!(conv.items[0], Node::User(_)));
     }
 }
