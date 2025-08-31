@@ -80,6 +80,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
       - `/agent-mode` resets history and activates an agent mode that drives follow-up prompts
         - agent modes may register an MCP service that is added on start and removed when switching modes
+        - `/agent-mode off` exits the active agent mode
       - command commit behavior
         - on successful commit, the router clears the active command instance
         - on commit error, the active command instance remains for user correction

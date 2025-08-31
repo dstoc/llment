@@ -82,7 +82,7 @@ pub(crate) enum Update {
     Save(String),
     Load(String),
     SetMode(
-        Box<dyn AgentMode>,
+        Option<Box<dyn AgentMode>>,
         Option<RunningService<RoleClient, McpService>>,
     ),
 }
@@ -401,10 +401,14 @@ impl Component for App {
                     if let Some(service) = service {
                         self.mcp_context.insert(service);
                     }
-                    self.mode = Some(mode);
-                    let (prompt_name, prompt) = self.mode.as_mut().unwrap().start();
-                    self.selected_prompt = Some(prompt_name);
-                    self.send_request(Some(prompt));
+                    self.mode = mode;
+                    if let Some(mode) = self.mode.as_mut() {
+                        let (prompt_name, prompt) = mode.start();
+                        self.selected_prompt = Some(prompt_name);
+                        self.send_request(Some(prompt));
+                    } else {
+                        self.selected_prompt = None;
+                    }
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Clear) => {

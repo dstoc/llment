@@ -16,7 +16,7 @@ impl Command for AgentModeCommand {
         "agent-mode"
     }
     fn description(&self) -> &'static str {
-        "Activate an agent mode"
+        "Activate or deactivate an agent mode"
     }
     fn has_params(&self) -> bool {
         true
@@ -40,6 +40,7 @@ impl AgentModeCommandInstance {
     fn mode_options(&self, typed: &str) -> Vec<Completion> {
         let mut options: Vec<Completion> = modes::available_modes()
             .into_iter()
+            .chain(std::iter::once("off"))
             .filter(|m| m.starts_with(typed))
             .map(|m| Completion {
                 name: m.to_string(),
@@ -61,6 +62,15 @@ impl CommandInstance for AgentModeCommandInstance {
     fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
             Err("no mode".into())
+        } else if self.param == "off" {
+            let tx = self.update_tx.clone();
+            let needs_update = self.needs_update.clone();
+            tokio::spawn(async move {
+                let _ = tx.send(Update::Clear);
+                let _ = tx.send(Update::SetMode(None, None));
+                let _ = needs_update.send(true);
+            });
+            Ok(())
         } else {
             let mode_name = self.param.clone();
             let tx = self.update_tx.clone();
@@ -68,7 +78,7 @@ impl CommandInstance for AgentModeCommandInstance {
             tokio::spawn(async move {
                 if let Some((mode, service)) = modes::create_agent_mode(&mode_name).await {
                     let _ = tx.send(Update::Clear);
-                    let _ = tx.send(Update::SetMode(mode, service));
+                    let _ = tx.send(Update::SetMode(Some(mode), service));
                     let _ = needs_update.send(true);
                 }
             });
