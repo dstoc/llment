@@ -103,7 +103,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - thinking chunks switch to thinking state
     - content chunks switch to responding state
     - tool start switches to calling tool state
-    - history, error, or clear updates reset to idle
+    - history, error, clear updates, or aborted requests reset to idle
   - conversation items
     - initialized with empty history
     - history can be rebuilt from a full `ChatMessage` sequence
