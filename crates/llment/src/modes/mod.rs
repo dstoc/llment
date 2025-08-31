@@ -4,6 +4,9 @@ use rmcp::service::{RoleClient, RunningService};
 pub trait AgentMode: Send {
     fn start(&mut self) -> (String, String);
     fn step(&mut self) -> (String, Option<String>);
+    fn service_prefix(&self) -> Option<&str> {
+        None
+    }
 }
 
 pub async fn create_agent_mode(

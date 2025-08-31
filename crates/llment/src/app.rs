@@ -59,7 +59,6 @@ pub struct App {
     error: ErrorPopup,
     selected_prompt: Option<String>,
     mode: Option<Box<dyn AgentMode>>,
-    mode_service_prefix: Option<String>,
 }
 
 pub struct AppModel {
@@ -169,7 +168,6 @@ impl App {
             error: ErrorPopup::new(needs_redraw),
             selected_prompt: None,
             mode: None,
-            mode_service_prefix: None,
         }
     }
 
@@ -288,6 +286,15 @@ impl App {
         self.request_tasks = JoinSet::new();
         self.ignore_responses = true;
     }
+
+    fn clear(&mut self) {
+        self.abort_requests();
+        self.chat_history.lock().unwrap().clear();
+        self.conversation.clear();
+        self.session_in_tokens = 0;
+        self.session_out_tokens = 0;
+        self.state = ConversationState::Idle;
+    }
 }
 
 impl Component for App {
@@ -385,19 +392,15 @@ impl Component for App {
                     self.selected_prompt = Some(name);
                 }
                 Ok(Update::SetMode(mode, service)) => {
-                    self.abort_requests();
-                    if let Some(prefix) = self.mode_service_prefix.take() {
-                        self.mcp_context.remove(&prefix);
+                    if let Some(current) = self.mode.as_ref() {
+                        if let Some(prefix) = current.service_prefix() {
+                            self.mcp_context.remove(prefix);
+                        }
                     }
+                    self.clear();
                     if let Some(service) = service {
-                        self.mode_service_prefix = Some(service.service().prefix.clone());
                         self.mcp_context.insert(service);
                     }
-                    self.chat_history.lock().unwrap().clear();
-                    self.conversation.clear();
-                    self.session_in_tokens = 0;
-                    self.session_out_tokens = 0;
-                    self.state = ConversationState::Idle;
                     self.mode = Some(mode);
                     let (prompt_name, prompt) = self.mode.as_mut().unwrap().start();
                     self.selected_prompt = Some(prompt_name);
@@ -405,12 +408,7 @@ impl Component for App {
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Clear) => {
-                    self.abort_requests();
-                    self.chat_history.lock().unwrap().clear();
-                    self.conversation.clear();
-                    self.session_in_tokens = 0;
-                    self.session_out_tokens = 0;
-                    self.state = ConversationState::Idle;
+                    self.clear();
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
