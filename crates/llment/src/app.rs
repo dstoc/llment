@@ -364,9 +364,9 @@ impl Component for App {
                 Ok(Update::ResponseComplete) => {
                     self.state = ConversationState::Idle;
                     if let Some(mode) = self.mode.as_mut() {
-                        let (role_name, prompt) = mode.step();
-                        self.selected_role = role_name;
-                        if let Some(prompt) = prompt {
+                        let step = mode.step();
+                        self.selected_role = step.role;
+                        if let Some(prompt) = step.prompt {
                             self.send_request(Some(prompt));
                         }
                     }
@@ -414,9 +414,9 @@ impl Component for App {
                         if let Some(service) = service {
                             self.mcp_context.insert(service);
                         }
-                        let (role_name, prompt) = mode.start();
-                        self.selected_role = role_name;
-                        self.send_request(Some(prompt));
+                        let start = mode.start();
+                        self.selected_role = start.role;
+                        self.send_request(Some(start.prompt));
                     } else {
                         self.selected_role = None;
                     }

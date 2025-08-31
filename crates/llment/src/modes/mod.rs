@@ -1,9 +1,19 @@
 use llm::mcp::McpService;
 use rmcp::service::{RoleClient, RunningService};
 
+pub struct AgentModeStart {
+    pub role: Option<String>,
+    pub prompt: String,
+}
+
+pub struct AgentModeStep {
+    pub role: Option<String>,
+    pub prompt: Option<String>,
+}
+
 pub trait AgentMode: Send {
-    fn start(&mut self) -> (Option<String>, String);
-    fn step(&mut self) -> (Option<String>, Option<String>);
+    fn start(&mut self) -> AgentModeStart;
+    fn step(&mut self) -> AgentModeStep;
     fn service_prefix(&self) -> Option<&str> {
         None
     }

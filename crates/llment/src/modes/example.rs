@@ -1,4 +1,4 @@
-use super::AgentMode;
+use super::{AgentMode, AgentModeStart, AgentModeStep};
 
 pub struct ExampleAgentMode {
     stage: usize,
@@ -11,23 +11,26 @@ impl ExampleAgentMode {
 }
 
 impl AgentMode for ExampleAgentMode {
-    fn start(&mut self) -> (Option<String>, String) {
+    fn start(&mut self) -> AgentModeStart {
         self.stage = 1;
-        (
-            Some("swe".to_string()),
-            "Hello from the example agent mode.".to_string(),
-        )
+        AgentModeStart {
+            role: Some("swe".to_string()),
+            prompt: "Hello from the example agent mode.".to_string(),
+        }
     }
 
-    fn step(&mut self) -> (Option<String>, Option<String>) {
+    fn step(&mut self) -> AgentModeStep {
         if self.stage == 1 {
             self.stage = 2;
-            (
-                Some("swe".to_string()),
-                Some("This is a follow-up from example agent mode.".to_string()),
-            )
+            AgentModeStep {
+                role: Some("swe".to_string()),
+                prompt: Some("This is a follow-up from example agent mode.".to_string()),
+            }
         } else {
-            (None, None)
+            AgentModeStep {
+                role: None,
+                prompt: None,
+            }
         }
     }
 }
