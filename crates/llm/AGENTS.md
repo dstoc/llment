@@ -38,6 +38,7 @@ Trait-based LLM client implementations for multiple providers.
     - tool calls include an `id` string, assigned locally when missing
     - tool messages carry the same `id` and store `content` as `serde_json::Value`
 - Chat message, request, and response types serialize to and from JSON
+  - skips serializing fields that are `None`, empty strings, or empty arrays
 - Responses
   - chunks include optional content, tool calls, optional thinking text, and usage metrics on the final chunk
   - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
