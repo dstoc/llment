@@ -363,11 +363,28 @@ impl Component for App {
                 }
                 Ok(Update::ResponseComplete) => {
                     self.state = ConversationState::Idle;
-                    if let Some(mode) = self.mode.as_mut() {
-                        let step = mode.step();
+                    let step = if let Some(mode) = self.mode.as_mut() {
+                        Some(mode.step())
+                    } else {
+                        None
+                    };
+                    if let Some(step) = step {
+                        if step.clear_history {
+                            self.clear();
+                        }
                         self.selected_role = step.role;
-                        if let Some(prompt) = step.prompt {
-                            self.send_request(Some(prompt));
+                        if step.stop {
+                            if let Some(mode) = self.mode.as_ref() {
+                                if let Some(prefix) = mode.service_prefix() {
+                                    self.mcp_context.remove(prefix);
+                                }
+                            }
+                            self.mode = None;
+                        } else {
+                            match step.prompt {
+                                Some(prompt) => self.send_request(Some(prompt)),
+                                None => self.send_request(None),
+                            }
                         }
                     }
                     let _ = self.model.needs_redraw.send(true);
@@ -408,15 +425,25 @@ impl Component for App {
                             self.mcp_context.remove(prefix);
                         }
                     }
-                    self.clear();
+                    self.abort_requests();
                     self.mode = mode;
-                    if let Some(mode) = self.mode.as_mut() {
-                        if let Some(service) = service {
-                            self.mcp_context.insert(service);
+                    if let Some(service) = service {
+                        self.mcp_context.insert(service);
+                    }
+                    let start = if let Some(mode) = self.mode.as_mut() {
+                        Some(mode.start())
+                    } else {
+                        None
+                    };
+                    if let Some(start) = start {
+                        if start.clear_history {
+                            self.clear();
                         }
-                        let start = mode.start();
                         self.selected_role = start.role;
-                        self.send_request(Some(start.prompt));
+                        match start.prompt {
+                            Some(prompt) => self.send_request(Some(prompt)),
+                            None => self.send_request(None),
+                        }
                     } else {
                         self.selected_role = None;
                     }

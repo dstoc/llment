@@ -82,10 +82,13 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/role` loads a role from `prompts/roles`
         - passing `none` clears the active role
         - completion suggestions include roles matching the typed prefix and `none` when it matches
-      - `/agent-mode` resets history, optionally sets a role, and activates an agent mode that drives follow-up prompts
+      - `/agent-mode` activates an agent mode that drives follow-up prompts
+        - agent mode `start` and `step` may request clearing chat history before the next request
         - agent mode `start` and `step` return results with `role` and `prompt` fields
+          - `prompt` set to `None` sends a request without a new user message
+        - agent mode `step` can signal `stop` to exit the mode
         - agent modes may adjust or clear the role between steps
-        - agent modes may register an MCP service that is added on start and removed when switching modes
+        - agent modes may register an MCP service that is added on start and removed when switching modes or when the mode stops
         - `/agent-mode off` exits the active agent mode
       - command commit behavior
         - on successful commit, the router clears the active command instance

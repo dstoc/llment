@@ -66,7 +66,6 @@ impl CommandInstance for AgentModeCommandInstance {
             let tx = self.update_tx.clone();
             let needs_update = self.needs_update.clone();
             tokio::spawn(async move {
-                let _ = tx.send(Update::Clear);
                 let _ = tx.send(Update::SetMode(None, None));
                 let _ = needs_update.send(true);
             });
@@ -77,7 +76,6 @@ impl CommandInstance for AgentModeCommandInstance {
             let needs_update = self.needs_update.clone();
             tokio::spawn(async move {
                 if let Some((mode, service)) = modes::create_agent_mode(&mode_name).await {
-                    let _ = tx.send(Update::Clear);
                     let _ = tx.send(Update::SetMode(Some(mode), service));
                     let _ = needs_update.send(true);
                 }
