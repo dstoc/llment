@@ -398,11 +398,11 @@ impl Component for App {
                         }
                     }
                     self.clear();
-                    if let Some(service) = service {
-                        self.mcp_context.insert(service);
-                    }
                     self.mode = mode;
                     if let Some(mode) = self.mode.as_mut() {
+                        if let Some(service) = service {
+                            self.mcp_context.insert(service);
+                        }
                         let (prompt_name, prompt) = mode.start();
                         self.selected_prompt = Some(prompt_name);
                         self.send_request(Some(prompt));
