@@ -54,7 +54,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - clicking the field focuses it
     - cursor hidden when unfocused
     - recognizes `/` commands
-      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/save`, `/load`, `/model`, `/provider`, and `/prompt`
+      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, and `/agent-mode`
         - width adjusts to content
         - `Up`/`Down` navigate selection
         - `Tab` completes and `Enter` executes
@@ -78,6 +78,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - templates may call `tool_enabled("name")` to check for available tools
         - parameters correspond to `prompts/` paths without the extension
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
+      - `/agent-mode` resets history and activates an agent mode that drives follow-up prompts
       - command commit behavior
         - on successful commit, the router clears the active command instance
         - on commit error, the active command instance remains for user correction
