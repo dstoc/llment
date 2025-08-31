@@ -53,7 +53,9 @@ impl RoleCommandInstance {
                 }
             })
             .collect();
-        names.push("none".to_string());
+        if "none".starts_with(typed) {
+            names.push("none".to_string());
+        }
         names.sort();
         names.dedup();
         names
