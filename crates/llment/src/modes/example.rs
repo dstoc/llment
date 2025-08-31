@@ -15,7 +15,8 @@ impl AgentMode for ExampleAgentMode {
         self.stage = 1;
         AgentModeStart {
             role: Some("swe".to_string()),
-            prompt: "Hello from the example agent mode.".to_string(),
+            prompt: Some("Hello from the example agent mode.".to_string()),
+            clear_history: true,
         }
     }
 
@@ -25,11 +26,15 @@ impl AgentMode for ExampleAgentMode {
             AgentModeStep {
                 role: Some("swe".to_string()),
                 prompt: Some("This is a follow-up from example agent mode.".to_string()),
+                clear_history: false,
+                stop: false,
             }
         } else {
             AgentModeStep {
                 role: None,
                 prompt: None,
+                clear_history: false,
+                stop: true,
             }
         }
     }

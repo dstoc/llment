@@ -3,12 +3,15 @@ use rmcp::service::{RoleClient, RunningService};
 
 pub struct AgentModeStart {
     pub role: Option<String>,
-    pub prompt: String,
+    pub prompt: Option<String>,
+    pub clear_history: bool,
 }
 
 pub struct AgentModeStep {
     pub role: Option<String>,
     pub prompt: Option<String>,
+    pub clear_history: bool,
+    pub stop: bool,
 }
 
 pub trait AgentMode: Send {
