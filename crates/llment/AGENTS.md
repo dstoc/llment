@@ -88,7 +88,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
           - `prompt` set to `None` sends a request without a new user message
         - agent mode `step` can signal `stop` to exit the mode
         - agent modes may adjust or clear the role between steps
-        - agent modes may register an MCP service that is added on start and removed when switching modes or when the mode stops
+        - agent modes may register an MCP service under the `agent` prefix that is added on start and removed when switching modes or when the mode stops
         - `/agent-mode off` exits the active agent mode
       - command commit behavior
         - on successful commit, the router clears the active command instance
@@ -155,4 +155,4 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - switching model aborts in-flight requests without clearing history or resetting token counters
 - partial items are clipped when scrolled
 - collapsed content does not contribute to layout height
-- MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix
+- MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix, agent mode tools use the `agent` prefix
