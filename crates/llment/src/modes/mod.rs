@@ -17,9 +17,6 @@ pub struct AgentModeStep {
 pub trait AgentMode: Send {
     fn start(&mut self) -> AgentModeStart;
     fn step(&mut self) -> AgentModeStep;
-    fn service_prefix(&self) -> Option<&str> {
-        None
-    }
 }
 
 pub async fn create_agent_mode(

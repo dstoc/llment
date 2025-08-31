@@ -375,11 +375,7 @@ impl Component for App {
                         }
                         self.selected_role = step.role;
                         if step.stop {
-                            if let Some(mode) = self.mode.as_ref() {
-                                if let Some(prefix) = mode.service_prefix() {
-                                    self.mcp_context.remove(prefix);
-                                }
-                            }
+                            self.mcp_context.remove("agent");
                             self.mode = None;
                         } else {
                             self.send_request(step.prompt);
@@ -418,11 +414,7 @@ impl Component for App {
                     self.selected_role = role;
                 }
                 Ok(Update::SetMode(mode, service)) => {
-                    if let Some(current) = self.mode.as_ref() {
-                        if let Some(prefix) = current.service_prefix() {
-                            self.mcp_context.remove(prefix);
-                        }
-                    }
+                    self.mcp_context.remove("agent");
                     self.abort_requests();
                     self.mode = mode;
                     if let Some(service) = service {
