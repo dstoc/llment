@@ -5,7 +5,7 @@ use crate::{
     builtins::setup_builtin_tools,
     commands::{
         AgentModeCommand, ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand,
-        ProviderCommand, QuitCommand, RedoCommand, RepairCommand, SaveCommand,
+        ProviderCommand, QuitCommand, RedoCommand, RepairCommand, RoleCommand, SaveCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
@@ -58,6 +58,7 @@ pub struct App {
     ignore_responses: bool,
     error: ErrorPopup,
     selected_prompt: Option<String>,
+    selected_role: Option<String>,
     mode: Option<Box<dyn AgentMode>>,
 }
 
@@ -75,6 +76,7 @@ pub(crate) enum Update {
     SetModel(String),
     SetProvider(Provider, Option<String>),
     SetPrompt(String),
+    SetRole(Option<String>),
     Redo,
     Clear,
     Repair,
@@ -116,6 +118,10 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(PromptCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(RoleCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -166,7 +172,8 @@ impl App {
             update_rx,
             ignore_responses: false,
             error: ErrorPopup::new(needs_redraw),
-            selected_prompt: None,
+            selected_prompt: Some("default".to_string()),
+            selected_role: None,
             mode: None,
         }
     }
@@ -224,7 +231,8 @@ impl App {
     fn apply_prompt(&mut self) {
         if let Some(name) = &self.selected_prompt {
             let tool_names = self.mcp_context.tool_names();
-            if let Some(content) = prompts::load_prompt(name, tool_names) {
+            let role = self.selected_role.as_deref();
+            if let Some(content) = prompts::load_prompt(name, role, tool_names) {
                 let mut history = self.chat_history.lock().unwrap();
                 while matches!(history.first(), Some(ChatMessage::System(_))) {
                     history.remove(0);
@@ -356,8 +364,8 @@ impl Component for App {
                 Ok(Update::ResponseComplete) => {
                     self.state = ConversationState::Idle;
                     if let Some(mode) = self.mode.as_mut() {
-                        let (prompt_name, prompt) = mode.step();
-                        self.selected_prompt = Some(prompt_name);
+                        let (role_name, prompt) = mode.step();
+                        self.selected_role = role_name;
                         if let Some(prompt) = prompt {
                             self.send_request(Some(prompt));
                         }
@@ -391,6 +399,9 @@ impl Component for App {
                 Ok(Update::SetPrompt(name)) => {
                     self.selected_prompt = Some(name);
                 }
+                Ok(Update::SetRole(role)) => {
+                    self.selected_role = role;
+                }
                 Ok(Update::SetMode(mode, service)) => {
                     if let Some(current) = self.mode.as_ref() {
                         if let Some(prefix) = current.service_prefix() {
@@ -403,11 +414,11 @@ impl Component for App {
                         if let Some(service) = service {
                             self.mcp_context.insert(service);
                         }
-                        let (prompt_name, prompt) = mode.start();
-                        self.selected_prompt = Some(prompt_name);
+                        let (role_name, prompt) = mode.start();
+                        self.selected_role = role_name;
                         self.send_request(Some(prompt));
                     } else {
-                        self.selected_prompt = None;
+                        self.selected_role = None;
                     }
                     let _ = self.model.needs_redraw.send(true);
                 }
@@ -517,7 +528,22 @@ impl Component for App {
         };
         let status_left = {
             let client = self.client.lock().unwrap();
-            format!("{:?} {} {}", client.provider(), client.model(), state_text)
+            let mut parts = vec![
+                format!("{:?}", client.provider()),
+                client.model().to_string(),
+            ];
+            if let Some(prompt) = &self.selected_prompt {
+                if prompt != "default" {
+                    parts.push(prompt.clone());
+                }
+            }
+            if let Some(role) = &self.selected_role {
+                parts.push(role.clone());
+            }
+            if !state_text.is_empty() {
+                parts.push(state_text);
+            }
+            parts.join(" ")
         };
         frame.render_widget(Paragraph::new(status_left), status_chunks[0]);
         frame.render_widget(

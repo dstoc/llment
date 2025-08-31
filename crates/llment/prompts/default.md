@@ -1,4 +1,4 @@
-{% include "roles/swe.md" %}
+{{ role() }}
 {% include "instructions/focus.md" %}
 {% include "instructions/task.md" %}
 {% include "instructions/autonomy.md" %}

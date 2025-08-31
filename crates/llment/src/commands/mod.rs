@@ -8,6 +8,7 @@ pub mod provider;
 pub mod quit;
 pub mod redo;
 pub mod repair;
+pub mod role;
 pub mod save;
 
 pub use agent_mode::AgentModeCommand;
@@ -20,4 +21,5 @@ pub use provider::ProviderCommand;
 pub use quit::QuitCommand;
 pub use redo::RedoCommand;
 pub use repair::RepairCommand;
+pub use role::RoleCommand;
 pub use save::SaveCommand;
