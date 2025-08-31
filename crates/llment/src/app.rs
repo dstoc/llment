@@ -293,6 +293,7 @@ impl App {
         self.request_tasks.abort_all();
         self.request_tasks = JoinSet::new();
         self.ignore_responses = true;
+        self.state = ConversationState::Idle;
     }
 
     fn clear(&mut self) {
