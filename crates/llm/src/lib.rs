@@ -9,6 +9,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, to_value};
 use tokio_stream::Stream;
 
+fn option_string_is_empty(value: &Option<String>) -> bool {
+    match value {
+        None => true,
+        Some(s) => s.is_empty(),
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 pub enum ChatMessage {
@@ -46,19 +53,23 @@ impl ChatMessage {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserMessage {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AssistantMessage {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(skip_serializing_if = "option_string_is_empty", default)]
     pub thinking: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SystemMessage {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
 }
 
@@ -87,8 +98,9 @@ pub struct ToolInfo {
 pub struct ChatMessageRequest {
     pub model_name: String,
     pub messages: Vec<ChatMessage>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub think: Option<bool>,
 }
 
@@ -188,9 +200,11 @@ pub fn client_from(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResponseMessage {
+    #[serde(default, skip_serializing_if = "option_string_is_empty")]
     pub content: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "option_string_is_empty")]
     pub thinking: Option<String>,
 }
 
@@ -204,6 +218,7 @@ pub struct Usage {
 pub struct ResponseChunk {
     pub message: ResponseMessage,
     pub done: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
 }
 
