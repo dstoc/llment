@@ -381,10 +381,7 @@ impl Component for App {
                             }
                             self.mode = None;
                         } else {
-                            match step.prompt {
-                                Some(prompt) => self.send_request(Some(prompt)),
-                                None => self.send_request(None),
-                            }
+                            self.send_request(step.prompt);
                         }
                     }
                     let _ = self.model.needs_redraw.send(true);
@@ -440,10 +437,7 @@ impl Component for App {
                             self.clear();
                         }
                         self.selected_role = start.role;
-                        match start.prompt {
-                            Some(prompt) => self.send_request(Some(prompt)),
-                            None => self.send_request(None),
-                        }
+                        self.send_request(start.prompt);
                     } else {
                         self.selected_role = None;
                     }
