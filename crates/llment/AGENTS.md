@@ -82,6 +82,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/role` loads a role from `prompts/roles`
         - passing `none` clears the active role
       - `/agent-mode` resets history, optionally sets a role, and activates an agent mode that drives follow-up prompts
+        - agent mode `start` and `step` return results with `role` and `prompt` fields
         - agent modes may adjust or clear the role between steps
         - agent modes may register an MCP service that is added on start and removed when switching modes
         - `/agent-mode off` exits the active agent mode
