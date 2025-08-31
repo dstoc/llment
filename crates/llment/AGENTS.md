@@ -81,6 +81,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
       - `/role` loads a role from `prompts/roles`
         - passing `none` clears the active role
+        - completion suggestions include roles matching the typed prefix and `none` when it matches
       - `/agent-mode` resets history, optionally sets a role, and activates an agent mode that drives follow-up prompts
         - agent mode `start` and `step` return results with `role` and `prompt` fields
         - agent modes may adjust or clear the role between steps
