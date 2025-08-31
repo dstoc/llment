@@ -1,3 +1,4 @@
+pub mod agent_mode;
 pub mod clear;
 pub mod r#continue;
 pub mod load;
@@ -9,6 +10,7 @@ pub mod redo;
 pub mod repair;
 pub mod save;
 
+pub use agent_mode::AgentModeCommand;
 pub use clear::ClearCommand;
 pub use r#continue::ContinueCommand;
 pub use load::LoadCommand;

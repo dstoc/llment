@@ -8,7 +8,10 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use tokio::process::Command;
 
 use crate::{Schema, ToolInfo, tools::ToolExecutor};
@@ -44,20 +47,25 @@ impl ClientHandler for McpService {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct McpContext {
-    services: HashMap<String, RunningService<RoleClient, McpService>>,
+    services: Arc<Mutex<HashMap<String, RunningService<RoleClient, McpService>>>>,
 }
 
 impl McpContext {
-    pub fn insert(&mut self, service: RunningService<RoleClient, McpService>) {
+    pub fn insert(&self, service: RunningService<RoleClient, McpService>) {
         let prefix = service.service().prefix.clone();
-        self.services.insert(prefix, service);
+        self.services.lock().unwrap().insert(prefix, service);
+    }
+
+    pub fn remove(&self, prefix: &str) {
+        self.services.lock().unwrap().remove(prefix);
     }
 
     pub fn tool_infos(&self) -> Vec<ToolInfo> {
         let mut infos = Vec::new();
-        for svc in self.services.values() {
+        let services = self.services.lock().unwrap();
+        for svc in services.values() {
             let prefix = svc.service().prefix.clone();
             let tools = svc.service().tools.load();
             for tool in tools.iter() {
@@ -73,7 +81,8 @@ impl McpContext {
 
     pub fn tool_names(&self) -> Vec<String> {
         let mut names = Vec::new();
-        for svc in self.services.values() {
+        let services = self.services.lock().unwrap();
+        for svc in services.values() {
             let prefix = svc.service().prefix.clone();
             let tools = svc.service().tools.load();
             for tool in tools.iter() {
@@ -94,11 +103,13 @@ impl ToolExecutor for McpContext {
         let (prefix, tool_name) = name
             .split_once('.')
             .ok_or_else(|| format!("Tool {name} missing prefix"))?;
-        let svc = self
-            .services
-            .get(prefix)
-            .ok_or_else(|| format!("Service {prefix} not found"))?;
-        let peer = svc.peer().clone();
+        let peer = {
+            let services = self.services.lock().unwrap();
+            let svc = services
+                .get(prefix)
+                .ok_or_else(|| format!("Service {prefix} not found"))?;
+            svc.peer().clone()
+        };
         let result = peer
             .call_tool(CallToolRequestParam {
                 name: tool_name.to_string().into(),
@@ -144,7 +155,7 @@ pub async fn load_mcp_servers(
 ) -> Result<McpContext, Box<dyn std::error::Error + Send + Sync>> {
     let data = tokio::fs::read_to_string(path).await?;
     let config: McpConfig = serde_json::from_str(&data)?;
-    let mut ctx = McpContext::default();
+    let ctx = McpContext::default();
     for (server_name, server) in config.mcp_servers.iter() {
         let mut cmd = Command::new(&server.command);
         cmd.args(&server.args);

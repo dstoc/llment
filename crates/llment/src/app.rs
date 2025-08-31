@@ -4,20 +4,22 @@ use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
     commands::{
-        ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand, ProviderCommand,
-        QuitCommand, RedoCommand, RepairCommand, SaveCommand,
+        AgentModeCommand, ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand,
+        ProviderCommand, QuitCommand, RedoCommand, RepairCommand, SaveCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
+    modes::AgentMode,
     prompts,
 };
 use crossterm::event::Event;
 use llm::{
     ChatMessage, ChatMessageRequest, Provider,
-    mcp::McpContext,
+    mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
 use ratatui::{prelude::*, widgets::Paragraph};
+use rmcp::service::{RoleClient, RunningService};
 use tokio::{
     sync::{
         mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -42,7 +44,7 @@ pub struct App {
     prompt: Prompt,
 
     client: Arc<Mutex<llm::Client>>,
-    mcp_context: Arc<McpContext>,
+    mcp_context: McpContext,
     session_in_tokens: u32,
     session_out_tokens: u32,
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
@@ -56,6 +58,8 @@ pub struct App {
     ignore_responses: bool,
     error: ErrorPopup,
     selected_prompt: Option<String>,
+    mode: Option<Box<dyn AgentMode>>,
+    mode_service_prefix: Option<String>,
 }
 
 pub struct AppModel {
@@ -78,12 +82,16 @@ pub(crate) enum Update {
     Continue,
     Save(String),
     Load(String),
+    SetMode(
+        Box<dyn AgentMode>,
+        Option<RunningService<RoleClient, McpService>>,
+    ),
 }
 
 impl App {
     pub fn new(model: AppModel, args: Args) -> Self {
         let (update_tx, update_rx) = unbounded_channel();
-        let mcp_context = Arc::new(McpContext::default());
+        let mcp_context = McpContext::default();
         let client =
             llm::client_from(args.provider, args.model.clone(), args.host.as_deref()).unwrap();
         let client = Arc::new(Mutex::new(client));
@@ -109,6 +117,10 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(PromptCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(AgentModeCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -156,13 +168,15 @@ impl App {
             ignore_responses: false,
             error: ErrorPopup::new(needs_redraw),
             selected_prompt: None,
+            mode: None,
+            mode_service_prefix: None,
         }
     }
 
-    pub async fn init(&mut self, mut mcp_context: McpContext) {
+    pub async fn init(&mut self, mcp_context: McpContext) {
+        self.mcp_context = mcp_context;
         let builtin_service = setup_builtin_tools(self.chat_history.clone()).await;
-        mcp_context.insert(builtin_service);
-        self.mcp_context = Arc::new(mcp_context);
+        self.mcp_context.insert(builtin_service);
     }
 
     fn handle_tool_event(&mut self, ev: ToolEvent) {
@@ -238,7 +252,7 @@ impl App {
         let update_tx = self.update_tx.clone();
         let needs_update = self.model.needs_update.clone();
         let history = self.chat_history.clone();
-        let mcp_context = self.mcp_context.clone();
+        let mcp_context = Arc::new(self.mcp_context.clone());
         let client = { Arc::new(self.client.lock().unwrap().clone()) };
         self.request_tasks.spawn(async move {
             let tool_infos = mcp_context.tool_infos();
@@ -334,6 +348,13 @@ impl Component for App {
                 }
                 Ok(Update::ResponseComplete) => {
                     self.state = ConversationState::Idle;
+                    if let Some(mode) = self.mode.as_mut() {
+                        let (prompt_name, prompt) = mode.step();
+                        self.selected_prompt = Some(prompt_name);
+                        if let Some(prompt) = prompt {
+                            self.send_request(Some(prompt));
+                        }
+                    }
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Error(err)) => {
@@ -362,6 +383,26 @@ impl Component for App {
                 }
                 Ok(Update::SetPrompt(name)) => {
                     self.selected_prompt = Some(name);
+                }
+                Ok(Update::SetMode(mode, service)) => {
+                    self.abort_requests();
+                    if let Some(prefix) = self.mode_service_prefix.take() {
+                        self.mcp_context.remove(&prefix);
+                    }
+                    if let Some(service) = service {
+                        self.mode_service_prefix = Some(service.service().prefix.clone());
+                        self.mcp_context.insert(service);
+                    }
+                    self.chat_history.lock().unwrap().clear();
+                    self.conversation.clear();
+                    self.session_in_tokens = 0;
+                    self.session_out_tokens = 0;
+                    self.state = ConversationState::Idle;
+                    self.mode = Some(mode);
+                    let (prompt_name, prompt) = self.mode.as_mut().unwrap().start();
+                    self.selected_prompt = Some(prompt_name);
+                    self.send_request(Some(prompt));
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Clear) => {
                     self.abort_requests();

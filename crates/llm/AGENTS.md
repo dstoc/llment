@@ -55,6 +55,7 @@ Trait-based LLM client implementations for multiple providers.
     - `on_tool_list_changed` refreshes tool metadata from the service
     - tool metadata stored in an `ArcSwap` for lock-free snapshots
   - `McpContext` stores running service handles keyed by prefix
+    - supports runtime insertion and removal of services via internal locking
     - exposes merged `tool_infos` from all services
     - provides a non-blocking `tool_names` snapshot of available tools
     - implements `ToolExecutor` for MCP calls
