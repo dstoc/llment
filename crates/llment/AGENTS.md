@@ -54,7 +54,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - clicking the field focuses it
     - cursor hidden when unfocused
     - recognizes `/` commands
-      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, and `/agent-mode`
+      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, `/role`, and `/agent-mode`
         - width adjusts to content
         - `Up`/`Down` navigate selection
         - `Tab` completes and `Enter` executes
@@ -72,13 +72,17 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/continue` resends the conversation without adding a new user message
       - `/save` writes conversation history to a file
       - `/load` restores conversation history from a file and aborts any pending request
-      - `/prompt` loads a system/developer prompt from embedded markdown templates
+      - default prompt `default` is active on startup; default role is none
+      - `/prompt` loads a root prompt from embedded markdown templates
         - `.md` files are rendered with miniJinja and may include other templates via `{% include %}`
         - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
         - templates may call `tool_enabled("name")` to check for available tools
         - parameters correspond to `prompts/` paths without the extension
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
-      - `/agent-mode` resets history and activates an agent mode that drives follow-up prompts
+      - `/role` loads a role from `prompts/roles`
+        - passing `none` clears the active role
+      - `/agent-mode` resets history, optionally sets a role, and activates an agent mode that drives follow-up prompts
+        - agent modes may adjust or clear the role between steps
         - agent modes may register an MCP service that is added on start and removed when switching modes
         - `/agent-mode off` exits the active agent mode
       - command commit behavior
@@ -87,7 +91,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - dismissable error box above the input with an X button displays request errors
   - Esc exits the application
   - 1-line status area
-    - shows state, provider, and model on the left
+    - shows state, provider, model, and active prompt and role when set on the left
     - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
   - conversation state tracking
     - states: idle, thinking, calling tool, responding
@@ -121,8 +125,9 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - conversation resides under `src/conversation` with modules for nodes and mutation helpers
   - command and parameter popups are separate components under `src/components` used by the prompt input
   - app commands live in `src/commands` with one module per command
-    - `/prompt` command uses embedded prompt assets via `prompts::load_prompt`
+    - `/prompt` and `/role` commands use embedded prompt assets via `prompts::load_prompt`
   - prompt assets and the `load_prompt` helper reside in `src/prompts.rs`
+    - `load_prompt` registers `glob("pattern")`, `tool_enabled("name")`, and `role()` functions for templates
 - Bespoke component framework
   - `Component` trait defines `init`, `handle_event`, `update`, `render`
   - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels

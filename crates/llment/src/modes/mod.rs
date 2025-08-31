@@ -2,8 +2,8 @@ use llm::mcp::McpService;
 use rmcp::service::{RoleClient, RunningService};
 
 pub trait AgentMode: Send {
-    fn start(&mut self) -> (String, String);
-    fn step(&mut self) -> (String, Option<String>);
+    fn start(&mut self) -> (Option<String>, String);
+    fn step(&mut self) -> (Option<String>, Option<String>);
     fn service_prefix(&self) -> Option<&str> {
         None
     }

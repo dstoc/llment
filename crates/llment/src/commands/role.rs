@@ -6,23 +6,23 @@ use crate::{
     prompts::Assets,
 };
 
-pub struct PromptCommand {
+pub struct RoleCommand {
     pub(crate) needs_update: watch::Sender<bool>,
     pub(crate) update_tx: UnboundedSender<Update>,
 }
 
-impl Command for PromptCommand {
+impl Command for RoleCommand {
     fn name(&self) -> &'static str {
-        "prompt"
+        "role"
     }
     fn description(&self) -> &'static str {
-        "Load a system prompt"
+        "Set the assistant role"
     }
     fn has_params(&self) -> bool {
         true
     }
     fn instance(&self) -> Box<dyn CommandInstance> {
-        Box::new(PromptCommandInstance {
+        Box::new(RoleCommandInstance {
             needs_update: self.needs_update.clone(),
             update_tx: self.update_tx.clone(),
             param: String::new(),
@@ -30,20 +30,21 @@ impl Command for PromptCommand {
     }
 }
 
-struct PromptCommandInstance {
+struct RoleCommandInstance {
     needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
     param: String,
 }
 
-impl PromptCommandInstance {
-    fn prompt_options(&self, typed: &str) -> Vec<Completion> {
+impl RoleCommandInstance {
+    fn role_options(&self, typed: &str) -> Vec<Completion> {
         let mut names: Vec<String> = Assets::iter()
             .filter_map(|f| {
                 let name = f.as_ref();
-                if name.contains('/') {
+                if !name.starts_with("roles/") {
                     return None;
                 }
+                let name = name.strip_prefix("roles/")?;
                 let name = name.strip_suffix(".md")?;
                 if name.starts_with(typed) {
                     Some(name.to_string())
@@ -52,6 +53,7 @@ impl PromptCommandInstance {
                 }
             })
             .collect();
+        names.push("none".to_string());
         names.sort();
         names.dedup();
         names
@@ -65,17 +67,22 @@ impl PromptCommandInstance {
     }
 }
 
-impl CommandInstance for PromptCommandInstance {
+impl CommandInstance for RoleCommandInstance {
     fn update(&mut self, input: &str) -> CompletionResult {
         self.param = input.trim().to_string();
-        let options = self.prompt_options(self.param.as_str());
+        let options = self.role_options(self.param.as_str());
         CompletionResult::Options { at: 0, options }
     }
     fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.param.is_empty() {
-            Err("no prompt".into())
+            Err("no role".into())
         } else {
-            let _ = self.update_tx.send(Update::SetPrompt(self.param.clone()));
+            let role = if self.param == "none" {
+                None
+            } else {
+                Some(self.param.clone())
+            };
+            let _ = self.update_tx.send(Update::SetRole(role));
             let _ = self.needs_update.send(true);
             Ok(())
         }

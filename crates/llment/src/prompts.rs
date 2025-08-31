@@ -19,6 +19,7 @@ pub(crate) type Assets = PromptAssets;
 
 pub(crate) fn load_prompt(
     name: &str,
+    role: Option<&str>,
     enabled_tools: impl IntoIterator<Item = String>,
 ) -> Option<String> {
     let enabled_tools: HashSet<String> = enabled_tools.into_iter().collect();
@@ -54,6 +55,19 @@ pub(crate) fn load_prompt(
     env.add_function("tool_enabled", move |t: String| {
         Ok(enabled_tools.contains(&t))
     });
+
+    let role_content = role
+        .and_then(|r| {
+            if let Ok(tmpl) = env.get_template(&format!("roles/{}", r)) {
+                tmpl.render(()).ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    let role_clone = role_content.clone();
+    env.add_function("role", move || Ok(role_clone.clone()));
+
     if let Ok(tmpl) = env.get_template(name) {
         if let Ok(rendered) = tmpl.render(()) {
             return Some(rendered);
@@ -68,13 +82,13 @@ mod tests {
 
     #[test]
     fn load_md_prompt() {
-        let content = load_prompt("sys/hello", Vec::new()).unwrap();
+        let content = load_prompt("sys/hello", None, Vec::new()).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn load_md_with_include() {
-        let content = load_prompt("sys/outer", Vec::new()).unwrap();
+        let content = load_prompt("sys/outer", None, Vec::new()).unwrap();
         assert!(content.contains("Outer."));
         assert!(content.contains("Inner."));
         assert!(content.contains("Deep."));
@@ -82,15 +96,15 @@ mod tests {
 
     #[test]
     fn load_md_with_glob() {
-        let content = load_prompt("sys/glob", Vec::new()).unwrap();
+        let content = load_prompt("sys/glob", None, Vec::new()).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn tool_enabled_fn() {
-        let content = load_prompt("sys/tool", vec!["shell.run".to_string()]).unwrap();
+        let content = load_prompt("sys/tool", None, vec!["shell.run".to_string()]).unwrap();
         assert!(content.contains("Enabled!"));
-        let content = load_prompt("sys/tool", Vec::new()).unwrap();
+        let content = load_prompt("sys/tool", None, Vec::new()).unwrap();
         assert!(content.contains("Disabled!"));
     }
 }
