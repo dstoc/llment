@@ -9,19 +9,13 @@ use rmcp::{
     service::{RoleClient, RunningService, ServiceExt},
     tool, tool_handler, tool_router,
 };
-use schemars::{JsonSchema, schema_for};
+use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use tokio::io::duplex;
 
 use super::{AgentMode, AgentModeStart, AgentModeStep};
 
-#[derive(Default)]
-struct NotifyState {
-    role: Option<String>,
-    message: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 enum CodeAgentRole {
     Director,
@@ -41,6 +35,12 @@ impl CodeAgentRole {
             CodeAgentRole::Reviewer => "reviewer",
         }
     }
+}
+
+#[derive(Default)]
+struct NotifyState {
+    role: Option<CodeAgentRole>,
+    message: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -71,7 +71,7 @@ impl CodeAgentTools {
     )]
     fn notify(&self, Parameters(params): Parameters<NotifyParams>) -> String {
         let mut state = self.state.lock().unwrap();
-        state.role = Some(params.role.as_str().to_string());
+        state.role = Some(params.role);
         state.message = params.message;
         "ok".into()
     }
@@ -88,7 +88,7 @@ impl ServerHandler for CodeAgentTools {
 }
 
 pub struct CodeAgentMode {
-    current_role: String,
+    current_role: CodeAgentRole,
     state: Arc<Mutex<NotifyState>>,
 }
 
@@ -96,17 +96,26 @@ impl CodeAgentMode {
     pub async fn new() -> (Self, RunningService<RoleClient, McpService>) {
         let state = Arc::new(Mutex::new(NotifyState::default()));
         let tools = CodeAgentTools::new(state.clone());
+        let tool_infos = tools
+            .tool_router
+            .list_all()
+            .into_iter()
+            .filter_map(|tool| {
+                let schema: Schema = serde_json::from_value(tool.schema_as_json_value()).ok()?;
+                let description = tool.description.unwrap_or_default().to_string();
+                Some(ToolInfo {
+                    name: tool.name.to_string(),
+                    description,
+                    parameters: schema,
+                })
+            })
+            .collect();
         let (server_transport, client_transport) = duplex(64);
         let (server_res, client_res) = tokio::join!(
             tools.clone().serve(server_transport),
             McpService {
                 prefix: "agent".into(),
-                tools: ArcSwap::new(Arc::new(vec![ToolInfo {
-                    name: "notify".into(),
-                    description: "Switch to another code-agent role with an optional message"
-                        .into(),
-                    parameters: schema_for!(NotifyParams),
-                }])),
+                tools: ArcSwap::new(Arc::new(tool_infos)),
             }
             .serve(client_transport)
         );
@@ -117,7 +126,7 @@ impl CodeAgentMode {
         });
         (
             Self {
-                current_role: "code-agent/director".to_string(),
+                current_role: CodeAgentRole::Director,
                 state,
             },
             client_service,
@@ -128,7 +137,7 @@ impl CodeAgentMode {
 impl AgentMode for CodeAgentMode {
     fn start(&mut self) -> AgentModeStart {
         AgentModeStart {
-            role: Some(self.current_role.clone()),
+            role: Some(format!("code-agent/{}", self.current_role.as_str())),
             prompt: Some("Let's begin.".to_string()),
             clear_history: true,
         }
@@ -137,28 +146,16 @@ impl AgentMode for CodeAgentMode {
     fn step(&mut self) -> AgentModeStep {
         let mut state = self.state.lock().unwrap();
         if let Some(role) = state.role.take() {
-            match role.as_str() {
-                "director" | "design-lead" | "execution-lead" | "eng-team" | "reviewer" => {
-                    self.current_role = format!("code-agent/{}", role);
-                    AgentModeStep {
-                        role: Some(self.current_role.clone()),
-                        prompt: state.message.take(),
-                        clear_history: false,
-                        stop: false,
-                    }
-                }
-                _ => AgentModeStep {
-                    role: Some(self.current_role.clone()),
-                    prompt: Some(
-                        "Please call agent.notify(role, message) to continue.".to_string(),
-                    ),
-                    clear_history: false,
-                    stop: false,
-                },
+            self.current_role = role;
+            AgentModeStep {
+                role: Some(format!("code-agent/{}", self.current_role.as_str())),
+                prompt: state.message.take(),
+                clear_history: false,
+                stop: false,
             }
         } else {
             AgentModeStep {
-                role: Some(self.current_role.clone()),
+                role: Some(format!("code-agent/{}", self.current_role.as_str())),
                 prompt: Some("Please call agent.notify(role, message) to continue.".to_string()),
                 clear_history: false,
                 stop: false,
