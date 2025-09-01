@@ -20,7 +20,7 @@ impl AgentMode for ExampleAgentMode {
         }
     }
 
-    fn step(&mut self) -> AgentModeStep {
+    fn step(&mut self, _last_message: Option<&llm::ChatMessage>) -> AgentModeStep {
         if self.stage == 1 {
             self.stage = 2;
             AgentModeStep {

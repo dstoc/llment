@@ -1,4 +1,4 @@
-use llm::mcp::McpService;
+use llm::{ChatMessage, mcp::McpService};
 use rmcp::service::{RoleClient, RunningService};
 
 pub struct AgentModeStart {
@@ -16,7 +16,7 @@ pub struct AgentModeStep {
 
 pub trait AgentMode: Send {
     fn start(&mut self) -> AgentModeStart;
-    fn step(&mut self) -> AgentModeStep;
+    fn step(&mut self, last_message: Option<&ChatMessage>) -> AgentModeStep;
 }
 
 pub async fn create_agent_mode(

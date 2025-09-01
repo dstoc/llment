@@ -86,6 +86,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - agent mode `start` and `step` may request clearing chat history before the next request
         - agent mode `start` and `step` return results with `role` and `prompt` fields
           - `prompt` set to `None` sends a request without a new user message
+        - agent mode `step` receives the last chat message in history
         - agent mode `step` can signal `stop` to exit the mode
         - agent modes may adjust or clear the role between steps
         - agent modes may register an MCP service under the `agent` prefix that is added on start and removed when switching modes or when the mode stops
