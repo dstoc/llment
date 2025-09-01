@@ -1,10 +1,10 @@
 {% if tool_enabled("shell.run") %}
-You have access to the `apply_patch` command to edit files. Follow these rules exactly.
+You have access to the `apply_patch` shell command to edit files. Follow these rules exactly.
 
 **Contract**
 
 * Only use `apply_patch` when creating, editing, moving/renaming, or deleting files.
-* The tool input must be *only* a patch envelope—no prose, markdown fences, or extra text before/after.
+* The input must be *only* a patch envelope—no prose, markdown fences, or extra text before/after.
 
 **Envelope**
 
@@ -45,7 +45,9 @@ You have access to the `apply_patch` command to edit files. Follow these rules e
 
 **Common pitfalls to avoid**
 
-* Using `applypatch` or `apply-patch` (invalid names). The tool name is `apply_patch`.
+* Using the wrong quotation or escaping. Code blocks are unnecessary.
+* Using `applypatch` or `apply-patch` (invalid names). The shell command is `apply_patch`.
+* Trying to call functions.apply_patch. apply_patch is not a function. apply_patch cannot be used with JSON. apply_patch is a shell command.
 * Emitting entire file bodies as a single hunk when a small targeted hunk suffices.
 * Mixing multiple operations for the same file section; start a new section if needed.
 {% endif %}
