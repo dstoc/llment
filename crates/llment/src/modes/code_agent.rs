@@ -96,7 +96,7 @@ impl CodeAgentMode {
     pub async fn new() -> (Self, RunningService<RoleClient, McpService>) {
         let state = Arc::new(Mutex::new(NotifyState::default()));
         let tools = CodeAgentTools::new(state.clone());
-        let tool_infos = tools
+        let tool_infos: Vec<ToolInfo> = tools
             .tool_router
             .list_all()
             .into_iter()
@@ -138,7 +138,7 @@ impl AgentMode for CodeAgentMode {
     fn start(&mut self) -> AgentModeStart {
         AgentModeStart {
             role: Some(format!("code-agent/{}", self.current_role.as_str())),
-            prompt: Some("Let's begin.".to_string()),
+            prompt: None,
             clear_history: true,
         }
     }
@@ -150,15 +150,26 @@ impl AgentMode for CodeAgentMode {
             AgentModeStep {
                 role: Some(format!("code-agent/{}", self.current_role.as_str())),
                 prompt: state.message.take(),
-                clear_history: false,
+                clear_history: true,
                 stop: false,
             }
         } else {
-            AgentModeStep {
-                role: Some(format!("code-agent/{}", self.current_role.as_str())),
-                prompt: Some("Please call agent.notify(role, message) to continue.".to_string()),
-                clear_history: false,
-                stop: false,
+            if matches!(self.current_role, CodeAgentRole::Director) {
+                AgentModeStep {
+                    role: Some(format!("code-agent/{}", self.current_role.as_str())),
+                    prompt: None,
+                    clear_history: false,
+                    stop: true,
+                }
+            } else {
+                AgentModeStep {
+                    role: Some(format!("code-agent/{}", self.current_role.as_str())),
+                    prompt: Some(
+                        "Please finish your job and then call agent.notify(role, message) as requested.".to_string(),
+                    ),
+                    clear_history: false,
+                    stop: false,
+                }
             }
         }
     }
