@@ -39,6 +39,7 @@ MCP server exposing shell command execution.
 ## Constraints
 - working directory must already exist; it is not created automatically
 - `run` returns up to 10k characters of combined stdout/stderr
+- output truncation respects UTF-8 character boundaries
 - `run` waits at most 10 seconds for output or completion (limit configurable)
 - `wait` waits up to another 10 seconds for additional output (limit configurable)
 - once the 10k output limit is reached, further output is not returned
