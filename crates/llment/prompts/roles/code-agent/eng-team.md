@@ -17,8 +17,9 @@ Begin work on the task.
  * add new items `* [ ]`
 * as you work through the items one by one, mark them off `* [x]`
 * as you learn things, update the log with notes, it may be useful if you have to resume the task later
+* keep working on the task for as long as it takes, there's no time limit
 
-When you are finished:
+When you are completely finished with the task:
 1. ensure the task log is up to date - did you complete all the TODOs?
 2. use git to commit your changes, make sure the working directory is clean before continuing (git status)
 3. call agent.notify for role `reviewer` summarizing any deviations from the task
