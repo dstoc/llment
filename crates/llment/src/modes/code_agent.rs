@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use llm::{ToolInfo, mcp::McpService};
+use llm::{ChatMessage, ToolInfo, mcp::McpService};
 use rmcp::{
     ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::Parameters},
@@ -143,7 +143,18 @@ impl AgentMode for CodeAgentMode {
         }
     }
 
-    fn step(&mut self) -> AgentModeStep {
+    fn step(&mut self, last_message: Option<&ChatMessage>) -> AgentModeStep {
+        if let Some(ChatMessage::Assistant(msg)) = last_message {
+            if msg.thinking.is_some() && msg.content.is_empty() && msg.tool_calls.is_empty() {
+                return AgentModeStep {
+                    role: Some(format!("code-agent/{}", self.current_role.as_str())),
+                    prompt: None,
+                    clear_history: false,
+                    stop: false,
+                };
+            }
+        }
+
         let mut state = self.state.lock().unwrap();
         if let Some(role) = state.role.take() {
             self.current_role = role;
@@ -153,23 +164,21 @@ impl AgentMode for CodeAgentMode {
                 clear_history: true,
                 stop: false,
             }
+        } else if matches!(self.current_role, CodeAgentRole::Director) {
+            AgentModeStep {
+                role: Some(format!("code-agent/{}", self.current_role.as_str())),
+                prompt: None,
+                clear_history: false,
+                stop: true,
+            }
         } else {
-            if matches!(self.current_role, CodeAgentRole::Director) {
-                AgentModeStep {
-                    role: Some(format!("code-agent/{}", self.current_role.as_str())),
-                    prompt: None,
-                    clear_history: false,
-                    stop: true,
-                }
-            } else {
-                AgentModeStep {
-                    role: Some(format!("code-agent/{}", self.current_role.as_str())),
-                    prompt: Some(
-                        "Please finish your job and then call agent.notify(role, message) as requested.".to_string(),
-                    ),
-                    clear_history: false,
-                    stop: false,
-                }
+            AgentModeStep {
+                role: Some(format!("code-agent/{}", self.current_role.as_str())),
+                prompt: Some(
+                    "Please finish your job and then call agent.notify(role, message) as requested.".to_string(),
+                ),
+                clear_history: false,
+                stop: false,
             }
         }
     }

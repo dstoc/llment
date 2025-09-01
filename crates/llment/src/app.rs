@@ -364,8 +364,9 @@ impl Component for App {
                 }
                 Ok(Update::ResponseComplete) => {
                     self.state = ConversationState::Idle;
+                    let last_message = { self.chat_history.lock().unwrap().last().cloned() };
                     let step = if let Some(mode) = self.mode.as_mut() {
-                        Some(mode.step())
+                        Some(mode.step(last_message.as_ref()))
                     } else {
                         None
                     };
