@@ -29,7 +29,8 @@ MCP server exposing shell command execution.
     - reports if extra output was produced after the limit
   - `terminate`
     - sends SIGTERM to abort the running command
-- tool results omit false flags (`timed_out`, `output_truncated`, `additional_output`)
+- tool results return a status string: "still running, call wait or terminate" or "finished"
+- tool results omit false flags (`output_truncated`, `additional_output`)
 - tool results omit empty `stdout` and `stderr` fields
 - announces available tools to clients via MCP `list_tools`
 - parameter metadata
