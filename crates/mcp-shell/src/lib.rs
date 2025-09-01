@@ -107,7 +107,7 @@ impl CommandState {
     }
 
     fn total_len(&self) -> usize {
-        self.stdout.len() + self.stderr.len()
+        self.stdout.chars().count() + self.stderr.chars().count()
     }
 }
 
@@ -457,14 +457,14 @@ fn handle_chunk(state: &mut CommandState, is_stdout: bool, chunk: String) {
         }
         return;
     }
-    let take = remaining.min(chunk.len());
-    let part = &chunk[..take];
+    let mut chars = chunk.chars();
+    let part: String = chars.by_ref().take(remaining).collect();
     if is_stdout {
-        state.stdout.push_str(part);
+        state.stdout.push_str(&part);
     } else {
-        state.stderr.push_str(part);
+        state.stderr.push_str(&part);
     }
-    if take < chunk.len() {
+    if chars.next().is_some() {
         state.truncated = true;
         state.additional_output = true;
     }
