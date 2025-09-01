@@ -60,6 +60,7 @@ Trait-based LLM client implementations for multiple providers.
     - provides a non-blocking `tool_names` snapshot of available tools
     - implements `ToolExecutor` for MCP calls
     - tool call chunks insert assistant messages immediately before execution
+      - any accumulated assistant content is included with the tool call
     - accumulated streamed content is appended as an assistant message after the stream completes
 - Test utilities
   - `TestProvider` implements `LlmClient`
