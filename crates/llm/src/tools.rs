@@ -81,8 +81,6 @@ pub async fn run_tool_loop(
                 }
             }
             if let Some(ref c) = chunk.message.thinking {
-                // TODO: sometimes there's assistant_content at this time, seems like
-                // a model bug, we could merge it into thinking at this point?
                 if !c.is_empty() {
                     assistant_thinking
                         .get_or_insert_with(String::new)
@@ -92,15 +90,15 @@ pub async fn run_tool_loop(
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
+                let content = assistant_content.take().unwrap_or_default();
                 chat_history
                     .lock()
                     .unwrap()
                     .push(ChatMessage::Assistant(AssistantMessage {
-                        content: String::new(),
+                        content,
                         tool_calls: tool_calls.clone(),
-                        thinking: assistant_thinking,
+                        thinking: assistant_thinking.take(),
                     }));
-                assistant_thinking = None;
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
@@ -192,19 +190,30 @@ mod tests {
             let mut calls = self.calls.lock().unwrap();
             *calls += 1;
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
-                1 => vec![Ok(ResponseChunk {
-                    message: crate::ResponseMessage {
-                        content: None,
-                        thinking: None,
-                        tool_calls: vec![crate::ToolCall {
-                            id: "call-1".into(),
-                            name: "test".into(),
-                            arguments: Value::Null,
-                        }],
-                    },
-                    done: true,
-                    usage: None,
-                })],
+                1 => vec![
+                    Ok(ResponseChunk {
+                        message: crate::ResponseMessage {
+                            content: Some("first".into()),
+                            thinking: None,
+                            tool_calls: vec![],
+                        },
+                        done: false,
+                        usage: None,
+                    }),
+                    Ok(ResponseChunk {
+                        message: crate::ResponseMessage {
+                            content: None,
+                            thinking: None,
+                            tool_calls: vec![crate::ToolCall {
+                                id: "call-1".into(),
+                                name: "test".into(),
+                                arguments: Value::Null,
+                            }],
+                        },
+                        done: true,
+                        usage: None,
+                    }),
+                ],
                 2 => vec![Ok(ResponseChunk {
                     message: crate::ResponseMessage {
                         content: Some("final".into()),
@@ -257,7 +266,7 @@ mod tests {
         if let ChatMessage::Assistant(a) = call_msg {
             assert_eq!(a.tool_calls.len(), 1);
             assert_eq!(a.tool_calls[0].name, "test");
-            assert!(a.content.is_empty());
+            assert_eq!(a.content, "first");
         } else {
             panic!("expected assistant message with tool call");
         }
