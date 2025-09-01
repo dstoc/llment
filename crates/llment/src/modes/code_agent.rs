@@ -22,8 +22,30 @@ struct NotifyState {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+enum CodeAgentRole {
+    Director,
+    DesignLead,
+    ExecutionLead,
+    EngTeam,
+    Reviewer,
+}
+
+impl CodeAgentRole {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CodeAgentRole::Director => "director",
+            CodeAgentRole::DesignLead => "design-lead",
+            CodeAgentRole::ExecutionLead => "execution-lead",
+            CodeAgentRole::EngTeam => "eng-team",
+            CodeAgentRole::Reviewer => "reviewer",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
 struct NotifyParams {
-    role: String,
+    role: CodeAgentRole,
     #[serde(default)]
     message: Option<String>,
 }
@@ -49,7 +71,7 @@ impl CodeAgentTools {
     )]
     fn notify(&self, Parameters(params): Parameters<NotifyParams>) -> String {
         let mut state = self.state.lock().unwrap();
-        state.role = Some(params.role);
+        state.role = Some(params.role.as_str().to_string());
         state.message = params.message;
         "ok".into()
     }
@@ -115,12 +137,24 @@ impl AgentMode for CodeAgentMode {
     fn step(&mut self) -> AgentModeStep {
         let mut state = self.state.lock().unwrap();
         if let Some(role) = state.role.take() {
-            self.current_role = format!("code-agent/{}", role);
-            AgentModeStep {
-                role: Some(self.current_role.clone()),
-                prompt: state.message.take(),
-                clear_history: false,
-                stop: false,
+            match role.as_str() {
+                "director" | "design-lead" | "execution-lead" | "eng-team" | "reviewer" => {
+                    self.current_role = format!("code-agent/{}", role);
+                    AgentModeStep {
+                        role: Some(self.current_role.clone()),
+                        prompt: state.message.take(),
+                        clear_history: false,
+                        stop: false,
+                    }
+                }
+                _ => AgentModeStep {
+                    role: Some(self.current_role.clone()),
+                    prompt: Some(
+                        "Please call agent.notify(role, message) to continue.".to_string(),
+                    ),
+                    clear_history: false,
+                    stop: false,
+                },
             }
         } else {
             AgentModeStep {

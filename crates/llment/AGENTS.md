@@ -90,6 +90,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - agent modes may adjust or clear the role between steps
         - agent modes may register an MCP service under the `agent` prefix that is added on start and removed when switching modes or when the mode stops
         - available modes include `code-agent` coordinating director, design-lead, execution-lead, eng-team, and reviewer roles via an `agent.notify` MCP tool
+          - `agent.notify` accepts `role` values of `director`, `design-lead`, `execution-lead`, `eng-team`, or `reviewer`
         - `/agent-mode off` exits the active agent mode
       - command commit behavior
         - on successful commit, the router clears the active command instance
