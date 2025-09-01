@@ -283,8 +283,7 @@ pub struct WaitResult {
     stderr: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     exit_code: Option<i32>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    timed_out: bool,
+    status: String,
     #[serde(default, skip_serializing_if = "is_false")]
     output_truncated: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -326,6 +325,11 @@ Only a maximum of 10k bytes or 200 lines will be returned."#
         let exit_code = state.exit_code;
         let truncated = state.truncated;
         let additional = state.additional_output;
+        let status = if timed_out {
+            "still running, call wait or terminate".to_string()
+        } else {
+            "finished".to_string()
+        };
         if timed_out {
             state.stdout_pos = state.stdout.len();
             state.stderr_pos = state.stderr.len();
@@ -339,7 +343,7 @@ Only a maximum of 10k bytes or 200 lines will be returned."#
             stdout,
             stderr,
             exit_code,
-            timed_out,
+            status,
             output_truncated: truncated,
             additional_output: additional,
         };
@@ -368,16 +372,22 @@ Only a maximum of 10k bytes or 200 lines will be returned."#
         let truncated = state.truncated;
         let additional = state.additional_output;
         state.additional_output = false;
-        let finished = state.stdout_closed && state.stderr_closed && exit_code.is_some();
+        let finished =
+            !timed_out && state.stdout_closed && state.stderr_closed && exit_code.is_some();
         if finished {
             *run_slot = None;
         }
+        let status = if finished {
+            "finished".to_string()
+        } else {
+            "still running, call wait or terminate".to_string()
+        };
         drop(run_slot);
         let result = WaitResult {
             stdout,
             stderr,
             exit_code,
-            timed_out,
+            status,
             output_truncated: truncated,
             additional_output: additional,
         };
@@ -489,6 +499,7 @@ mod tests {
             serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
         assert_eq!(value.stdout.trim(), "hi");
         assert_eq!(value.exit_code, Some(0));
+        assert_eq!(value.status, "finished");
         Ok(())
     }
 
@@ -510,6 +521,7 @@ mod tests {
             serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
         assert_eq!(value.stdout.trim(), "ok");
         assert_eq!(value.exit_code, Some(0));
+        assert_eq!(value.status, "finished");
         Ok(())
     }
 
@@ -529,7 +541,7 @@ mod tests {
         let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
         let run_value: WaitResult =
             serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
-        assert!(run_value.timed_out);
+        assert_eq!(run_value.status, "still running, call wait or terminate");
         server
             .terminate(Parameters(TerminateParams {}))
             .await
