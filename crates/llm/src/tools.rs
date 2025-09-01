@@ -90,12 +90,23 @@ pub async fn run_tool_loop(
             let done = chunk.done;
             let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
-                let content = assistant_content.take().unwrap_or_default();
+                // This is a tool preamble. If we try to send it with the thinking,
+                // or tool call the gpt-oss template is unhappy
+                if let Some(content) = assistant_content.take() {
+                    chat_history
+                        .lock()
+                        .unwrap()
+                        .push(ChatMessage::Assistant(AssistantMessage {
+                            content,
+                            tool_calls: vec![],
+                            thinking: None,
+                        }));
+                }
                 chat_history
                     .lock()
                     .unwrap()
                     .push(ChatMessage::Assistant(AssistantMessage {
-                        content,
+                        content: "".into(),
                         tool_calls: tool_calls.clone(),
                         thinking: assistant_thinking.take(),
                     }));
@@ -260,13 +271,22 @@ mod tests {
             .await
             .unwrap();
         let updated = history.lock().unwrap().clone();
-        // ensure assistant tool call, tool result, and final assistant response added to history
-        assert_eq!(updated.len(), 4);
-        let call_msg = &updated[1];
+        // Behavior: assistant preamble content, then separate tool-call message, tool result, and final assistant response
+        assert_eq!(updated.len(), 5);
+        // First assistant message should contain the preamble content with no tool calls
+        let preamble_msg = &updated[1];
+        if let ChatMessage::Assistant(a) = preamble_msg {
+            assert_eq!(a.tool_calls.len(), 0);
+            assert_eq!(a.content, "first");
+        } else {
+            panic!("expected assistant preamble message");
+        }
+        // Next assistant message should carry the tool call with empty content
+        let call_msg = &updated[2];
         if let ChatMessage::Assistant(a) = call_msg {
             assert_eq!(a.tool_calls.len(), 1);
             assert_eq!(a.tool_calls[0].name, "test");
-            assert_eq!(a.content, "first");
+            assert_eq!(a.content, "");
         } else {
             panic!("expected assistant message with tool call");
         }
