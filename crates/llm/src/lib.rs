@@ -198,17 +198,14 @@ pub fn client_from(
 }
 
 #[derive(Debug, Clone)]
-pub struct Usage {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
-
-#[derive(Debug, Clone)]
 pub enum ResponseChunk {
-    Thinking { thinking: String },
-    ToolCalls { tool_calls: Vec<ToolCall> },
-    Content { content: String },
-    Usage { usage: Usage },
+    Thinking(String),
+    ToolCall(ToolCall),
+    Content(String),
+    Usage {
+        input_tokens: u32,
+        output_tokens: u32,
+    },
     Done,
 }
 
