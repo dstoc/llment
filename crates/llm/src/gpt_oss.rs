@@ -387,11 +387,15 @@ mod tests {
         assert!(prefill_tokens.is_none());
         let args = json!({"a": 2, "b": 2}).to_string();
         let result = json!({"sum": 4}).to_string();
-        assert!(prompt.contains("<|channel|>commentary"));
-        assert!(prompt.contains("functions.add"));
-        assert!(prompt.contains(&args));
-        assert!(prompt.contains(&result));
-        assert!(prompt.ends_with("<|start|>assistant"));
+        let expected_tail = format!(
+            concat!(
+                "<|start|>assistant to=functions.add<|channel|>commentary <|constrain|>json<|message|>{args}<|call|>",
+                "<|start|>functions.add<|message|>{result}<|end|><|start|>assistant"
+            ),
+            args = args,
+            result = result
+        );
+        assert!(prompt.ends_with(&expected_tail));
     }
 
     #[test]
