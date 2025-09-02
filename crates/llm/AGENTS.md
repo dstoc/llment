@@ -48,10 +48,12 @@ Trait-based LLM client implementations for multiple providers.
 - Chat message, request, and response types serialize to and from JSON
   - skips serializing fields that are `None`, empty strings, or empty arrays
 - Responses
-  - `ResponseChunk` is an enum of `Thinking`, `ToolCall`, `Content`, `Usage`, or `Done`
-  - thinking, tool calls, and content stream first, followed by optional usage then done
+  - `ResponseMessage` is an enum of `Thinking`, `ToolCall`, or `Content`
+  - messages stream in order: thinking, tool calls, then content
+  - `ResponseChunk` is an enum of `Message`, `Usage`, or `Done`
   - usage chunks carry `input_tokens` and `output_tokens`
-  - each tool call chunk holds a single `ToolCall` and is repeated as needed
+  - each `Message::ToolCall` chunk holds a single `ToolCall` and is repeated as needed
+  - thinking, tool calls, and content stream first, followed by optional usage then `Done`
   - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
   - OpenAI client parses `reasoning_content` from streamed responses into thinking text
 - Tool orchestration

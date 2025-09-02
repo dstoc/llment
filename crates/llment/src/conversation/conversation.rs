@@ -1,5 +1,5 @@
 use crossterm::event::{Event, MouseButton, MouseEventKind};
-use llm::{ChatMessage, Usage};
+use llm::ChatMessage;
 use ratatui::{Frame, layout::Rect};
 use serde_json::to_string;
 use std::collections::HashMap;
@@ -277,9 +277,9 @@ impl Conversation {
         }
     }
 
-    pub fn set_usage(&mut self, usage: Usage) {
+    pub fn set_usage(&mut self, input_tokens: u32, output_tokens: u32) {
         if let Some(Node::Assistant(block)) = self.items.last_mut() {
-            block.set_usage(usage.input_tokens, usage.output_tokens);
+            block.set_usage(input_tokens, output_tokens);
         }
     }
 

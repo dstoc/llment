@@ -52,7 +52,7 @@ impl LlmClient for TestProvider {
 mod tests {
     use super::*;
     use crate::tools::{ToolExecutor, run_tool_loop};
-    use crate::{ChatMessage, ToolCall};
+    use crate::{ChatMessage, ResponseMessage, ToolCall};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
 
@@ -73,15 +73,15 @@ mod tests {
     async fn captures_requests_and_iterates() {
         let client = Arc::new(TestProvider::new());
         client.enqueue(vec![
-            ResponseChunk::ToolCall(ToolCall {
+            ResponseChunk::Message(ResponseMessage::ToolCall(ToolCall {
                 id: "call-1".into(),
                 name: "test".into(),
                 arguments: Value::Null,
-            }),
+            })),
             ResponseChunk::Done,
         ]);
         client.enqueue(vec![
-            ResponseChunk::Content("final".into()),
+            ResponseChunk::Message(ResponseMessage::Content("final".into())),
             ResponseChunk::Done,
         ]);
         let exec = Arc::new(DummyExec);
