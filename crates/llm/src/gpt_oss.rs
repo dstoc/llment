@@ -38,23 +38,27 @@ fn conversation_to_prompt(
     encoding: &HarmonyEncoding,
     conversation: &Conversation,
     prefill: Option<(&str, String)>,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+) -> Result<(String, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
     let tokens =
         encoding.render_conversation_for_completion(conversation, Role::Assistant, None)?;
     let mut prompt = encoding.tokenizer().decode_utf8(&tokens)?.to_string();
+    let mut prefill_tokens = None;
     if let Some((channel, content)) = prefill {
-        prompt.push_str("<|channel|>");
-        prompt.push_str(channel);
-        prompt.push_str("<|message|>");
-        prompt.push_str(&content);
+        let prefill_text = format!("<|channel|>{}<|message|>{}", channel, content);
+        prompt.push_str(&prefill_text);
+        prefill_tokens = Some(
+            encoding
+                .tokenizer()
+                .encode_with_special_tokens(&prefill_text),
+        );
     }
-    Ok(prompt)
+    Ok((prompt, prefill_tokens))
 }
 
 fn build_prompt(
     encoding: &HarmonyEncoding,
     request: &ChatMessageRequest,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+) -> Result<(String, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
     let mut system_msgs = Vec::new();
     let mut other_msgs = Vec::new();
     let mut developer = DeveloperContent::new();
@@ -170,7 +174,7 @@ impl LlmClient for GptOssClient {
         .await
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
-        let prompt = build_prompt(&encoding, &request)?;
+        let (prompt, prefill_tokens) = build_prompt(&encoding, &request)?;
         let req = CreateCompletionRequestArgs::default()
             .model(request.model_name)
             .prompt(prompt)
@@ -181,7 +185,12 @@ impl LlmClient for GptOssClient {
             .build()?;
         let stream = self.inner.completions().create_stream(req).await?;
         let mut parser = StreamableParser::new(encoding.clone(), Some(Role::Assistant))?;
-        let mut seen = 0usize;
+        if let Some(tokens) = &prefill_tokens {
+            for t in tokens {
+                parser.process(*t).ok();
+            }
+        }
+        let mut seen = parser.messages().len();
         let mapped = stream.map(move |res| {
             res.map(|chunk| {
                 let mut msg = ResponseMessage {
@@ -282,7 +291,8 @@ mod tests {
                 }),
             ],
         );
-        let prompt = build_prompt(&encoding, &request).unwrap();
+        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        assert!(prefill_tokens.is_some());
         assert_eq!(
             prompt,
             "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>analysis<|message|>ponder"
@@ -299,7 +309,8 @@ mod tests {
                 ChatMessage::assistant("Hello".into()),
             ],
         );
-        let prompt = build_prompt(&encoding, &request).unwrap();
+        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        assert!(prefill_tokens.is_some());
         assert_eq!(
             prompt,
             "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>final<|message|>Hello"
@@ -326,7 +337,8 @@ mod tests {
                 }),
             ],
         );
-        let prompt = build_prompt(&encoding, &request).unwrap();
+        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        assert!(prefill_tokens.is_none());
         assert_eq!(
             prompt,
             concat!(
@@ -339,5 +351,29 @@ mod tests {
                 "<|start|>assistant"
             )
         );
+    }
+
+    #[test]
+    fn parser_continues_after_prefill() {
+        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
+        let request = ChatMessageRequest::new(
+            "gpt-oss".into(),
+            vec![
+                ChatMessage::user("Hi".into()),
+                ChatMessage::assistant("Hello".into()),
+            ],
+        );
+        let (_, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        let prefill_tokens = prefill_tokens.expect("missing prefill");
+        let mut parser = StreamableParser::new(encoding.clone(), Some(Role::Assistant)).unwrap();
+        for t in &prefill_tokens {
+            parser.process(*t).unwrap();
+        }
+        let cont_tokens = encoding.tokenizer().encode_with_special_tokens(" world");
+        for t in cont_tokens {
+            parser.process(t).unwrap();
+        }
+        let delta = parser.last_content_delta().unwrap().unwrap();
+        assert_eq!(delta, " world");
     }
 }
