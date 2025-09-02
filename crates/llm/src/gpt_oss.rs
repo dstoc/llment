@@ -270,10 +270,7 @@ mod tests {
 
     #[test]
     fn prefill_with_thinking() {
-        let Ok(encoding) = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss) else {
-            eprintln!("skipping: failed to load encoding");
-            return;
-        };
+        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
         let request = ChatMessageRequest::new(
             "gpt-oss".into(),
             vec![
@@ -294,10 +291,7 @@ mod tests {
 
     #[test]
     fn prefill_with_content() {
-        let Ok(encoding) = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss) else {
-            eprintln!("skipping: failed to load encoding");
-            return;
-        };
+        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
         let request = ChatMessageRequest::new(
             "gpt-oss".into(),
             vec![
@@ -309,6 +303,41 @@ mod tests {
         assert_eq!(
             prompt,
             "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>final<|message|>Hello"
+        );
+    }
+
+    #[test]
+    fn thinking_and_content_history() {
+        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
+        let request = ChatMessageRequest::new(
+            "gpt-oss".into(),
+            vec![
+                ChatMessage::user("Hi".into()),
+                ChatMessage::Assistant(AssistantMessage {
+                    content: "Hello".into(),
+                    tool_calls: vec![],
+                    thinking: Some("ponder".into()),
+                }),
+                ChatMessage::user("How are you?".into()),
+                ChatMessage::Assistant(AssistantMessage {
+                    content: "I'm good".into(),
+                    tool_calls: vec![],
+                    thinking: Some("think".into()),
+                }),
+            ],
+        );
+        let prompt = build_prompt(&encoding, &request).unwrap();
+        assert_eq!(
+            prompt,
+            concat!(
+                "<|start|>user<|message|>Hi<|end|>",
+                "<|start|>assistant<|channel|>analysis<|message|>ponder<|end|>",
+                "<|start|>assistant<|channel|>final<|message|>Hello<|end|>",
+                "<|start|>user<|message|>How are you?<|end|>",
+                "<|start|>assistant<|channel|>analysis<|message|>think<|end|>",
+                "<|start|>assistant<|channel|>final<|message|>I'm good<|end|>",
+                "<|start|>assistant"
+            )
         );
     }
 }
