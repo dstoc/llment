@@ -102,12 +102,12 @@ impl ToolExecutor for McpContext {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let (prefix, tool_name) = name
             .split_once('.')
-            .ok_or_else(|| format!("Tool {name} missing prefix"))?;
+            .ok_or_else(|| format!("{name} is not a valid tool name"))?;
         let peer = {
             let services = self.services.lock().unwrap();
             let svc = services
                 .get(prefix)
-                .ok_or_else(|| format!("Service {prefix} not found"))?;
+                .ok_or_else(|| format!("{name} is not a valid tool name"))?;
             svc.peer().clone()
         };
         let result = peer
