@@ -1922,6 +1922,7 @@ dependencies = [
  "async-openai",
  "async-trait",
  "clap",
+ "futures-util",
  "gemini-rs",
  "ollama-rs",
  "openai-harmony",

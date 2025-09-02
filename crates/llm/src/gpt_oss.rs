@@ -6,6 +6,7 @@ use super::{
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use openai_harmony::{
     HarmonyEncoding, HarmonyEncodingName, StreamableParser,
     chat::{
@@ -15,7 +16,6 @@ use openai_harmony::{
     load_harmony_encoding,
 };
 use serde_json::Value;
-use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 pub struct GptOssClient {
@@ -208,36 +208,9 @@ impl LlmClient for GptOssClient {
             }
         }
         let mut seen = parser.messages().len();
-        let mapped = stream.map(move |res| {
-            res.map(|chunk| {
-                let mut msg = ResponseMessage {
-                    content: None,
-                    tool_calls: Vec::new(),
-                    thinking: None,
-                };
-                let drain =
-                    |parser: &StreamableParser, seen: &mut usize, msg: &mut ResponseMessage| {
-                        let messages = parser.messages();
-                        while *seen < messages.len() {
-                            if let Some(recipient) = &messages[*seen].recipient {
-                                if let Some(name) = recipient.strip_prefix("functions.") {
-                                    if let Some(Content::Text(TextContent { text })) =
-                                        messages[*seen].content.first()
-                                    {
-                                        let args: Value =
-                                            serde_json::from_str(text).unwrap_or(Value::Null);
-                                        msg.tool_calls.push(ToolCall {
-                                            id: Uuid::new_v4().to_string(),
-                                            name: name.to_string(),
-                                            arguments: args,
-                                        });
-                                    }
-                                }
-                            }
-                            *seen += 1;
-                        }
-                    };
-
+        let mapped = stream.flat_map(move |res| match res {
+            Ok(chunk) => {
+                let mut out = vec![];
                 if let Some(choice) = chunk.choices.first() {
                     if !choice.text.is_empty() {
                         let tokens = encoding
@@ -245,41 +218,97 @@ impl LlmClient for GptOssClient {
                             .encode_with_special_tokens(&choice.text);
                         for t in tokens {
                             parser.process(t).ok();
-                        }
-                        if let Some(delta) = parser.last_content_delta().ok().flatten() {
-                            match parser.current_channel().as_deref() {
-                                Some("analysis") => msg.thinking = Some(delta),
-                                Some("final") => msg.content = Some(delta),
-                                _ => {}
+                            if let Some(delta) = parser.last_content_delta().ok().flatten() {
+                                if !delta.is_empty() && parser.current_recipient().is_none() {
+                                    match parser.current_channel().as_deref() {
+                                        Some("analysis") => {
+                                            out.push(Ok(ResponseChunk {
+                                                message: ResponseMessage {
+                                                    content: None,
+                                                    tool_calls: vec![],
+                                                    thinking: Some(delta),
+                                                },
+                                                done: false,
+                                                usage: None,
+                                            }));
+                                        }
+                                        Some("final") => {
+                                            out.push(Ok(ResponseChunk {
+                                                message: ResponseMessage {
+                                                    content: Some(delta),
+                                                    tool_calls: vec![],
+                                                    thinking: None,
+                                                },
+                                                done: false,
+                                                usage: None,
+                                            }));
+                                        }
+                                        _ => {}
+                                    }
+                                }
                             }
                         }
                     }
-                    drain(&parser, &mut seen, &mut msg);
                     if choice.finish_reason.is_some() {
                         parser.process_eos().ok();
-                        drain(&parser, &mut seen, &mut msg);
-                        return ResponseChunk {
-                            message: msg,
+                    }
+                    let messages = parser.messages();
+                    while seen < messages.len() {
+                        let msg = &messages[seen];
+                        seen += 1;
+                        if let Some(recipient) = &msg.recipient {
+                            if let Some(name) = recipient.strip_prefix("functions.") {
+                                if let Some(Content::Text(TextContent { text })) =
+                                    msg.content.first()
+                                {
+                                    let args: Value =
+                                        serde_json::from_str(text).unwrap_or(Value::Null);
+                                    out.push(Ok(ResponseChunk {
+                                        message: ResponseMessage {
+                                            content: None,
+                                            tool_calls: vec![ToolCall {
+                                                id: Uuid::new_v4().to_string(),
+                                                name: name.to_string(),
+                                                arguments: args,
+                                            }],
+                                            thinking: None,
+                                        },
+                                        done: false,
+                                        usage: None,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                    if let Some(usage) = chunk.usage {
+                        out.push(Ok(ResponseChunk {
+                            message: ResponseMessage {
+                                content: None,
+                                tool_calls: vec![],
+                                thinking: None,
+                            },
                             done: true,
-                            usage: chunk.usage.map(|u| LlmUsage {
-                                input_tokens: u.prompt_tokens,
-                                output_tokens: u.completion_tokens,
+                            usage: Some(LlmUsage {
+                                input_tokens: usage.prompt_tokens,
+                                output_tokens: usage.completion_tokens,
                             }),
-                        };
+                        }));
+                    }
+                    if choice.finish_reason.is_some() {
+                        out.push(Ok(ResponseChunk {
+                            message: ResponseMessage {
+                                content: None,
+                                tool_calls: vec![],
+                                thinking: None,
+                            },
+                            done: true,
+                            usage: None,
+                        }));
                     }
                 }
-
-                drain(&parser, &mut seen, &mut msg);
-                ResponseChunk {
-                    message: msg,
-                    done: false,
-                    usage: chunk.usage.map(|u| LlmUsage {
-                        input_tokens: u.prompt_tokens,
-                        output_tokens: u.completion_tokens,
-                    }),
-                }
-            })
-            .map_err(|e| e.into())
+                tokio_stream::iter(out)
+            }
+            Err(e) => tokio_stream::iter(vec![Err::<ResponseChunk, _>(e.into())]),
         });
         Ok(Box::pin(mapped))
     }
