@@ -14,7 +14,7 @@ use crate::{
 };
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, Provider,
+    ChatMessage, ChatMessageRequest, Provider, ResponseChunk, ResponseMessage,
     mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -186,27 +186,30 @@ impl App {
 
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
-            ToolEvent::Chunk(chunk) => {
-                if let Some(thinking) = chunk.message.thinking.as_ref() {
+            ToolEvent::Chunk(chunk) => match chunk {
+                ResponseChunk::Message(ResponseMessage::Thinking(thinking)) => {
                     self.state = ConversationState::Thinking;
                     let _ = self.model.needs_redraw.send(true);
-                    self.conversation.append_thinking(thinking);
+                    self.conversation.append_thinking(&thinking);
                 }
-                if let Some(content) = chunk.message.content.as_ref() {
+                ResponseChunk::Message(ResponseMessage::Content(content)) => {
                     if !content.is_empty() {
                         self.state = ConversationState::Responding;
                         let _ = self.model.needs_redraw.send(true);
-                        self.conversation.append_response(content);
+                        self.conversation.append_response(&content);
                     }
                 }
-                if chunk.done {
-                    if let Some(usage) = chunk.usage {
-                        self.session_in_tokens += usage.input_tokens;
-                        self.session_out_tokens += usage.output_tokens;
-                        self.conversation.set_usage(usage);
-                    }
+                ResponseChunk::Message(ResponseMessage::ToolCall(_)) => {}
+                ResponseChunk::Usage {
+                    input_tokens,
+                    output_tokens,
+                } => {
+                    self.session_in_tokens += input_tokens;
+                    self.session_out_tokens += output_tokens;
+                    self.conversation.set_usage(input_tokens, output_tokens);
                 }
-            }
+                ResponseChunk::Done => {}
+            },
             ToolEvent::ToolStarted { id, name, args } => {
                 self.state = ConversationState::CallingTool(name.clone());
                 let _ = self.model.needs_redraw.send(true);

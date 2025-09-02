@@ -198,10 +198,15 @@ pub fn client_from(
 }
 
 #[derive(Debug, Clone)]
-pub enum ResponseChunk {
+pub enum ResponseMessage {
     Thinking(String),
     ToolCall(ToolCall),
     Content(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseChunk {
+    Message(ResponseMessage),
     Usage {
         input_tokens: u32,
         output_tokens: u32,

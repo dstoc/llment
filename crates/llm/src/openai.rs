@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
-    to_openapi_schema,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
+    ToolCall, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -231,13 +231,17 @@ impl LlmClient for OpenAiClient {
                         None
                     };
                     if !thinking_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Thinking(thinking_acc)));
+                        out.push(Ok(ResponseChunk::Message(ResponseMessage::Thinking(
+                            thinking_acc,
+                        ))));
                     }
                     for tc in tool_calls {
-                        out.push(Ok(ResponseChunk::ToolCall(tc)));
+                        out.push(Ok(ResponseChunk::Message(ResponseMessage::ToolCall(tc))));
                     }
                     if !content_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Content(content_acc)));
+                        out.push(Ok(ResponseChunk::Message(ResponseMessage::Content(
+                            content_acc,
+                        ))));
                     }
                     if let Some((input_tokens, output_tokens)) = usage {
                         out.push(Ok(ResponseChunk::Usage {
