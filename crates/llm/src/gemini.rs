@@ -12,8 +12,8 @@ use gemini_rs::{
 use uuid::Uuid;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall, to_openapi_schema,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    to_openapi_schema,
 };
 
 pub struct GeminiClient {
@@ -172,15 +172,13 @@ impl LlmClient for GeminiClient {
                     let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> =
                         Vec::new();
                     if let Some(t) = thinking {
-                        out.push(Ok(ResponseChunk::Message(ResponseMessage::Thinking(t))));
+                        out.push(Ok(ResponseChunk::Thinking(t)));
                     }
                     for tc in tool_calls {
-                        out.push(Ok(ResponseChunk::Message(ResponseMessage::ToolCall(tc))));
+                        out.push(Ok(ResponseChunk::ToolCall(tc)));
                     }
                     if !content_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Message(ResponseMessage::Content(
-                            content_acc,
-                        ))));
+                        out.push(Ok(ResponseChunk::Content(content_acc)));
                     }
                     if let Some((input_tokens, output_tokens)) = usage {
                         out.push(Ok(ResponseChunk::Usage {

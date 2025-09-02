@@ -14,7 +14,7 @@ use crate::{
 };
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, Provider, ResponseChunk, ResponseMessage,
+    ChatMessage, ChatMessageRequest, Provider, ResponseChunk,
     mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -187,19 +187,19 @@ impl App {
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
             ToolEvent::Chunk(chunk) => match chunk {
-                ResponseChunk::Message(ResponseMessage::Thinking(thinking)) => {
+                ResponseChunk::Thinking(thinking) => {
                     self.state = ConversationState::Thinking;
                     let _ = self.model.needs_redraw.send(true);
                     self.conversation.append_thinking(&thinking);
                 }
-                ResponseChunk::Message(ResponseMessage::Content(content)) => {
+                ResponseChunk::Content(content) => {
                     if !content.is_empty() {
                         self.state = ConversationState::Responding;
                         let _ = self.model.needs_redraw.send(true);
                         self.conversation.append_response(&content);
                     }
                 }
-                ResponseChunk::Message(ResponseMessage::ToolCall(_)) => {}
+                ResponseChunk::ToolCall(_) => {}
                 ResponseChunk::Usage {
                     input_tokens,
                     output_tokens,
