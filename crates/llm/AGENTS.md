@@ -16,6 +16,12 @@ Trait-based LLM client implementations for multiple providers.
   - connect to OpenAI models
 - gemini-rs
   - connect to Gemini models
+- openai-harmony
+  - render Harmony prompts and parse responses
+- reqwest
+  - HTTP client for llama-server generate API
+- reqwest-eventsource
+  - handle server-sent events from llama-server
 - rmcp
   - connect to MCP servers
 - schemars
@@ -24,7 +30,7 @@ Trait-based LLM client implementations for multiple providers.
 ## Features
 - LLM clients
   - `LlmClient` trait streams chat responses and lists supported model names
-  - implementations for Ollama, OpenAI, LlamaServer, and Gemini
+  - implementations for Ollama, OpenAI, LlamaServer, LlamaServerV1, and Gemini
 - Provider selection
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider and model
@@ -71,4 +77,5 @@ Trait-based LLM client implementations for multiple providers.
 ## Constraints
 - uses provider-specific default host when none is supplied
   - LlamaServer defaults to `http://localhost:8000/v1` and wraps the OpenAI client
+  - LlamaServerV1 defaults to `http://localhost:8000` and uses `/v1/generate`
 - deprecated `function_call` streaming is no longer supported
