@@ -7,7 +7,7 @@ use super::{
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
 use openai_harmony::{
-    HarmonyEncodingName, StreamableParser,
+    HarmonyEncoding, HarmonyEncodingName, StreamableParser,
     chat::{
         Author, Content, Conversation, DeveloperContent, Message, Role, SystemContent, TextContent,
         ToolDescription,
@@ -34,6 +34,130 @@ impl GptOssClient {
     }
 }
 
+fn conversation_to_prompt(
+    encoding: &HarmonyEncoding,
+    conversation: &Conversation,
+    prefill: Option<(&str, String)>,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let tokens =
+        encoding.render_conversation_for_completion(conversation, Role::Assistant, None)?;
+    let mut prompt = encoding.tokenizer().decode_utf8(&tokens)?.to_string();
+    if let Some((channel, content)) = prefill {
+        prompt.push_str("<|channel|>");
+        prompt.push_str(channel);
+        prompt.push_str("<|message|>");
+        prompt.push_str(&content);
+    }
+    Ok(prompt)
+}
+
+fn build_prompt(
+    encoding: &HarmonyEncoding,
+    request: &ChatMessageRequest,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let mut system_msgs = Vec::new();
+    let mut other_msgs = Vec::new();
+    let mut developer = DeveloperContent::new();
+    for msg in &request.messages {
+        match msg {
+            ChatMessage::System(s) => {
+                if !s.content.is_empty() {
+                    developer = developer.with_instructions(s.content.clone());
+                }
+            }
+            other => other_msgs.push(other.clone()),
+        }
+    }
+    if !request.tools.is_empty() {
+        let tools: Vec<ToolDescription> = request
+            .tools
+            .iter()
+            .map(|t| {
+                ToolDescription::new(
+                    t.name.clone(),
+                    t.description.clone(),
+                    Some(to_openapi_schema(&t.parameters)),
+                )
+            })
+            .collect();
+        developer = developer.with_function_tools(tools);
+    }
+    system_msgs.push(Message::from_role_and_content(
+        Role::System,
+        SystemContent::new(),
+    ));
+    if developer.instructions.is_some() || developer.tools.is_some() {
+        system_msgs.push(Message::from_role_and_content(Role::Developer, developer));
+    }
+    let mut convo_msgs = system_msgs;
+    for msg in &other_msgs {
+        match msg {
+            ChatMessage::User(u) => {
+                convo_msgs.push(Message::from_role_and_content(
+                    Role::User,
+                    u.content.clone(),
+                ));
+            }
+            ChatMessage::Assistant(a) => {
+                if let Some(thinking) = &a.thinking {
+                    if !thinking.is_empty() {
+                        convo_msgs.push(
+                            Message::from_role_and_content(Role::Assistant, thinking.clone())
+                                .with_channel("analysis"),
+                        );
+                    }
+                }
+                for tc in &a.tool_calls {
+                    let args = tc.arguments.to_string();
+                    convo_msgs.push(
+                        Message::from_role_and_content(Role::Assistant, args)
+                            .with_channel("commentary")
+                            .with_recipient(format!("functions.{}", tc.name))
+                            .with_content_type("<|constrain|>json"),
+                    );
+                }
+                if !a.content.is_empty() {
+                    convo_msgs.push(
+                        Message::from_role_and_content(Role::Assistant, a.content.clone())
+                            .with_channel("final"),
+                    );
+                }
+            }
+            ChatMessage::Tool(t) => {
+                let content_str = match &t.content {
+                    Value::String(s) => s.clone(),
+                    v => v.to_string(),
+                };
+                convo_msgs.push(Message::from_author_and_content(
+                    Author::new(Role::Tool, format!("functions.{}", t.tool_name)),
+                    content_str,
+                ));
+            }
+            ChatMessage::System(_) => {}
+        }
+    }
+    let mut prefill: Option<(&str, String)> = None;
+    if let Some(ChatMessage::Assistant(a)) = other_msgs.last() {
+        if a.tool_calls.is_empty() {
+            if let Some(thinking) = &a.thinking {
+                if !thinking.is_empty() && a.content.is_empty() {
+                    convo_msgs.pop();
+                    prefill = Some(("analysis", thinking.clone()));
+                }
+            }
+            if prefill.is_none()
+                && !a.content.is_empty()
+                && a.thinking.as_deref().unwrap_or("").is_empty()
+            {
+                convo_msgs.pop();
+                prefill = Some(("final", a.content.clone()));
+            }
+        }
+    }
+    let conversation = Conversation::from_messages(convo_msgs);
+    conversation_to_prompt(encoding, &conversation, prefill)
+}
+
 #[async_trait]
 impl LlmClient for GptOssClient {
     async fn send_chat_messages_stream(
@@ -46,88 +170,7 @@ impl LlmClient for GptOssClient {
         .await
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
-        let mut system_msgs = Vec::new();
-        let mut other_msgs = Vec::new();
-        let mut developer = DeveloperContent::new();
-        for msg in request.messages {
-            match msg {
-                ChatMessage::System(s) => {
-                    if !s.content.is_empty() {
-                        developer = developer.with_instructions(s.content);
-                    }
-                }
-                other => other_msgs.push(other),
-            }
-        }
-        if !request.tools.is_empty() {
-            let tools: Vec<ToolDescription> = request
-                .tools
-                .into_iter()
-                .map(|t| {
-                    ToolDescription::new(
-                        t.name,
-                        t.description,
-                        Some(to_openapi_schema(&t.parameters)),
-                    )
-                })
-                .collect();
-            developer = developer.with_function_tools(tools);
-        }
-        system_msgs.push(Message::from_role_and_content(
-            Role::System,
-            SystemContent::new(),
-        ));
-        if developer.instructions.is_some() || developer.tools.is_some() {
-            system_msgs.push(Message::from_role_and_content(Role::Developer, developer));
-        }
-        let mut convo_msgs = system_msgs;
-        for msg in other_msgs {
-            match msg {
-                ChatMessage::User(u) => {
-                    convo_msgs.push(Message::from_role_and_content(Role::User, u.content));
-                }
-                ChatMessage::Assistant(a) => {
-                    if let Some(thinking) = a.thinking {
-                        if !thinking.is_empty() {
-                            convo_msgs.push(
-                                Message::from_role_and_content(Role::Assistant, thinking)
-                                    .with_channel("analysis"),
-                            );
-                        }
-                    }
-                    for tc in a.tool_calls {
-                        let args = tc.arguments.to_string();
-                        convo_msgs.push(
-                            Message::from_role_and_content(Role::Assistant, args)
-                                .with_channel("commentary")
-                                .with_recipient(format!("functions.{}", tc.name))
-                                .with_content_type("<|constrain|>json"),
-                        );
-                    }
-                    if !a.content.is_empty() {
-                        convo_msgs.push(
-                            Message::from_role_and_content(Role::Assistant, a.content)
-                                .with_channel("final"),
-                        );
-                    }
-                }
-                ChatMessage::Tool(t) => {
-                    let content_str = match t.content {
-                        Value::String(s) => s,
-                        v => v.to_string(),
-                    };
-                    convo_msgs.push(Message::from_author_and_content(
-                        Author::new(Role::Tool, format!("functions.{}", t.tool_name)),
-                        content_str,
-                    ));
-                }
-                ChatMessage::System(_) => {}
-            }
-        }
-        let conversation = Conversation::from_messages(convo_msgs);
-        let tokens =
-            encoding.render_conversation_for_completion(&conversation, Role::Assistant, None)?;
-        let prompt = encoding.tokenizer().decode_utf8(&tokens)?;
+        let prompt = build_prompt(&encoding, &request)?;
         let req = CreateCompletionRequestArgs::default()
             .model(request.model_name)
             .prompt(prompt)
@@ -217,5 +260,55 @@ impl LlmClient for GptOssClient {
 
     async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         Ok(vec!["gpt-oss".to_string()])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AssistantMessage;
+
+    #[test]
+    fn prefill_with_thinking() {
+        let Ok(encoding) = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss) else {
+            eprintln!("skipping: failed to load encoding");
+            return;
+        };
+        let request = ChatMessageRequest::new(
+            "gpt-oss".into(),
+            vec![
+                ChatMessage::user("Hi".into()),
+                ChatMessage::Assistant(AssistantMessage {
+                    content: String::new(),
+                    tool_calls: vec![],
+                    thinking: Some("ponder".into()),
+                }),
+            ],
+        );
+        let prompt = build_prompt(&encoding, &request).unwrap();
+        assert_eq!(
+            prompt,
+            "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>analysis<|message|>ponder"
+        );
+    }
+
+    #[test]
+    fn prefill_with_content() {
+        let Ok(encoding) = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss) else {
+            eprintln!("skipping: failed to load encoding");
+            return;
+        };
+        let request = ChatMessageRequest::new(
+            "gpt-oss".into(),
+            vec![
+                ChatMessage::user("Hi".into()),
+                ChatMessage::assistant("Hello".into()),
+            ],
+        );
+        let prompt = build_prompt(&encoding, &request).unwrap();
+        assert_eq!(
+            prompt,
+            "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>final<|message|>Hello"
+        );
     }
 }
