@@ -126,7 +126,7 @@ impl ChatMessageRequest {
 }
 
 pub mod gemini;
-pub mod llamaserver;
+pub mod gpt_oss;
 pub mod mcp;
 pub mod ollama;
 pub mod openai;
@@ -140,7 +140,7 @@ pub enum Provider {
     #[default]
     Ollama,
     Openai,
-    LlamaServer,
+    GptOss,
     Gemini,
 }
 
@@ -187,7 +187,7 @@ pub fn client_from(
     let inner: Arc<dyn LlmClient> = match provider {
         Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
         Provider::Openai => Arc::new(openai::OpenAiClient::new(host)),
-        Provider::LlamaServer => Arc::new(llamaserver::LlamaServerClient::new(host)),
+        Provider::GptOss => Arc::new(gpt_oss::GptOssClient::new(host)),
         Provider::Gemini => Arc::new(gemini::GeminiClient::new(host)),
     };
     Ok(Client {
