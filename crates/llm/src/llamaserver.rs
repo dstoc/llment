@@ -40,7 +40,12 @@ impl LlmClient for LlamaServerClient {
         &self,
         request: ChatMessageRequest,
     ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
-        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss)?;
+        let encoding = tokio::task::spawn_blocking(|| {
+            load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss)
+        })
+        .await
+        .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
+        .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
         let mut system_msgs = Vec::new();
         let mut other_msgs = Vec::new();
         let mut developer = DeveloperContent::new();
