@@ -138,10 +138,14 @@ fn build_prompt(
                     Value::String(s) => s.clone(),
                     v => v.to_string(),
                 };
-                convo_msgs.push(Message::from_author_and_content(
-                    Author::new(Role::Tool, format!("functions.{}", t.tool_name)),
-                    content_str,
-                ));
+                convo_msgs.push(
+                    Message::from_author_and_content(
+                        Author::new(Role::Tool, format!("functions.{}", t.tool_name)),
+                        content_str,
+                    )
+                    .with_channel("commentary")
+                    .with_recipient("assistant"),
+                );
             }
             ChatMessage::System(_) => {}
         }
@@ -390,7 +394,7 @@ mod tests {
         let expected_tail = format!(
             concat!(
                 "<|start|>assistant to=functions.add<|channel|>commentary <|constrain|>json<|message|>{args}<|call|>",
-                "<|start|>functions.add<|message|>{result}<|end|><|start|>assistant"
+                "<|start|>functions.add to=assistant<|channel|>commentary<|message|>{result}<|end|><|start|>assistant"
             ),
             args = args,
             result = result
