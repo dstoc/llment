@@ -1,14 +1,14 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall, Usage as LlmUsage, to_openapi_schema,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    Usage as LlmUsage, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::Value;
-use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -174,81 +174,86 @@ impl LlmClient for OpenAiClient {
             .create_stream_byot::<Value, StreamingChunk>(req_value)
             .await?;
         let mut pending_tool_calls: Vec<ToolCallBuilder> = Vec::new();
-        let mapped = stream.map(move |res| {
-            res.map(|chunk| {
-                let mut content_acc = String::new();
-                let mut thinking_acc = String::new();
-                let mut tool_calls = Vec::new();
-                for choice in &chunk.choices {
-                    if let Some(c) = choice.delta.content.as_deref() {
-                        content_acc.push_str(c);
-                    }
-                    if let Some(r) = choice.delta.reasoning_content.as_deref() {
-                        thinking_acc.push_str(r);
-                    }
-                    if let Some(calls) = &choice.delta.tool_calls {
-                        for tc in calls {
-                            let index = tc.index as usize;
-                            if pending_tool_calls.len() <= index {
-                                pending_tool_calls.resize_with(index + 1, ToolCallBuilder::default);
-                            }
-                            if let Some(id) = &tc.id {
-                                pending_tool_calls[index].id = Some(id.clone());
-                            }
-                            if let Some(func) = &tc.function {
-                                if let Some(name) = &func.name {
-                                    pending_tool_calls[index].name = Some(name.clone());
+        let mapped = stream.flat_map(move |res| {
+            let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
+            match res {
+                Ok(chunk) => {
+                    let mut content_acc = String::new();
+                    let mut thinking_acc = String::new();
+                    let mut tool_calls = Vec::new();
+                    for choice in &chunk.choices {
+                        if let Some(c) = choice.delta.content.as_deref() {
+                            content_acc.push_str(c);
+                        }
+                        if let Some(r) = choice.delta.reasoning_content.as_deref() {
+                            thinking_acc.push_str(r);
+                        }
+                        if let Some(calls) = &choice.delta.tool_calls {
+                            for tc in calls {
+                                let index = tc.index as usize;
+                                if pending_tool_calls.len() <= index {
+                                    pending_tool_calls
+                                        .resize_with(index + 1, ToolCallBuilder::default);
                                 }
-                                if let Some(args) = &func.arguments {
-                                    pending_tool_calls[index].arguments.push_str(args);
+                                if let Some(id) = &tc.id {
+                                    pending_tool_calls[index].id = Some(id.clone());
+                                }
+                                if let Some(func) = &tc.function {
+                                    if let Some(name) = &func.name {
+                                        pending_tool_calls[index].name = Some(name.clone());
+                                    }
+                                    if let Some(args) = &func.arguments {
+                                        pending_tool_calls[index].arguments.push_str(args);
+                                    }
+                                }
+                            }
+                        }
+                        if matches!(choice.finish_reason, Some(FinishReason::ToolCalls)) {
+                            if !pending_tool_calls.is_empty() {
+                                for b in pending_tool_calls.drain(..) {
+                                    let args: Value =
+                                        serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
+                                    tool_calls.push(ToolCall {
+                                        id: b.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
+                                        name: b.name.unwrap_or_default(),
+                                        arguments: args,
+                                    });
                                 }
                             }
                         }
                     }
-                    if matches!(choice.finish_reason, Some(FinishReason::ToolCalls)) {
-                        if !pending_tool_calls.is_empty() {
-                            for b in pending_tool_calls.drain(..) {
-                                let args: Value =
-                                    serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
-                                tool_calls.push(ToolCall {
-                                    id: b.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
-                                    name: b.name.unwrap_or_default(),
-                                    arguments: args,
-                                });
-                            }
-                        }
+                    let done = chunk.choices.iter().any(|c| c.finish_reason.is_some());
+                    let usage = if done {
+                        chunk.usage.map(|u| LlmUsage {
+                            input_tokens: u.prompt_tokens as u32,
+                            output_tokens: u.completion_tokens as u32,
+                        })
+                    } else {
+                        None
+                    };
+                    if !thinking_acc.is_empty() {
+                        out.push(Ok(ResponseChunk::Thinking {
+                            thinking: thinking_acc,
+                        }));
+                    }
+                    if !tool_calls.is_empty() {
+                        out.push(Ok(ResponseChunk::ToolCalls { tool_calls }));
+                    }
+                    if !content_acc.is_empty() {
+                        out.push(Ok(ResponseChunk::Content {
+                            content: content_acc,
+                        }));
+                    }
+                    if let Some(u) = usage {
+                        out.push(Ok(ResponseChunk::Usage { usage: u }));
+                    }
+                    if done {
+                        out.push(Ok(ResponseChunk::Done));
                     }
                 }
-                let content = if content_acc.is_empty() {
-                    None
-                } else {
-                    Some(content_acc)
-                };
-                let thinking = if thinking_acc.is_empty() {
-                    None
-                } else {
-                    Some(thinking_acc)
-                };
-                let done = chunk.choices.iter().any(|c| c.finish_reason.is_some());
-                let usage = if done {
-                    chunk.usage.map(|u| LlmUsage {
-                        input_tokens: u.prompt_tokens as u32,
-                        output_tokens: u.completion_tokens as u32,
-                    })
-                } else {
-                    None
-                };
-                ResponseChunk {
-                    message: ResponseMessage {
-                        content,
-                        tool_calls,
-                        thinking,
-                    },
-                    done,
-                    usage,
-                }
-            })
-            .map_err(|e| e.into())
+                Err(e) => out.push(Err(e.into())),
+            }
+            tokio_stream::iter(out)
         });
         Ok(Box::pin(mapped))
     }

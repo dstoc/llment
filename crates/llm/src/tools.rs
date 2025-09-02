@@ -12,7 +12,9 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{AssistantMessage, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk};
+use crate::{
+    AssistantMessage, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk, ToolCall,
+};
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
@@ -73,25 +75,32 @@ pub async fn run_tool_loop(
         let mut assistant_thinking: Option<String> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            if let Some(ref c) = chunk.message.content {
-                if !c.is_empty() {
-                    assistant_content
-                        .get_or_insert_with(String::new)
-                        .push_str(c);
+            let mut done = false;
+            let mut tool_calls: Vec<ToolCall> = Vec::new();
+            match &chunk {
+                ResponseChunk::Content { content } => {
+                    if !content.is_empty() {
+                        assistant_content
+                            .get_or_insert_with(String::new)
+                            .push_str(content);
+                    }
+                }
+                ResponseChunk::Thinking { thinking } => {
+                    if !thinking.is_empty() {
+                        assistant_thinking
+                            .get_or_insert_with(String::new)
+                            .push_str(thinking);
+                    }
+                }
+                ResponseChunk::ToolCalls { tool_calls: tc } => {
+                    tool_calls = tc.clone();
+                }
+                ResponseChunk::Usage { .. } => {}
+                ResponseChunk::Done => {
+                    done = true;
                 }
             }
-            if let Some(ref c) = chunk.message.thinking {
-                if !c.is_empty() {
-                    assistant_thinking
-                        .get_or_insert_with(String::new)
-                        .push_str(c);
-                }
-            }
-            let done = chunk.done;
-            let tool_calls = chunk.message.tool_calls.clone();
             if !tool_calls.is_empty() {
-                // This is a tool preamble. If we try to send it with the thinking,
-                // or tool call the gpt-oss template is unhappy
                 if let Some(content) = assistant_content.take() {
                     chat_history
                         .lock()
@@ -202,38 +211,24 @@ mod tests {
             *calls += 1;
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
                 1 => vec![
-                    Ok(ResponseChunk {
-                        message: crate::ResponseMessage {
-                            content: Some("first".into()),
-                            thinking: None,
-                            tool_calls: vec![],
-                        },
-                        done: false,
-                        usage: None,
+                    Ok(ResponseChunk::Content {
+                        content: "first".into(),
                     }),
-                    Ok(ResponseChunk {
-                        message: crate::ResponseMessage {
-                            content: None,
-                            thinking: None,
-                            tool_calls: vec![crate::ToolCall {
-                                id: "call-1".into(),
-                                name: "test".into(),
-                                arguments: Value::Null,
-                            }],
-                        },
-                        done: true,
-                        usage: None,
+                    Ok(ResponseChunk::ToolCalls {
+                        tool_calls: vec![crate::ToolCall {
+                            id: "call-1".into(),
+                            name: "test".into(),
+                            arguments: Value::Null,
+                        }],
                     }),
+                    Ok(ResponseChunk::Done),
                 ],
-                2 => vec![Ok(ResponseChunk {
-                    message: crate::ResponseMessage {
-                        content: Some("final".into()),
-                        thinking: None,
-                        tool_calls: vec![],
-                    },
-                    done: true,
-                    usage: None,
-                })],
+                2 => vec![
+                    Ok(ResponseChunk::Content {
+                        content: "final".into(),
+                    }),
+                    Ok(ResponseChunk::Done),
+                ],
                 _ => vec![],
             };
             Ok(Box::pin(tokio_stream::iter(stream)))
@@ -302,7 +297,7 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 ToolEvent::ToolResult { .. } => saw_tool = true,
-                ToolEvent::Chunk(c) if c.message.content.as_deref() == Some("final") => {
+                ToolEvent::Chunk(ResponseChunk::Content { content }) if content == "final" => {
                     saw_final = true
                 }
                 _ => {}
