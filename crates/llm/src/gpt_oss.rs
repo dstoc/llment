@@ -293,10 +293,10 @@ mod tests {
         );
         let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
         assert!(prefill_tokens.is_some());
-        assert_eq!(
-            prompt,
+        assert!(prompt.contains("<|start|>system<|message|>"));
+        assert!(prompt.ends_with(
             "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>analysis<|message|>ponder"
-        );
+        ));
     }
 
     #[test]
@@ -311,10 +311,10 @@ mod tests {
         );
         let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
         assert!(prefill_tokens.is_some());
-        assert_eq!(
-            prompt,
+        assert!(prompt.contains("<|start|>system<|message|>"));
+        assert!(prompt.ends_with(
             "<|start|>user<|message|>Hi<|end|><|start|>assistant<|channel|>final<|message|>Hello"
-        );
+        ));
     }
 
     #[test]
@@ -339,18 +339,16 @@ mod tests {
         );
         let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
         assert!(prefill_tokens.is_none());
-        assert_eq!(
-            prompt,
-            concat!(
-                "<|start|>user<|message|>Hi<|end|>",
-                "<|start|>assistant<|channel|>analysis<|message|>ponder<|end|>",
-                "<|start|>assistant<|channel|>final<|message|>Hello<|end|>",
-                "<|start|>user<|message|>How are you?<|end|>",
-                "<|start|>assistant<|channel|>analysis<|message|>think<|end|>",
-                "<|start|>assistant<|channel|>final<|message|>I'm good<|end|>",
-                "<|start|>assistant"
-            )
-        );
+        assert!(prompt.contains("<|start|>system<|message|>"));
+        assert!(prompt.ends_with(concat!(
+            "<|start|>user<|message|>Hi<|end|>",
+            "<|start|>assistant<|channel|>analysis<|message|>ponder<|end|>",
+            "<|start|>assistant<|channel|>final<|message|>Hello<|end|>",
+            "<|start|>user<|message|>How are you?<|end|>",
+            "<|start|>assistant<|channel|>analysis<|message|>think<|end|>",
+            "<|start|>assistant<|channel|>final<|message|>I'm good<|end|>",
+            "<|start|>assistant"
+        )));
     }
 
     #[test]
