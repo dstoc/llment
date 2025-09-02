@@ -288,7 +288,8 @@ impl LlmClient for GptOssClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AssistantMessage;
+    use crate::{AssistantMessage, ToolCall};
+    use serde_json::json;
 
     #[test]
     fn prefill_with_thinking() {
@@ -361,6 +362,36 @@ mod tests {
             "<|start|>assistant<|channel|>analysis<|message|>think<|end|>",
             "<|start|>assistant<|channel|>final<|message|>I'm good"
         )));
+    }
+
+    #[test]
+    fn tool_call_and_response() {
+        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
+        let request = ChatMessageRequest::new(
+            "gpt-oss".into(),
+            vec![
+                ChatMessage::user("2+2?".into()),
+                ChatMessage::Assistant(AssistantMessage {
+                    content: String::new(),
+                    tool_calls: vec![ToolCall {
+                        id: "1".into(),
+                        name: "add".into(),
+                        arguments: json!({"a": 2, "b": 2}),
+                    }],
+                    thinking: None,
+                }),
+                ChatMessage::tool("1".into(), json!({"sum": 4}), "add".into()),
+            ],
+        );
+        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        assert!(prefill_tokens.is_none());
+        let args = json!({"a": 2, "b": 2}).to_string();
+        let result = json!({"sum": 4}).to_string();
+        assert!(prompt.contains("<|channel|>commentary"));
+        assert!(prompt.contains("functions.add"));
+        assert!(prompt.contains(&args));
+        assert!(prompt.contains(&result));
+        assert!(prompt.ends_with("<|start|>assistant"));
     }
 
     #[test]
