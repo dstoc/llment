@@ -39,8 +39,15 @@ fn conversation_to_prompt(
     conversation: &Conversation,
     prefill: Option<(&str, String)>,
 ) -> Result<(String, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
-    let tokens =
-        encoding.render_conversation_for_completion(conversation, Role::Assistant, None)?;
+    let ends_with_assistant = matches!(
+        conversation.messages.last().map(|m| m.author.role.clone()),
+        Some(Role::Assistant)
+    );
+    let tokens = if ends_with_assistant && prefill.is_none() {
+        encoding.render_conversation(conversation, None)?
+    } else {
+        encoding.render_conversation_for_completion(conversation, Role::Assistant, None)?
+    };
     let mut prompt = encoding.tokenizer().decode_utf8(&tokens)?.to_string();
     let mut prefill_tokens = None;
     if let Some((channel, content)) = prefill {
@@ -104,7 +111,7 @@ fn build_prompt(
             }
             ChatMessage::Assistant(a) => {
                 if let Some(thinking) = &a.thinking {
-                    if !thinking.is_empty() {
+                    if !thinking.is_empty() && a.content.is_empty() {
                         convo_msgs.push(
                             Message::from_role_and_content(Role::Assistant, thinking.clone())
                                 .with_channel("analysis"),
@@ -340,14 +347,13 @@ mod tests {
         let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
         assert!(prefill_tokens.is_none());
         assert!(prompt.contains("<|start|>system<|message|>"));
+        assert!(!prompt.contains("<|channel|>analysis<|message|>ponder"));
+        assert!(!prompt.contains("<|channel|>analysis<|message|>think"));
         assert!(prompt.ends_with(concat!(
             "<|start|>user<|message|>Hi<|end|>",
-            "<|start|>assistant<|channel|>analysis<|message|>ponder<|end|>",
             "<|start|>assistant<|channel|>final<|message|>Hello<|end|>",
             "<|start|>user<|message|>How are you?<|end|>",
-            "<|start|>assistant<|channel|>analysis<|message|>think<|end|>",
-            "<|start|>assistant<|channel|>final<|message|>I'm good<|end|>",
-            "<|start|>assistant"
+            "<|start|>assistant<|channel|>final<|message|>I'm good<|end|>"
         )));
     }
 
