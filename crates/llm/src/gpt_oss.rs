@@ -37,7 +37,7 @@ impl GptOssClient {
 fn conversation_to_prompt(
     encoding: &HarmonyEncoding,
     conversation: &Conversation,
-    prefill: Option<(&str, String)>,
+    prefill: Option<String>,
 ) -> Result<(String, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
     let ends_with_assistant = matches!(
         conversation.messages.last().map(|m| m.author.role.clone()),
@@ -50,8 +50,7 @@ fn conversation_to_prompt(
     };
     let mut prompt = encoding.tokenizer().decode_utf8(&tokens)?.to_string();
     let mut prefill_tokens = None;
-    if let Some((channel, content)) = prefill {
-        let prefill_text = format!("<|channel|>{}<|message|>{}", channel, content);
+    if let Some(prefill_text) = prefill {
         prompt.push_str(&prefill_text);
         prefill_tokens = Some(
             encoding
@@ -147,21 +146,28 @@ fn build_prompt(
             ChatMessage::System(_) => {}
         }
     }
-    let mut prefill: Option<(&str, String)> = None;
+    let mut prefill: Option<String> = None;
     if let Some(ChatMessage::Assistant(a)) = other_msgs.last() {
         if a.tool_calls.is_empty() {
-            if let Some(thinking) = &a.thinking {
-                if !thinking.is_empty() && a.content.is_empty() {
+            let thinking = a.thinking.as_deref().unwrap_or("");
+            let content = a.content.as_str();
+            match (thinking.is_empty(), content.is_empty()) {
+                (false, true) => {
                     convo_msgs.pop();
-                    prefill = Some(("analysis", thinking.clone()));
+                    prefill = Some(format!("<|channel|>analysis<|message|>{}", thinking));
                 }
-            }
-            if prefill.is_none()
-                && !a.content.is_empty()
-                && a.thinking.as_deref().unwrap_or("").is_empty()
-            {
-                convo_msgs.pop();
-                prefill = Some(("final", a.content.clone()));
+                (true, false) => {
+                    convo_msgs.pop();
+                    prefill = Some(format!("<|channel|>final<|message|>{}", content));
+                }
+                (false, false) => {
+                    convo_msgs.pop();
+                    prefill = Some(format!(
+                        "<|channel|>analysis<|message|>{}<|end|><|start|>assistant<|channel|>final<|message|>{}",
+                        thinking, content
+                    ));
+                }
+                _ => {}
             }
         }
     }
@@ -345,15 +351,15 @@ mod tests {
             ],
         );
         let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
-        assert!(prefill_tokens.is_none());
+        assert!(prefill_tokens.is_some());
         assert!(prompt.contains("<|start|>system<|message|>"));
         assert!(!prompt.contains("<|channel|>analysis<|message|>ponder"));
-        assert!(!prompt.contains("<|channel|>analysis<|message|>think"));
         assert!(prompt.ends_with(concat!(
             "<|start|>user<|message|>Hi<|end|>",
             "<|start|>assistant<|channel|>final<|message|>Hello<|end|>",
             "<|start|>user<|message|>How are you?<|end|>",
-            "<|start|>assistant<|channel|>final<|message|>I'm good<|end|>"
+            "<|start|>assistant<|channel|>analysis<|message|>think<|end|>",
+            "<|start|>assistant<|channel|>final<|message|>I'm good"
         )));
     }
 
