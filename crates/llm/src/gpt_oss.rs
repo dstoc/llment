@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall, to_openapi_schema,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -222,14 +222,10 @@ impl LlmClient for GptOssClient {
                                 if !delta.is_empty() && parser.current_recipient().is_none() {
                                     match parser.current_channel().as_deref() {
                                         Some("analysis") => {
-                                            out.push(Ok(ResponseChunk::Message(
-                                                ResponseMessage::Thinking(delta),
-                                            )));
+                                            out.push(Ok(ResponseChunk::Thinking(delta)));
                                         }
                                         Some("final") => {
-                                            out.push(Ok(ResponseChunk::Message(
-                                                ResponseMessage::Content(delta),
-                                            )));
+                                            out.push(Ok(ResponseChunk::Content(delta)));
                                         }
                                         _ => {}
                                     }
@@ -251,13 +247,11 @@ impl LlmClient for GptOssClient {
                                 {
                                     let args: Value =
                                         serde_json::from_str(text).unwrap_or(Value::Null);
-                                    out.push(Ok(ResponseChunk::Message(
-                                        ResponseMessage::ToolCall(ToolCall {
-                                            id: Uuid::new_v4().to_string(),
-                                            name: name.to_string(),
-                                            arguments: args,
-                                        }),
-                                    )));
+                                    out.push(Ok(ResponseChunk::ToolCall(ToolCall {
+                                        id: Uuid::new_v4().to_string(),
+                                        name: name.to_string(),
+                                        arguments: args,
+                                    })));
                                 }
                             }
                         }

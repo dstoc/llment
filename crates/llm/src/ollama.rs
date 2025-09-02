@@ -20,10 +20,7 @@ use ollama_rs::{
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall,
-};
+use super::{ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall};
 
 pub struct OllamaClient {
     inner: Ollama,
@@ -109,9 +106,7 @@ impl LlmClient for OllamaClient {
                 let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
                 if !r.message.thinking.clone().unwrap_or_default().is_empty() {
                     if let Some(thinking) = r.message.thinking.clone() {
-                        out.push(Ok(ResponseChunk::Message(ResponseMessage::Thinking(
-                            thinking,
-                        ))));
+                        out.push(Ok(ResponseChunk::Thinking(thinking)));
                     }
                 }
                 let tool_calls: Vec<ToolCall> = r
@@ -125,12 +120,10 @@ impl LlmClient for OllamaClient {
                     })
                     .collect();
                 for tc in tool_calls {
-                    out.push(Ok(ResponseChunk::Message(ResponseMessage::ToolCall(tc))));
+                    out.push(Ok(ResponseChunk::ToolCall(tc)));
                 }
                 if !r.message.content.is_empty() {
-                    out.push(Ok(ResponseChunk::Message(ResponseMessage::Content(
-                        r.message.content,
-                    ))));
+                    out.push(Ok(ResponseChunk::Content(r.message.content)));
                 }
                 if r.done {
                     if let Some(f) = r.final_data.as_ref() {

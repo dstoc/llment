@@ -13,8 +13,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::{
-    AssistantMessage, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall,
+    AssistantMessage, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk, ToolCall,
 };
 
 #[async_trait]
@@ -79,21 +78,21 @@ pub async fn run_tool_loop(
             let mut done = false;
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             match &chunk {
-                ResponseChunk::Message(ResponseMessage::Content(content)) => {
+                ResponseChunk::Content(content) => {
                     if !content.is_empty() {
                         assistant_content
                             .get_or_insert_with(String::new)
                             .push_str(content);
                     }
                 }
-                ResponseChunk::Message(ResponseMessage::Thinking(thinking)) => {
+                ResponseChunk::Thinking(thinking) => {
                     if !thinking.is_empty() {
                         assistant_thinking
                             .get_or_insert_with(String::new)
                             .push_str(thinking);
                     }
                 }
-                ResponseChunk::Message(ResponseMessage::ToolCall(tc)) => {
+                ResponseChunk::ToolCall(tc) => {
                     tool_calls.push(tc.clone());
                 }
                 ResponseChunk::Usage { .. } => {}
@@ -212,22 +211,16 @@ mod tests {
             *calls += 1;
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
                 1 => vec![
-                    Ok(ResponseChunk::Message(ResponseMessage::Content(
-                        "first".into(),
-                    ))),
-                    Ok(ResponseChunk::Message(ResponseMessage::ToolCall(
-                        crate::ToolCall {
-                            id: "call-1".into(),
-                            name: "test".into(),
-                            arguments: Value::Null,
-                        },
-                    ))),
+                    Ok(ResponseChunk::Content("first".into())),
+                    Ok(ResponseChunk::ToolCall(crate::ToolCall {
+                        id: "call-1".into(),
+                        name: "test".into(),
+                        arguments: Value::Null,
+                    })),
                     Ok(ResponseChunk::Done),
                 ],
                 2 => vec![
-                    Ok(ResponseChunk::Message(ResponseMessage::Content(
-                        "final".into(),
-                    ))),
+                    Ok(ResponseChunk::Content("final".into())),
                     Ok(ResponseChunk::Done),
                 ],
                 _ => vec![],
@@ -298,9 +291,7 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 ToolEvent::ToolResult { .. } => saw_tool = true,
-                ToolEvent::Chunk(ResponseChunk::Message(ResponseMessage::Content(content)))
-                    if content == "final" =>
-                {
+                ToolEvent::Chunk(ResponseChunk::Content(content)) if content == "final" => {
                     saw_final = true
                 }
                 _ => {}
