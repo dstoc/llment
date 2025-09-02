@@ -26,8 +26,8 @@ Trait-based LLM client implementations for multiple providers.
 ## Features
 - LLM clients
   - `LlmClient` trait streams chat responses and lists supported model names
-  - implementations for Ollama, OpenAI, LlamaServer, and Gemini
-  - LlamaServer client uses v1/completions with Harmony format for `gpt-oss`
+- implementations for Ollama, OpenAI, GptOss, and Gemini
+- GptOss client uses v1/completions with Harmony format for `gpt-oss`
 - Provider selection
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider and model
@@ -73,5 +73,5 @@ Trait-based LLM client implementations for multiple providers.
 
 ## Constraints
 - uses provider-specific default host when none is supplied
-  - LlamaServer defaults to `http://localhost:8000/v1` and supports only `gpt-oss` via v1/completions
+- GptOss defaults to `http://localhost:8000/v1` and supports only `gpt-oss` via v1/completions
 - deprecated `function_call` streaming is no longer supported

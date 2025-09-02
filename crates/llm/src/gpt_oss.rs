@@ -18,11 +18,11 @@ use serde_json::Value;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-pub struct LlamaServerClient {
+pub struct GptOssClient {
     inner: Client<OpenAIConfig>,
 }
 
-impl LlamaServerClient {
+impl GptOssClient {
     pub fn new(host: Option<&str>) -> Self {
         let config = match host {
             Some(h) => OpenAIConfig::default().with_api_base(h),
@@ -35,7 +35,7 @@ impl LlamaServerClient {
 }
 
 #[async_trait]
-impl LlmClient for LlamaServerClient {
+impl LlmClient for GptOssClient {
     async fn send_chat_messages_stream(
         &self,
         request: ChatMessageRequest,
@@ -146,6 +146,29 @@ impl LlmClient for LlamaServerClient {
                     tool_calls: Vec::new(),
                     thinking: None,
                 };
+                let drain =
+                    |parser: &StreamableParser, seen: &mut usize, msg: &mut ResponseMessage| {
+                        let messages = parser.messages();
+                        while *seen < messages.len() {
+                            if let Some(recipient) = &messages[*seen].recipient {
+                                if let Some(name) = recipient.strip_prefix("functions.") {
+                                    if let Some(Content::Text(TextContent { text })) =
+                                        messages[*seen].content.first()
+                                    {
+                                        let args: Value =
+                                            serde_json::from_str(text).unwrap_or(Value::Null);
+                                        msg.tool_calls.push(ToolCall {
+                                            id: Uuid::new_v4().to_string(),
+                                            name: name.to_string(),
+                                            arguments: args,
+                                        });
+                                    }
+                                }
+                            }
+                            *seen += 1;
+                        }
+                    };
+
                 if let Some(choice) = chunk.choices.first() {
                     if !choice.text.is_empty() {
                         let tokens = encoding
@@ -162,58 +185,37 @@ impl LlmClient for LlamaServerClient {
                             }
                         }
                     }
-                }
-                let messages = parser.messages();
-                while seen < messages.len() {
-                    if let Some(recipient) = &messages[seen].recipient {
-                        if let Some(name) = recipient.strip_prefix("functions.") {
-                            if let Some(Content::Text(TextContent { text })) =
-                                messages[seen].content.first()
-                            {
-                                let args: Value = serde_json::from_str(text).unwrap_or(Value::Null);
-                                msg.tool_calls.push(ToolCall {
-                                    id: Uuid::new_v4().to_string(),
-                                    name: name.to_string(),
-                                    arguments: args,
-                                });
-                            }
-                        }
+                    drain(&parser, &mut seen, &mut msg);
+                    if choice.finish_reason.is_some() {
+                        parser.process_eos().ok();
+                        drain(&parser, &mut seen, &mut msg);
+                        return ResponseChunk {
+                            message: msg,
+                            done: true,
+                            usage: chunk.usage.map(|u| LlmUsage {
+                                input_tokens: u.prompt_tokens,
+                                output_tokens: u.completion_tokens,
+                            }),
+                        };
                     }
-                    seen += 1;
-                }
-                let mut done = false;
-                let mut usage = None;
-                if let Some(u) = chunk.usage {
+                } else if chunk.usage.is_some() {
                     parser.process_eos().ok();
-                    let messages = parser.messages();
-                    while seen < messages.len() {
-                        if let Some(recipient) = &messages[seen].recipient {
-                            if let Some(name) = recipient.strip_prefix("functions.") {
-                                if let Some(Content::Text(TextContent { text })) =
-                                    messages[seen].content.first()
-                                {
-                                    let args: Value =
-                                        serde_json::from_str(text).unwrap_or(Value::Null);
-                                    msg.tool_calls.push(ToolCall {
-                                        id: Uuid::new_v4().to_string(),
-                                        name: name.to_string(),
-                                        arguments: args,
-                                    });
-                                }
-                            }
-                        }
-                        seen += 1;
-                    }
-                    usage = Some(LlmUsage {
-                        input_tokens: u.prompt_tokens,
-                        output_tokens: u.completion_tokens,
-                    });
-                    done = true;
+                    drain(&parser, &mut seen, &mut msg);
+                    return ResponseChunk {
+                        message: msg,
+                        done: true,
+                        usage: chunk.usage.map(|u| LlmUsage {
+                            input_tokens: u.prompt_tokens,
+                            output_tokens: u.completion_tokens,
+                        }),
+                    };
                 }
+
+                drain(&parser, &mut seen, &mut msg);
                 ResponseChunk {
                     message: msg,
-                    done,
-                    usage,
+                    done: false,
+                    usage: None,
                 }
             })
             .map_err(|e| e.into())
