@@ -28,6 +28,7 @@ Trait-based LLM client implementations for multiple providers.
   - `LlmClient` trait streams chat responses and lists supported model names
 - implementations for Ollama, OpenAI, GptOss, and Gemini
 - GptOss client uses v1/completions with Harmony format for `gpt-oss`
+- GptOss client builds prompts via helper that handles thinking or final-prefill when last history message is from assistant
 - Provider selection
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider and model
