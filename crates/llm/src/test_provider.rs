@@ -73,19 +73,15 @@ mod tests {
     async fn captures_requests_and_iterates() {
         let client = Arc::new(TestProvider::new());
         client.enqueue(vec![
-            ResponseChunk::ToolCalls {
-                tool_calls: vec![ToolCall {
-                    id: "call-1".into(),
-                    name: "test".into(),
-                    arguments: Value::Null,
-                }],
-            },
+            ResponseChunk::ToolCall(ToolCall {
+                id: "call-1".into(),
+                name: "test".into(),
+                arguments: Value::Null,
+            }),
             ResponseChunk::Done,
         ]);
         client.enqueue(vec![
-            ResponseChunk::Content {
-                content: "final".into(),
-            },
+            ResponseChunk::Content("final".into()),
             ResponseChunk::Done,
         ]);
         let exec = Arc::new(DummyExec);

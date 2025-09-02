@@ -2,7 +2,7 @@ use std::error::Error;
 
 use super::{
     ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
-    Usage as LlmUsage, to_openapi_schema,
+    to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -222,12 +222,10 @@ impl LlmClient for GptOssClient {
                                 if !delta.is_empty() && parser.current_recipient().is_none() {
                                     match parser.current_channel().as_deref() {
                                         Some("analysis") => {
-                                            out.push(Ok(ResponseChunk::Thinking {
-                                                thinking: delta,
-                                            }));
+                                            out.push(Ok(ResponseChunk::Thinking(delta)));
                                         }
                                         Some("final") => {
-                                            out.push(Ok(ResponseChunk::Content { content: delta }));
+                                            out.push(Ok(ResponseChunk::Content(delta)));
                                         }
                                         _ => {}
                                     }
@@ -249,23 +247,19 @@ impl LlmClient for GptOssClient {
                                 {
                                     let args: Value =
                                         serde_json::from_str(text).unwrap_or(Value::Null);
-                                    out.push(Ok(ResponseChunk::ToolCalls {
-                                        tool_calls: vec![ToolCall {
-                                            id: Uuid::new_v4().to_string(),
-                                            name: name.to_string(),
-                                            arguments: args,
-                                        }],
-                                    }));
+                                    out.push(Ok(ResponseChunk::ToolCall(ToolCall {
+                                        id: Uuid::new_v4().to_string(),
+                                        name: name.to_string(),
+                                        arguments: args,
+                                    })));
                                 }
                             }
                         }
                     }
                     if let Some(usage) = chunk.usage {
                         out.push(Ok(ResponseChunk::Usage {
-                            usage: LlmUsage {
-                                input_tokens: usage.prompt_tokens,
-                                output_tokens: usage.completion_tokens,
-                            },
+                            input_tokens: usage.prompt_tokens,
+                            output_tokens: usage.completion_tokens,
                         }));
                     }
                     if choice.finish_reason.is_some() {

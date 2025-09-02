@@ -78,22 +78,22 @@ pub async fn run_tool_loop(
             let mut done = false;
             let mut tool_calls: Vec<ToolCall> = Vec::new();
             match &chunk {
-                ResponseChunk::Content { content } => {
+                ResponseChunk::Content(content) => {
                     if !content.is_empty() {
                         assistant_content
                             .get_or_insert_with(String::new)
                             .push_str(content);
                     }
                 }
-                ResponseChunk::Thinking { thinking } => {
+                ResponseChunk::Thinking(thinking) => {
                     if !thinking.is_empty() {
                         assistant_thinking
                             .get_or_insert_with(String::new)
                             .push_str(thinking);
                     }
                 }
-                ResponseChunk::ToolCalls { tool_calls: tc } => {
-                    tool_calls = tc.clone();
+                ResponseChunk::ToolCall(tc) => {
+                    tool_calls.push(tc.clone());
                 }
                 ResponseChunk::Usage { .. } => {}
                 ResponseChunk::Done => {
@@ -211,22 +211,16 @@ mod tests {
             *calls += 1;
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
                 1 => vec![
-                    Ok(ResponseChunk::Content {
-                        content: "first".into(),
-                    }),
-                    Ok(ResponseChunk::ToolCalls {
-                        tool_calls: vec![crate::ToolCall {
-                            id: "call-1".into(),
-                            name: "test".into(),
-                            arguments: Value::Null,
-                        }],
-                    }),
+                    Ok(ResponseChunk::Content("first".into())),
+                    Ok(ResponseChunk::ToolCall(crate::ToolCall {
+                        id: "call-1".into(),
+                        name: "test".into(),
+                        arguments: Value::Null,
+                    })),
                     Ok(ResponseChunk::Done),
                 ],
                 2 => vec![
-                    Ok(ResponseChunk::Content {
-                        content: "final".into(),
-                    }),
+                    Ok(ResponseChunk::Content("final".into())),
                     Ok(ResponseChunk::Done),
                 ],
                 _ => vec![],
@@ -297,7 +291,7 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 ToolEvent::ToolResult { .. } => saw_tool = true,
-                ToolEvent::Chunk(ResponseChunk::Content { content }) if content == "final" => {
+                ToolEvent::Chunk(ResponseChunk::Content(content)) if content == "final" => {
                     saw_final = true
                 }
                 _ => {}

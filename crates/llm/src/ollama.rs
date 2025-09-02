@@ -20,9 +20,7 @@ use ollama_rs::{
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall, Usage,
-};
+use super::{ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall};
 
 pub struct OllamaClient {
     inner: Ollama,
@@ -108,7 +106,7 @@ impl LlmClient for OllamaClient {
                 let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
                 if !r.message.thinking.clone().unwrap_or_default().is_empty() {
                     if let Some(thinking) = r.message.thinking.clone() {
-                        out.push(Ok(ResponseChunk::Thinking { thinking }));
+                        out.push(Ok(ResponseChunk::Thinking(thinking)));
                     }
                 }
                 let tool_calls: Vec<ToolCall> = r
@@ -121,21 +119,17 @@ impl LlmClient for OllamaClient {
                         arguments: tc.function.arguments,
                     })
                     .collect();
-                if !tool_calls.is_empty() {
-                    out.push(Ok(ResponseChunk::ToolCalls { tool_calls }));
+                for tc in tool_calls {
+                    out.push(Ok(ResponseChunk::ToolCall(tc)));
                 }
                 if !r.message.content.is_empty() {
-                    out.push(Ok(ResponseChunk::Content {
-                        content: r.message.content,
-                    }));
+                    out.push(Ok(ResponseChunk::Content(r.message.content)));
                 }
                 if r.done {
                     if let Some(f) = r.final_data.as_ref() {
                         out.push(Ok(ResponseChunk::Usage {
-                            usage: Usage {
-                                input_tokens: f.prompt_eval_count as u32,
-                                output_tokens: f.eval_count as u32,
-                            },
+                            input_tokens: f.prompt_eval_count as u32,
+                            output_tokens: f.eval_count as u32,
                         }));
                     }
                     out.push(Ok(ResponseChunk::Done));

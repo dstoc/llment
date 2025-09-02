@@ -2,7 +2,7 @@ use std::error::Error;
 
 use super::{
     ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
-    Usage as LlmUsage, to_openapi_schema,
+    to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -224,28 +224,26 @@ impl LlmClient for OpenAiClient {
                     }
                     let done = chunk.choices.iter().any(|c| c.finish_reason.is_some());
                     let usage = if done {
-                        chunk.usage.map(|u| LlmUsage {
-                            input_tokens: u.prompt_tokens as u32,
-                            output_tokens: u.completion_tokens as u32,
-                        })
+                        chunk
+                            .usage
+                            .map(|u| (u.prompt_tokens as u32, u.completion_tokens as u32))
                     } else {
                         None
                     };
                     if !thinking_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Thinking {
-                            thinking: thinking_acc,
-                        }));
+                        out.push(Ok(ResponseChunk::Thinking(thinking_acc)));
                     }
-                    if !tool_calls.is_empty() {
-                        out.push(Ok(ResponseChunk::ToolCalls { tool_calls }));
+                    for tc in tool_calls {
+                        out.push(Ok(ResponseChunk::ToolCall(tc)));
                     }
                     if !content_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Content {
-                            content: content_acc,
-                        }));
+                        out.push(Ok(ResponseChunk::Content(content_acc)));
                     }
-                    if let Some(u) = usage {
-                        out.push(Ok(ResponseChunk::Usage { usage: u }));
+                    if let Some((input_tokens, output_tokens)) = usage {
+                        out.push(Ok(ResponseChunk::Usage {
+                            input_tokens,
+                            output_tokens,
+                        }));
                     }
                     if done {
                         out.push(Ok(ResponseChunk::Done));

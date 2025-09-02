@@ -12,7 +12,7 @@ use gemini_rs::{
 use uuid::Uuid;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall, Usage,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
     to_openapi_schema,
 };
 
@@ -159,9 +159,11 @@ impl LlmClient for GeminiClient {
 
                     let done = chunk.candidates.iter().any(|c| c.finish_reason.is_some());
                     let usage = if done {
-                        chunk.usage_metadata.as_ref().map(|u| Usage {
-                            input_tokens: u.prompt_token_count as u32,
-                            output_tokens: u.candidates_token_count.unwrap_or(0) as u32,
+                        chunk.usage_metadata.as_ref().map(|u| {
+                            (
+                                u.prompt_token_count as u32,
+                                u.candidates_token_count.unwrap_or(0) as u32,
+                            )
                         })
                     } else {
                         None
@@ -170,18 +172,19 @@ impl LlmClient for GeminiClient {
                     let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> =
                         Vec::new();
                     if let Some(t) = thinking {
-                        out.push(Ok(ResponseChunk::Thinking { thinking: t }));
+                        out.push(Ok(ResponseChunk::Thinking(t)));
                     }
-                    if !tool_calls.is_empty() {
-                        out.push(Ok(ResponseChunk::ToolCalls { tool_calls }));
+                    for tc in tool_calls {
+                        out.push(Ok(ResponseChunk::ToolCall(tc)));
                     }
                     if !content_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Content {
-                            content: content_acc,
-                        }));
+                        out.push(Ok(ResponseChunk::Content(content_acc)));
                     }
-                    if let Some(u) = usage {
-                        out.push(Ok(ResponseChunk::Usage { usage: u }));
+                    if let Some((input_tokens, output_tokens)) = usage {
+                        out.push(Ok(ResponseChunk::Usage {
+                            input_tokens,
+                            output_tokens,
+                        }));
                     }
                     if done {
                         out.push(Ok(ResponseChunk::Done));
