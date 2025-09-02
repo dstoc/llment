@@ -29,6 +29,7 @@ Trait-based LLM client implementations for multiple providers.
 - implementations for Ollama, OpenAI, GptOss, and Gemini
 - GptOss client uses v1/completions with Harmony format for `gpt-oss`
 - GptOss client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
+  - streaming parser is primed with prefill tokens so continuation in the same channel is captured
 - Provider selection
   - `Provider` enum lists supported backends
   - `client_from` builds a client for the given provider and model
