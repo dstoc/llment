@@ -198,24 +198,16 @@ impl LlmClient for GptOssClient {
                             }),
                         };
                     }
-                } else if chunk.usage.is_some() {
-                    parser.process_eos().ok();
-                    drain(&parser, &mut seen, &mut msg);
-                    return ResponseChunk {
-                        message: msg,
-                        done: true,
-                        usage: chunk.usage.map(|u| LlmUsage {
-                            input_tokens: u.prompt_tokens,
-                            output_tokens: u.completion_tokens,
-                        }),
-                    };
                 }
 
                 drain(&parser, &mut seen, &mut msg);
                 ResponseChunk {
                     message: msg,
                     done: false,
-                    usage: None,
+                    usage: chunk.usage.map(|u| LlmUsage {
+                        input_tokens: u.prompt_tokens,
+                        output_tokens: u.completion_tokens,
+                    }),
                 }
             })
             .map_err(|e| e.into())
