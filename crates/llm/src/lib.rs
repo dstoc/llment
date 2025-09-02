@@ -197,28 +197,19 @@ pub fn client_from(
     })
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResponseMessage {
-    #[serde(default, skip_serializing_if = "option_string_is_empty")]
-    pub content: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tool_calls: Vec<ToolCall>,
-    #[serde(default, skip_serializing_if = "option_string_is_empty")]
-    pub thinking: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Usage {
     pub input_tokens: u32,
     pub output_tokens: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResponseChunk {
-    pub message: ResponseMessage,
-    pub done: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
+#[derive(Debug, Clone)]
+pub enum ResponseChunk {
+    Thinking { thinking: String },
+    ToolCalls { tool_calls: Vec<ToolCall> },
+    Content { content: String },
+    Usage { usage: Usage },
+    Done,
 }
 
 pub type ChatStream =

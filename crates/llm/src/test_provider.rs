@@ -52,7 +52,7 @@ impl LlmClient for TestProvider {
 mod tests {
     use super::*;
     use crate::tools::{ToolExecutor, run_tool_loop};
-    use crate::{ChatMessage, ResponseMessage, ToolCall};
+    use crate::{ChatMessage, ToolCall};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
 
@@ -72,28 +72,22 @@ mod tests {
     #[tokio::test]
     async fn captures_requests_and_iterates() {
         let client = Arc::new(TestProvider::new());
-        client.enqueue(vec![ResponseChunk {
-            message: ResponseMessage {
-                content: None,
+        client.enqueue(vec![
+            ResponseChunk::ToolCalls {
                 tool_calls: vec![ToolCall {
                     id: "call-1".into(),
                     name: "test".into(),
                     arguments: Value::Null,
                 }],
-                thinking: None,
             },
-            done: true,
-            usage: None,
-        }]);
-        client.enqueue(vec![ResponseChunk {
-            message: ResponseMessage {
-                content: Some("final".into()),
-                tool_calls: vec![],
-                thinking: None,
+            ResponseChunk::Done,
+        ]);
+        client.enqueue(vec![
+            ResponseChunk::Content {
+                content: "final".into(),
             },
-            done: true,
-            usage: None,
-        }]);
+            ResponseChunk::Done,
+        ]);
         let exec = Arc::new(DummyExec);
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".into())]));

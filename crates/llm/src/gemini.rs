@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use gemini_rs::{
     Client,
     types::{
@@ -8,12 +9,11 @@ use gemini_rs::{
         FunctionResponse, GenerationConfig, Part, Role, ThinkingConfig, ToolConfig, Tools,
     },
 };
-use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall, Usage, to_openapi_schema,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall, Usage,
+    to_openapi_schema,
 };
 
 pub struct GeminiClient {
@@ -132,7 +132,7 @@ impl LlmClient for GeminiClient {
             .stream()
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        let mapped = stream.filter_map(move |res| {
+        let mapped = stream.flat_map(move |res| {
             match res {
                 Ok(chunk) => {
                     let mut content_acc = String::new();
@@ -157,12 +157,6 @@ impl LlmClient for GeminiClient {
                         }
                     }
 
-                    let content = if content_acc.is_empty() {
-                        None
-                    } else {
-                        Some(content_acc)
-                    };
-                    let is_empty = content.is_none() && tool_calls.is_empty() && thinking.is_none();
                     let done = chunk.candidates.iter().any(|c| c.finish_reason.is_some());
                     let usage = if done {
                         chunk.usage_metadata.as_ref().map(|u| Usage {
@@ -173,21 +167,28 @@ impl LlmClient for GeminiClient {
                         None
                     };
 
-                    if done || !is_empty {
-                        Some(Ok(ResponseChunk {
-                            message: ResponseMessage {
-                                content,
-                                tool_calls,
-                                thinking,
-                            },
-                            done,
-                            usage,
-                        }))
-                    } else {
-                        None
+                    let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> =
+                        Vec::new();
+                    if let Some(t) = thinking {
+                        out.push(Ok(ResponseChunk::Thinking { thinking: t }));
                     }
+                    if !tool_calls.is_empty() {
+                        out.push(Ok(ResponseChunk::ToolCalls { tool_calls }));
+                    }
+                    if !content_acc.is_empty() {
+                        out.push(Ok(ResponseChunk::Content {
+                            content: content_acc,
+                        }));
+                    }
+                    if let Some(u) = usage {
+                        out.push(Ok(ResponseChunk::Usage { usage: u }));
+                    }
+                    if done {
+                        out.push(Ok(ResponseChunk::Done));
+                    }
+                    tokio_stream::iter(out)
                 }
-                Err(e) => Some(Err(e.into())), // preserve errors
+                Err(e) => tokio_stream::iter(vec![Err::<ResponseChunk, _>(e.into())]), // preserve errors
             }
         });
         Ok(Box::pin(mapped))

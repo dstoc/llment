@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use ollama_rs::{
     Ollama,
     generation::{
@@ -17,12 +18,10 @@ use ollama_rs::{
     },
 };
 use serde_json::Value;
-use tokio_stream::StreamExt;
 use uuid::Uuid;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall, Usage,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall, Usage,
 };
 
 pub struct OllamaClient {
@@ -104,37 +103,46 @@ impl LlmClient for OllamaClient {
         };
         let stream: ChatMessageResponseStream =
             self.inner.send_chat_messages_stream(ollama_request).await?;
-        let mapped = stream.map(|res| match res {
-            Ok(r) => Ok(ResponseChunk {
-                message: ResponseMessage {
-                    content: if r.message.content.is_empty() {
-                        None
-                    } else {
-                        Some(r.message.content)
-                    },
-                    tool_calls: r
-                        .message
-                        .tool_calls
-                        .into_iter()
-                        .map(|tc| ToolCall {
-                            id: Uuid::new_v4().to_string(),
-                            name: tc.function.name,
-                            arguments: tc.function.arguments,
-                        })
-                        .collect(),
-                    thinking: r.message.thinking,
-                },
-                done: r.done,
-                usage: if r.done {
-                    r.final_data.as_ref().map(|f| Usage {
-                        input_tokens: f.prompt_eval_count as u32,
-                        output_tokens: f.eval_count as u32,
+        let mapped = stream.flat_map(|res| match res {
+            Ok(r) => {
+                let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
+                if !r.message.thinking.clone().unwrap_or_default().is_empty() {
+                    if let Some(thinking) = r.message.thinking.clone() {
+                        out.push(Ok(ResponseChunk::Thinking { thinking }));
+                    }
+                }
+                let tool_calls: Vec<ToolCall> = r
+                    .message
+                    .tool_calls
+                    .into_iter()
+                    .map(|tc| ToolCall {
+                        id: Uuid::new_v4().to_string(),
+                        name: tc.function.name,
+                        arguments: tc.function.arguments,
                     })
-                } else {
-                    None
-                },
-            }),
-            Err(_) => Err("stream error".into()),
+                    .collect();
+                if !tool_calls.is_empty() {
+                    out.push(Ok(ResponseChunk::ToolCalls { tool_calls }));
+                }
+                if !r.message.content.is_empty() {
+                    out.push(Ok(ResponseChunk::Content {
+                        content: r.message.content,
+                    }));
+                }
+                if r.done {
+                    if let Some(f) = r.final_data.as_ref() {
+                        out.push(Ok(ResponseChunk::Usage {
+                            usage: Usage {
+                                input_tokens: f.prompt_eval_count as u32,
+                                output_tokens: f.eval_count as u32,
+                            },
+                        }));
+                    }
+                    out.push(Ok(ResponseChunk::Done));
+                }
+                tokio_stream::iter(out)
+            }
+            Err(_) => tokio_stream::iter(vec![Err::<ResponseChunk, _>("stream error".into())]),
         });
         Ok(Box::pin(mapped))
     }

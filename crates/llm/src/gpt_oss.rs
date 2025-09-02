@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ResponseMessage,
-    ToolCall, Usage as LlmUsage, to_openapi_schema,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    Usage as LlmUsage, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -222,26 +222,12 @@ impl LlmClient for GptOssClient {
                                 if !delta.is_empty() && parser.current_recipient().is_none() {
                                     match parser.current_channel().as_deref() {
                                         Some("analysis") => {
-                                            out.push(Ok(ResponseChunk {
-                                                message: ResponseMessage {
-                                                    content: None,
-                                                    tool_calls: vec![],
-                                                    thinking: Some(delta),
-                                                },
-                                                done: false,
-                                                usage: None,
+                                            out.push(Ok(ResponseChunk::Thinking {
+                                                thinking: delta,
                                             }));
                                         }
                                         Some("final") => {
-                                            out.push(Ok(ResponseChunk {
-                                                message: ResponseMessage {
-                                                    content: Some(delta),
-                                                    tool_calls: vec![],
-                                                    thinking: None,
-                                                },
-                                                done: false,
-                                                usage: None,
-                                            }));
+                                            out.push(Ok(ResponseChunk::Content { content: delta }));
                                         }
                                         _ => {}
                                     }
@@ -263,47 +249,27 @@ impl LlmClient for GptOssClient {
                                 {
                                     let args: Value =
                                         serde_json::from_str(text).unwrap_or(Value::Null);
-                                    out.push(Ok(ResponseChunk {
-                                        message: ResponseMessage {
-                                            content: None,
-                                            tool_calls: vec![ToolCall {
-                                                id: Uuid::new_v4().to_string(),
-                                                name: name.to_string(),
-                                                arguments: args,
-                                            }],
-                                            thinking: None,
-                                        },
-                                        done: false,
-                                        usage: None,
+                                    out.push(Ok(ResponseChunk::ToolCalls {
+                                        tool_calls: vec![ToolCall {
+                                            id: Uuid::new_v4().to_string(),
+                                            name: name.to_string(),
+                                            arguments: args,
+                                        }],
                                     }));
                                 }
                             }
                         }
                     }
                     if let Some(usage) = chunk.usage {
-                        out.push(Ok(ResponseChunk {
-                            message: ResponseMessage {
-                                content: None,
-                                tool_calls: vec![],
-                                thinking: None,
-                            },
-                            done: true,
-                            usage: Some(LlmUsage {
+                        out.push(Ok(ResponseChunk::Usage {
+                            usage: LlmUsage {
                                 input_tokens: usage.prompt_tokens,
                                 output_tokens: usage.completion_tokens,
-                            }),
+                            },
                         }));
                     }
                     if choice.finish_reason.is_some() {
-                        out.push(Ok(ResponseChunk {
-                            message: ResponseMessage {
-                                content: None,
-                                tool_calls: vec![],
-                                thinking: None,
-                            },
-                            done: true,
-                            usage: None,
-                        }));
+                        out.push(Ok(ResponseChunk::Done));
                     }
                 }
                 tokio_stream::iter(out)
