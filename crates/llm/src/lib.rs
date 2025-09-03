@@ -128,6 +128,7 @@ impl ChatMessageRequest {
 }
 
 pub mod gemini;
+pub mod gemini_rust;
 pub mod harmony;
 pub mod mcp;
 pub mod ollama;
@@ -144,6 +145,7 @@ pub enum Provider {
     Openai,
     Harmony,
     GeminiRs,
+    GeminiRust,
 }
 
 #[derive(Clone)]
@@ -191,6 +193,7 @@ pub fn client_from(
         Provider::Openai => Arc::new(openai::OpenAiClient::new(host)),
         Provider::Harmony => Arc::new(harmony::HarmonyClient::new(host)),
         Provider::GeminiRs => Arc::new(gemini::GeminiRsClient::new(host)),
+        Provider::GeminiRust => Arc::new(gemini_rust::GeminiRustClient::new(host)?),
     };
     Ok(Client {
         inner,
