@@ -16,11 +16,11 @@ use super::{
     to_openapi_schema,
 };
 
-pub struct GeminiClient {
+pub struct GeminiRsClient {
     inner: Client,
 }
 
-impl GeminiClient {
+impl GeminiRsClient {
     pub fn new(_host: Option<&str>) -> Self {
         Self {
             inner: Client::instance(),
@@ -29,7 +29,7 @@ impl GeminiClient {
 }
 
 #[async_trait]
-impl LlmClient for GeminiClient {
+impl LlmClient for GeminiRsClient {
     async fn send_chat_messages_stream(
         &self,
         request: ChatMessageRequest,
