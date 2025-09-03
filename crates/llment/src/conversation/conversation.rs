@@ -2,7 +2,6 @@ use crossterm::event::{Event, MouseButton, MouseEventKind};
 use llm::ChatMessage;
 use ratatui::{Frame, layout::Rect};
 use serde_json::to_string;
-use std::collections::HashMap;
 
 use crate::component::Component;
 
@@ -242,7 +241,7 @@ impl Conversation {
         }
     }
 
-    pub fn update_tool_result(&mut self, step_id: usize, result: String, failed: bool) {
+    pub fn update_tool_result(&mut self, step_id: &str, result: String, failed: bool) -> bool {
         let at_bottom = self.is_at_bottom();
         let block = self.ensure_last_assistant();
         let matching = block.steps.iter().enumerate().find(|(_i, step)| {
@@ -274,6 +273,9 @@ impl Conversation {
                     self.scroll_to_bottom();
                 }
             }
+            true
+        } else {
+            false
         }
     }
 
@@ -297,8 +299,6 @@ impl Conversation {
 
     pub fn set_history(&mut self, history: &[ChatMessage]) {
         self.clear();
-        let mut tool_id = 0usize;
-        let mut call_ids: HashMap<String, usize> = HashMap::new();
         for msg in history {
             match msg {
                 ChatMessage::User(u) => {
@@ -318,27 +318,20 @@ impl Conversation {
                             .arguments_invalid
                             .clone()
                             .unwrap_or_else(|| to_string(&call.arguments).unwrap_or_default());
-                        let step_id = tool_id;
-                        tool_id += 1;
                         self.add_tool_step(ToolStep::new(
                             call.name.clone(),
-                            step_id,
+                            call.id.clone(),
                             args,
                             String::new(),
                             false,
                         ));
-                        call_ids.insert(call.id.clone(), step_id);
                     }
                 }
                 ChatMessage::Tool(tmsg) => {
-                    if let Some(step_id) = call_ids.get(&tmsg.id) {
-                        self.update_tool_result(*step_id, tmsg.content.to_string(), false);
-                    } else {
-                        let step_id = tool_id;
-                        tool_id += 1;
+                    if !self.update_tool_result(&tmsg.id, tmsg.content.to_string(), false) {
                         let mut step = ToolStep::new(
+                            tmsg.tool_name.clone(),
                             tmsg.id.clone(),
-                            step_id,
                             String::new(),
                             tmsg.content.to_string(),
                             false,
