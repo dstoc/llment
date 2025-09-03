@@ -81,13 +81,19 @@ impl LlmClient for OpenAiClient {
                         let tool_calls: Vec<ChatCompletionMessageToolCall> = a
                             .tool_calls
                             .into_iter()
-                            .map(|tc| ChatCompletionMessageToolCall {
-                                id: tc.id,
-                                r#type: ChatCompletionToolType::Function,
-                                function: FunctionCall {
-                                    name: tc.name,
-                                    arguments: tc.arguments.to_string(),
-                                },
+                            .map(|tc| {
+                                let arguments = match tc.arguments {
+                                    Ok(v) => v.to_string(),
+                                    Err(s) => s,
+                                };
+                                ChatCompletionMessageToolCall {
+                                    id: tc.id,
+                                    r#type: ChatCompletionToolType::Function,
+                                    function: FunctionCall {
+                                        name: tc.name,
+                                        arguments,
+                                    },
+                                }
                             })
                             .collect();
                         builder.tool_calls(tool_calls);
@@ -211,12 +217,14 @@ impl LlmClient for OpenAiClient {
                         if matches!(choice.finish_reason, Some(FinishReason::ToolCalls)) {
                             if !pending_tool_calls.is_empty() {
                                 for b in pending_tool_calls.drain(..) {
-                                    let args: Value =
-                                        serde_json::from_str(&b.arguments).unwrap_or(Value::Null);
+                                    let arguments = match serde_json::from_str(&b.arguments) {
+                                        Ok(v) => Ok(v),
+                                        Err(_) => Err(b.arguments.clone()),
+                                    };
                                     tool_calls.push(ToolCall {
                                         id: b.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
                                         name: b.name.unwrap_or_default(),
-                                        arguments: args,
+                                        arguments,
                                     });
                                 }
                             }

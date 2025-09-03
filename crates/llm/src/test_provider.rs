@@ -76,7 +76,7 @@ mod tests {
             ResponseChunk::ToolCall(ToolCall {
                 id: "call-1".into(),
                 name: "test".into(),
-                arguments: Value::Null,
+                arguments: Ok(Value::Null),
             }),
             ResponseChunk::Done,
         ]);

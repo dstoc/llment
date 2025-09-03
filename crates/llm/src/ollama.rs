@@ -55,11 +55,14 @@ impl LlmClient for OllamaClient {
                         msg.tool_calls = a
                             .tool_calls
                             .into_iter()
-                            .map(|tc| OllamaToolCall {
-                                function: OllamaToolCallFunction {
-                                    name: tc.name,
-                                    arguments: tc.arguments,
-                                },
+                            .map(|tc| {
+                                let arguments = tc.arguments.unwrap_or_else(|s| Value::String(s));
+                                OllamaToolCall {
+                                    function: OllamaToolCallFunction {
+                                        name: tc.name,
+                                        arguments,
+                                    },
+                                }
                             })
                             .collect();
                         msg.thinking = a.thinking;
@@ -116,7 +119,7 @@ impl LlmClient for OllamaClient {
                     .map(|tc| ToolCall {
                         id: Uuid::new_v4().to_string(),
                         name: tc.function.name,
-                        arguments: tc.function.arguments,
+                        arguments: Ok(tc.function.arguments),
                     })
                     .collect();
                 for tc in tool_calls {

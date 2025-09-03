@@ -124,20 +124,40 @@ pub async fn run_tool_loop(
             for call in tool_calls {
                 let event_id = next_id;
                 next_id += 1;
+                let args_val = call.arguments.clone().unwrap_or_else(|s| Value::String(s));
                 tx.send(ToolEvent::ToolStarted {
                     id: event_id,
                     name: call.name.clone(),
-                    args: call.arguments.clone(),
+                    args: args_val.clone(),
                 })
                 .ok();
-                let executor = tool_executor.clone();
-                let name = call.name.clone();
-                let args = call.arguments.clone();
-                let call_id = call.id.clone();
-                handles.spawn(async move {
-                    let res = executor.call(&name, args).await;
-                    (event_id, name, call_id, res)
-                });
+                match call.arguments.clone() {
+                    Ok(args) => {
+                        let executor = tool_executor.clone();
+                        let name = call.name.clone();
+                        let call_id = call.id.clone();
+                        handles.spawn(async move {
+                            let res = executor.call(&name, args).await;
+                            (event_id, name, call_id, res)
+                        });
+                    }
+                    Err(_) => {
+                        let name = call.name.clone();
+                        let call_id = call.id.clone();
+                        let err: Box<dyn Error + Send + Sync> = "bad JSON".into();
+                        chat_history.lock().unwrap().push(ChatMessage::tool(
+                            call_id.clone(),
+                            Value::String(format!("Tool Failed: {}", err)),
+                            name.clone(),
+                        ));
+                        tx.send(ToolEvent::ToolResult {
+                            id: event_id,
+                            name,
+                            result: Err(err),
+                        })
+                        .ok();
+                    }
+                }
             }
             if done {
                 break;
@@ -193,6 +213,7 @@ pub async fn run_tool_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ChatStream;
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use tokio_stream::{self};
@@ -215,7 +236,7 @@ mod tests {
                     Ok(ResponseChunk::ToolCall(crate::ToolCall {
                         id: "call-1".into(),
                         name: "test".into(),
-                        arguments: Value::Null,
+                        arguments: Ok(Value::Null),
                     })),
                     Ok(ResponseChunk::Done),
                 ],
@@ -299,5 +320,62 @@ mod tests {
         }
         assert!(saw_tool);
         assert!(saw_final);
+    }
+
+    #[tokio::test]
+    async fn reports_bad_json_arguments() {
+        struct BadClient;
+        #[async_trait]
+        impl LlmClient for BadClient {
+            async fn send_chat_messages_stream(
+                &self,
+                _request: ChatMessageRequest,
+            ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
+                let stream = vec![
+                    Ok(ResponseChunk::ToolCall(crate::ToolCall {
+                        id: "bad-1".into(),
+                        name: "oops".into(),
+                        arguments: Err("not json".into()),
+                    })),
+                    Ok(ResponseChunk::Done),
+                ];
+                Ok(Box::pin(tokio_stream::iter(stream)))
+            }
+
+            async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+                Ok(vec![])
+            }
+        }
+
+        struct NoopExec;
+        #[async_trait]
+        impl ToolExecutor for NoopExec {
+            async fn call(
+                &self,
+                _name: &str,
+                _args: Value,
+            ) -> Result<String, Box<dyn Error + Send + Sync>> {
+                Ok(String::new())
+            }
+        }
+
+        let client = Arc::new(BadClient);
+        let exec = Arc::new(NoopExec);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".into())]));
+        let request_history = { history.lock().unwrap().clone() };
+        let request = ChatMessageRequest::new("m".into(), request_history).think(true);
+        run_tool_loop(client, request, exec, history.clone(), tx)
+            .await
+            .unwrap();
+        let updated = history.lock().unwrap().clone();
+        let tool_msg = updated.iter().find_map(|m| match m {
+            ChatMessage::Tool(t) => Some(t.content.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            tool_msg,
+            Some(Value::String("Tool Failed: bad JSON".into()))
+        );
     }
 }

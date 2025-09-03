@@ -116,7 +116,10 @@ fn build_prompt(
                     }
                 }
                 for tc in &a.tool_calls {
-                    let args = tc.arguments.to_string();
+                    let args = match &tc.arguments {
+                        Ok(v) => v.to_string(),
+                        Err(s) => s.clone(),
+                    };
                     convo_msgs.push(
                         Message::from_role_and_content(Role::Assistant, args)
                             .with_channel("commentary")
@@ -243,12 +246,14 @@ impl LlmClient for GptOssClient {
                                 if let Some(Content::Text(TextContent { text })) =
                                     msg.content.first()
                                 {
-                                    let args: Value =
-                                        serde_json::from_str(text).unwrap_or(Value::Null);
+                                    let arguments = match serde_json::from_str(text) {
+                                        Ok(v) => Ok(v),
+                                        Err(_) => Err(text.to_string()),
+                                    };
                                     out.push(Ok(ResponseChunk::ToolCall(ToolCall {
                                         id: Uuid::new_v4().to_string(),
                                         name: name.to_string(),
-                                        arguments: args,
+                                        arguments,
                                     })));
                                 }
                             }
@@ -369,7 +374,7 @@ mod tests {
                 tool_calls: vec![ToolCall {
                     id: "1".into(),
                     name: "add".into(),
-                    arguments: json!({"a": 2, "b": 2}),
+                    arguments: Ok(json!({"a": 2, "b": 2})),
                 }],
                 thinking: None,
             }),

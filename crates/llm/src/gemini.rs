@@ -9,6 +9,7 @@ use gemini_rs::{
         FunctionResponse, GenerationConfig, Part, Role, ThinkingConfig, ToolConfig, Tools,
     },
 };
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::{
@@ -49,13 +50,19 @@ impl LlmClient for GeminiClient {
                         let parts = a
                             .tool_calls
                             .iter()
-                            .map(|tool_call| Part {
-                                function_call: Some(FunctionCall {
-                                    id: Some(tool_call.id.clone()),
-                                    name: tool_call.name.clone(),
-                                    args: tool_call.arguments.clone(),
-                                }),
-                                ..Default::default()
+                            .map(|tool_call| {
+                                let args = tool_call
+                                    .arguments
+                                    .clone()
+                                    .unwrap_or_else(|s| Value::String(s));
+                                Part {
+                                    function_call: Some(FunctionCall {
+                                        id: Some(tool_call.id.clone()),
+                                        name: tool_call.name.clone(),
+                                        args,
+                                    }),
+                                    ..Default::default()
+                                }
                             })
                             .collect();
                         contents.push(Content {
@@ -145,7 +152,7 @@ impl LlmClient for GeminiClient {
                                 tool_calls.push(ToolCall {
                                     id: fc.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
                                     name: fc.name.clone(),
-                                    arguments: fc.args.clone(),
+                                    arguments: Ok(fc.args.clone()),
                                 });
                             } else if let Some(text) = &part.text {
                                 if part.thought == Some(true) {

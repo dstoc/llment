@@ -84,7 +84,34 @@ pub struct ToolMessage {
 pub struct ToolCall {
     pub id: String,
     pub name: String,
-    pub arguments: Value,
+    #[serde(with = "value_or_string")]
+    pub arguments: Result<Value, String>,
+}
+
+mod value_or_string {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Result<Value, String>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Ok(v) => v.serialize(serializer),
+            Err(s) => s.serialize(serializer),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Result<Value, String>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = Value::deserialize(deserializer)?;
+        match v {
+            Value::String(s) => Ok(Err(s)),
+            other => Ok(Ok(other)),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
