@@ -59,6 +59,7 @@ Trait-based LLM client implementations for multiple providers.
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
   - `tool_event_stream` spawns the loop and yields `ToolEvent`s
+    - `RequestStarted` fires when a new request is sent
     - join handle resolves on completion with history updated in place
     - `ToolStarted` events include original argument strings when parsing fails
     - `ToolStarted` and `ToolResult` keep the original `ToolCall` id

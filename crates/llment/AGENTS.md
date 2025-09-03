@@ -66,7 +66,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - host defaults to provider-specific configuration when omitted
         - retains conversation history and token counters
       - `/quit` exits the application
-      - `/clear` resets conversation history, aborts any pending request, and zeroes session and context counters
+      - `/clear` resets conversation history, aborts any pending request, and zeroes context counters
       - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
       - `/repair` removes assistant blocks with no content or tool calls
       - `/continue` resends the conversation without adding a new user message
@@ -100,7 +100,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - Esc exits the application
   - 1-line status area
     - shows state, provider, model, and active prompt and role when set on the left
-    - right-aligned: `ctx <context_tokens>t, Σ <session_in_tokens>t=> <session_out_tokens>t`
+    - right-aligned: `ctx <context_tokens>t, Σ <session_request_count>r <session_in_tokens>t=> <session_out_tokens>t`
   - conversation state tracking
     - states: idle, thinking, calling tool, responding
     - thinking chunks switch to thinking state

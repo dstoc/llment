@@ -22,6 +22,7 @@ pub trait ToolExecutor: Send + Sync {
 }
 
 pub enum ToolEvent {
+    RequestStarted,
     Chunk(ResponseChunk),
     ToolStarted {
         call_id: String,
@@ -65,6 +66,7 @@ pub async fn run_tool_loop(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     loop {
         let mut stream = client.send_chat_messages_stream(request.clone()).await?;
+        tx.send(ToolEvent::RequestStarted).ok();
         let mut handles: JoinSet<(String, String, Result<String, Box<dyn Error + Send + Sync>>)> =
             JoinSet::new();
         let mut assistant_content: Option<String> = None;
@@ -284,16 +286,19 @@ mod tests {
         // collect events
         let mut saw_final = false;
         let mut saw_tool = false;
+        let mut requests = 0;
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 ToolEvent::ToolResult { .. } => saw_tool = true,
                 ToolEvent::Chunk(ResponseChunk::Content(content)) if content == "final" => {
                     saw_final = true
                 }
+                ToolEvent::RequestStarted => requests += 1,
                 _ => {}
             }
         }
         assert!(saw_tool);
         assert!(saw_final);
+        assert_eq!(requests, 2);
     }
 }
