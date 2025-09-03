@@ -27,8 +27,10 @@ Trait-based LLM client implementations for multiple providers.
 
 ## Features
 - LLM clients
-  - `LlmClient` trait streams chat responses and lists supported model names
+- `LlmClient` trait streams chat responses and lists supported model names
 - implementations for Ollama, OpenAI, Harmony, GeminiRs, and GeminiRust
+  - GeminiRust function responses place success data under an `output` field
+    - TODO: support the `error` field
 - Harmony client uses v1/completions with Harmony format for `gpt-oss`
   - sends raw token arrays to the llama-server endpoint
 - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly

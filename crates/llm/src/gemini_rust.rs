@@ -94,7 +94,11 @@ impl LlmClient for GeminiRustClient {
                     }
                 }
                 ChatMessage::Tool(t) => {
-                    builder = builder.with_function_response(t.tool_name, t.content);
+                    builder = builder.with_function_response(
+                        t.tool_name,
+                        serde_json::json!({ "output": t.content }),
+                    );
+                    // TODO: Support the "error" field on tool responses.
                 }
             }
         }
