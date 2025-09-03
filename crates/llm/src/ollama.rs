@@ -117,6 +117,7 @@ impl LlmClient for OllamaClient {
                         id: Uuid::new_v4().to_string(),
                         name: tc.function.name,
                         arguments: tc.function.arguments,
+                        arguments_invalid: None,
                     })
                     .collect();
                 for tc in tool_calls {

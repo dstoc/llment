@@ -210,13 +210,19 @@ impl App {
                 }
                 ResponseChunk::Done => {}
             },
-            ToolEvent::ToolStarted { id, name, args } => {
+            ToolEvent::ToolStarted {
+                id,
+                name,
+                args,
+                args_invalid,
+            } => {
                 self.state = ConversationState::CallingTool(name.clone());
                 let _ = self.model.needs_redraw.send(true);
+                let arg_str = args_invalid.unwrap_or_else(|| args.to_string());
                 self.conversation.add_tool_step(ToolStep::new(
                     name,
                     id,
-                    args.to_string(),
+                    arg_str,
                     String::new(),
                     true,
                 ));

@@ -314,7 +314,10 @@ impl Conversation {
                         self.append_response(&a.content);
                     }
                     for call in &a.tool_calls {
-                        let args = to_string(&call.arguments).unwrap_or_default();
+                        let args = call
+                            .arguments_invalid
+                            .clone()
+                            .unwrap_or_else(|| to_string(&call.arguments).unwrap_or_default());
                         let step_id = tool_id;
                         tool_id += 1;
                         self.add_tool_step(ToolStep::new(

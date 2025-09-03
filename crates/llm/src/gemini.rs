@@ -146,6 +146,7 @@ impl LlmClient for GeminiClient {
                                     id: fc.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
                                     name: fc.name.clone(),
                                     arguments: fc.args.clone(),
+                                    arguments_invalid: None,
                                 });
                             } else if let Some(text) = &part.text {
                                 if part.thought == Some(true) {

@@ -41,7 +41,7 @@ Trait-based LLM client implementations for multiple providers.
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
-  - tool calls hold name and arguments directly
+  - tool calls hold name and arguments directly and preserve unparseable argument strings
   - tool info stores name, description, and parameters without wrapper enums
   - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
     - tool calls include an `id` string, assigned locally when missing
@@ -60,6 +60,7 @@ Trait-based LLM client implementations for multiple providers.
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
   - `tool_event_stream` spawns the loop and yields `ToolEvent`s
     - join handle resolves on completion with history updated in place
+    - `ToolStarted` events include original argument strings when parsing fails
 - `mcp` module
 - `load_mcp_servers` starts configured MCP servers and collects tool schemas
   - tool names are prefixed with the server name
