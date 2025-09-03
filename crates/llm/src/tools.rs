@@ -131,9 +131,23 @@ pub async fn run_tool_loop(
                 let name = call.name.clone();
                 let args = call.arguments.clone();
                 let call_id = call.id.clone();
+                let args_invalid = call.arguments_invalid.clone();
                 handles.spawn(async move {
-                    let res = executor.call(&name, args).await;
-                    (call_id, name, res)
+                    if args_invalid.is_some() {
+                        (
+                            call_id,
+                            name,
+                            Err::<String, Box<dyn Error + Send + Sync>>(Box::new(
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "Could not parse arguments as JSON",
+                                ),
+                            )),
+                        )
+                    } else {
+                        let res = executor.call(&name, args).await;
+                        (call_id, name, res)
+                    }
                 });
             }
             if done {
@@ -300,5 +314,97 @@ mod tests {
         assert!(saw_tool);
         assert!(saw_final);
         assert_eq!(requests, 2);
+    }
+
+    struct InvalidClient {
+        calls: Mutex<u32>,
+    }
+
+    #[async_trait]
+    impl LlmClient for InvalidClient {
+        async fn send_chat_messages_stream(
+            &self,
+            _request: ChatMessageRequest,
+        ) -> Result<crate::ChatStream, Box<dyn Error + Send + Sync>> {
+            let mut calls = self.calls.lock().unwrap();
+            *calls += 1;
+            let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
+                1 => vec![
+                    Ok(ResponseChunk::ToolCall(crate::ToolCall {
+                        id: "call-1".into(),
+                        name: "test".into(),
+                        arguments: Value::Null,
+                        arguments_invalid: Some("nope".into()),
+                    })),
+                    Ok(ResponseChunk::Done),
+                ],
+                2 => vec![
+                    Ok(ResponseChunk::Content("final".into())),
+                    Ok(ResponseChunk::Done),
+                ],
+                _ => vec![],
+            };
+            Ok(Box::pin(tokio_stream::iter(stream)))
+        }
+
+        async fn list_models(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+            Ok(vec![])
+        }
+    }
+
+    struct CountingExecutor {
+        calls: Mutex<u32>,
+    }
+
+    #[async_trait]
+    impl ToolExecutor for CountingExecutor {
+        async fn call(
+            &self,
+            _name: &str,
+            _args: Value,
+        ) -> Result<String, Box<dyn Error + Send + Sync>> {
+            let mut calls = self.calls.lock().unwrap();
+            *calls += 1;
+            Ok("should not be called".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn skips_executor_on_invalid_args() {
+        let client = Arc::new(InvalidClient {
+            calls: Mutex::new(0),
+        });
+        let exec = Arc::new(CountingExecutor {
+            calls: Mutex::new(0),
+        });
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let history = Arc::new(Mutex::new(vec![ChatMessage::user("hi".to_string())]));
+        let request_history = { history.lock().unwrap().clone() };
+        let request = ChatMessageRequest::new("m".into(), request_history).think(true);
+        run_tool_loop(client, request, exec.clone(), history.clone(), tx)
+            .await
+            .unwrap();
+        assert_eq!(*exec.calls.lock().unwrap(), 0);
+        let updated = history.lock().unwrap().clone();
+        assert_eq!(updated.len(), 4);
+        if let ChatMessage::Tool(t) = &updated[2] {
+            assert_eq!(
+                t.content,
+                Value::String("Tool Failed: Could not parse arguments as JSON".into())
+            );
+        } else {
+            panic!("expected tool failure message");
+        }
+        let mut saw_error = false;
+        while let Ok(ev) = rx.try_recv() {
+            if let ToolEvent::ToolResult { result, .. } = ev {
+                if let Err(err) = result {
+                    if err.to_string() == "Could not parse arguments as JSON" {
+                        saw_error = true;
+                    }
+                }
+            }
+        }
+        assert!(saw_error);
     }
 }
