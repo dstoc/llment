@@ -38,33 +38,31 @@ fn conversation_to_prompt(
     encoding: &HarmonyEncoding,
     conversation: &Conversation,
     prefill: Option<String>,
-) -> Result<(String, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
+) -> Result<(Vec<u32>, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
     let ends_with_assistant = matches!(
         conversation.messages.last().map(|m| m.author.role.clone()),
         Some(Role::Assistant)
     );
-    let tokens = if ends_with_assistant && prefill.is_none() {
+    let mut tokens = if ends_with_assistant && prefill.is_none() {
         encoding.render_conversation(conversation, None)?
     } else {
         encoding.render_conversation_for_completion(conversation, Role::Assistant, None)?
     };
-    let mut prompt = encoding.tokenizer().decode_utf8(&tokens)?.to_string();
     let mut prefill_tokens = None;
     if let Some(prefill_text) = prefill {
-        prompt.push_str(&prefill_text);
-        prefill_tokens = Some(
-            encoding
-                .tokenizer()
-                .encode_with_special_tokens(&prefill_text),
-        );
+        let pf_tokens = encoding
+            .tokenizer()
+            .encode_with_special_tokens(&prefill_text);
+        tokens.extend_from_slice(&pf_tokens);
+        prefill_tokens = Some(pf_tokens);
     }
-    Ok((prompt, prefill_tokens))
+    Ok((tokens, prefill_tokens))
 }
 
 fn build_prompt(
     encoding: &HarmonyEncoding,
     request: &ChatMessageRequest,
-) -> Result<(String, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
+) -> Result<(Vec<u32>, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
     let mut system_msgs = Vec::new();
     let mut other_msgs = Vec::new();
     let mut developer = DeveloperContent::new();
@@ -191,10 +189,10 @@ impl LlmClient for GptOssClient {
         .await
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
-        let (prompt, prefill_tokens) = build_prompt(&encoding, &request)?;
+        let (prompt_tokens, prefill_tokens) = build_prompt(&encoding, &request)?;
         let req = CreateCompletionRequestArgs::default()
             .model(request.model_name)
-            .prompt(prompt)
+            .prompt(prompt_tokens)
             .stream(true)
             .stream_options(ChatCompletionStreamOptions {
                 include_usage: true,
@@ -284,21 +282,36 @@ mod tests {
     use crate::{AssistantMessage, ToolCall};
     use serde_json::json;
 
+    fn prompt_and_prefill(
+        encoding: &HarmonyEncoding,
+        request: &ChatMessageRequest,
+    ) -> (String, Option<Vec<u32>>) {
+        let (prompt_tokens, prefill_tokens) = build_prompt(encoding, request).unwrap();
+        let prompt = encoding
+            .tokenizer()
+            .decode_utf8(&prompt_tokens)
+            .unwrap()
+            .to_string();
+        (prompt, prefill_tokens)
+    }
+
+    fn setup(messages: Vec<ChatMessage>) -> (HarmonyEncoding, String, Option<Vec<u32>>) {
+        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
+        let request = ChatMessageRequest::new("gpt-oss".into(), messages);
+        let (prompt, prefill_tokens) = prompt_and_prefill(&encoding, &request);
+        (encoding, prompt, prefill_tokens)
+    }
+
     #[test]
     fn prefill_with_thinking() {
-        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
-        let request = ChatMessageRequest::new(
-            "gpt-oss".into(),
-            vec![
-                ChatMessage::user("Hi".into()),
-                ChatMessage::Assistant(AssistantMessage {
-                    content: String::new(),
-                    tool_calls: vec![],
-                    thinking: Some("ponder".into()),
-                }),
-            ],
-        );
-        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        let (_, prompt, prefill_tokens) = setup(vec![
+            ChatMessage::user("Hi".into()),
+            ChatMessage::Assistant(AssistantMessage {
+                content: String::new(),
+                tool_calls: vec![],
+                thinking: Some("ponder".into()),
+            }),
+        ]);
         assert!(prefill_tokens.is_some());
         assert!(prompt.contains("<|start|>system<|message|>"));
         assert!(prompt.ends_with(
@@ -308,15 +321,10 @@ mod tests {
 
     #[test]
     fn prefill_with_content() {
-        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
-        let request = ChatMessageRequest::new(
-            "gpt-oss".into(),
-            vec![
-                ChatMessage::user("Hi".into()),
-                ChatMessage::assistant("Hello".into()),
-            ],
-        );
-        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        let (_, prompt, prefill_tokens) = setup(vec![
+            ChatMessage::user("Hi".into()),
+            ChatMessage::assistant("Hello".into()),
+        ]);
         assert!(prefill_tokens.is_some());
         assert!(prompt.contains("<|start|>system<|message|>"));
         assert!(prompt.ends_with(
@@ -326,25 +334,20 @@ mod tests {
 
     #[test]
     fn thinking_and_content_history() {
-        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
-        let request = ChatMessageRequest::new(
-            "gpt-oss".into(),
-            vec![
-                ChatMessage::user("Hi".into()),
-                ChatMessage::Assistant(AssistantMessage {
-                    content: "Hello".into(),
-                    tool_calls: vec![],
-                    thinking: Some("ponder".into()),
-                }),
-                ChatMessage::user("How are you?".into()),
-                ChatMessage::Assistant(AssistantMessage {
-                    content: "I'm good".into(),
-                    tool_calls: vec![],
-                    thinking: Some("think".into()),
-                }),
-            ],
-        );
-        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        let (_, prompt, prefill_tokens) = setup(vec![
+            ChatMessage::user("Hi".into()),
+            ChatMessage::Assistant(AssistantMessage {
+                content: "Hello".into(),
+                tool_calls: vec![],
+                thinking: Some("ponder".into()),
+            }),
+            ChatMessage::user("How are you?".into()),
+            ChatMessage::Assistant(AssistantMessage {
+                content: "I'm good".into(),
+                tool_calls: vec![],
+                thinking: Some("think".into()),
+            }),
+        ]);
         assert!(prefill_tokens.is_some());
         assert!(prompt.contains("<|start|>system<|message|>"));
         assert!(!prompt.contains("<|channel|>analysis<|message|>ponder"));
@@ -359,24 +362,19 @@ mod tests {
 
     #[test]
     fn tool_call_and_response() {
-        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
-        let request = ChatMessageRequest::new(
-            "gpt-oss".into(),
-            vec![
-                ChatMessage::user("2+2?".into()),
-                ChatMessage::Assistant(AssistantMessage {
-                    content: String::new(),
-                    tool_calls: vec![ToolCall {
-                        id: "1".into(),
-                        name: "add".into(),
-                        arguments: json!({"a": 2, "b": 2}),
-                    }],
-                    thinking: None,
-                }),
-                ChatMessage::tool("1".into(), json!({"sum": 4}), "add".into()),
-            ],
-        );
-        let (prompt, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        let (_, prompt, prefill_tokens) = setup(vec![
+            ChatMessage::user("2+2?".into()),
+            ChatMessage::Assistant(AssistantMessage {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: "1".into(),
+                    name: "add".into(),
+                    arguments: json!({"a": 2, "b": 2}),
+                }],
+                thinking: None,
+            }),
+            ChatMessage::tool("1".into(), json!({"sum": 4}), "add".into()),
+        ]);
         assert!(prefill_tokens.is_none());
         let args = json!({"a": 2, "b": 2}).to_string();
         let result = json!({"sum": 4}).to_string();
@@ -393,15 +391,10 @@ mod tests {
 
     #[test]
     fn parser_continues_after_prefill() {
-        let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
-        let request = ChatMessageRequest::new(
-            "gpt-oss".into(),
-            vec![
-                ChatMessage::user("Hi".into()),
-                ChatMessage::assistant("Hello".into()),
-            ],
-        );
-        let (_, prefill_tokens) = build_prompt(&encoding, &request).unwrap();
+        let (encoding, _, prefill_tokens) = setup(vec![
+            ChatMessage::user("Hi".into()),
+            ChatMessage::assistant("Hello".into()),
+        ]);
         let prefill_tokens = prefill_tokens.expect("missing prefill");
         let mut parser = StreamableParser::new(encoding.clone(), Some(Role::Assistant)).unwrap();
         for t in &prefill_tokens {

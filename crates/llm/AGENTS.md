@@ -28,6 +28,7 @@ Trait-based LLM client implementations for multiple providers.
   - `LlmClient` trait streams chat responses and lists supported model names
 - implementations for Ollama, OpenAI, GptOss, and Gemini
 - GptOss client uses v1/completions with Harmony format for `gpt-oss`
+  - sends raw token arrays to the llama-server endpoint
 - GptOss client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
