@@ -287,6 +287,7 @@ pub trait LlmClient: Send + Sync {
 mod tests {
     use super::*;
     use schemars::{self, JsonSchema};
+    use serde_json::json;
 
     #[derive(JsonSchema)]
     struct Params {
@@ -302,5 +303,29 @@ mod tests {
             Value::String("int32".to_string())
         );
         assert!(value.get("$schema").is_none());
+    }
+
+    #[test]
+    fn tool_call_arguments_roundtrip_ok() {
+        let call = ToolCall {
+            id: "1".into(),
+            name: "test".into(),
+            arguments: Ok(json!({ "a": 1 })),
+        };
+        let serialized = serde_json::to_string(&call).unwrap();
+        let parsed: ToolCall = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed.arguments, Ok(json!({ "a": 1 })));
+    }
+
+    #[test]
+    fn tool_call_arguments_roundtrip_err() {
+        let call = ToolCall {
+            id: "1".into(),
+            name: "test".into(),
+            arguments: Err("not-json".into()),
+        };
+        let serialized = serde_json::to_string(&call).unwrap();
+        let parsed: ToolCall = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed.arguments, Err("not-json".into()));
     }
 }

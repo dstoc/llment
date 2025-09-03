@@ -43,6 +43,7 @@ Trait-based LLM client implementations for multiple providers.
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
   - tool calls hold name and arguments directly
     - arguments store parsed JSON or the original string on parse failure
+    - serialization round-trips valid JSON or raw string arguments
   - tool info stores name, description, and parameters without wrapper enums
   - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
     - tool calls include an `id` string, assigned locally when missing
