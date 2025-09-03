@@ -26,10 +26,10 @@ Trait-based LLM client implementations for multiple providers.
 ## Features
 - LLM clients
   - `LlmClient` trait streams chat responses and lists supported model names
-- implementations for Ollama, OpenAI, GptOss, and Gemini
-- GptOss client uses v1/completions with Harmony format for `gpt-oss`
+- implementations for Ollama, OpenAI, Harmony, and Gemini
+- Harmony client uses v1/completions with Harmony format for `gpt-oss`
   - sends raw token arrays to the llama-server endpoint
-- GptOss client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
+- Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
   - tool calls render in the commentary channel with constrained JSON
@@ -87,5 +87,5 @@ Trait-based LLM client implementations for multiple providers.
 
 ## Constraints
 - uses provider-specific default host when none is supplied
-- GptOss defaults to `http://localhost:8000/v1` and supports only `gpt-oss` via v1/completions
+- Harmony defaults to `http://localhost:8000/v1` and supports only `gpt-oss` via v1/completions
 - deprecated `function_call` streaming is no longer supported
