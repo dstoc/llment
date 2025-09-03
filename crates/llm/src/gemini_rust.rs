@@ -50,7 +50,7 @@ impl LlmClient for GeminiRustClient {
     ) -> Result<ChatStream, Box<dyn Error + Send + Sync>> {
         let gemini = Gemini::with_model_and_base_url(
             self.api_key.clone(),
-            request.model_name.clone(),
+            format!("models/{}", request.model_name),
             self.base_url.clone(),
         );
         let mut builder = gemini.generate_content();
