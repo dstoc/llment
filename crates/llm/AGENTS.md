@@ -14,7 +14,7 @@ Trait-based LLM client implementations for multiple providers.
   - communicate with Ollama using streaming and tools
 - async-openai
   - connect to OpenAI models
-- openai-harmony
+- openai-harmony (v0.0.4, git tag)
   - render Harmony prompts and parse responses for gpt-oss
 - gemini-rs
   - connect to Gemini models
