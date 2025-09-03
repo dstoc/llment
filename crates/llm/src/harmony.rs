@@ -18,11 +18,11 @@ use openai_harmony::{
 use serde_json::Value;
 use uuid::Uuid;
 
-pub struct GptOssClient {
+pub struct HarmonyClient {
     inner: Client<OpenAIConfig>,
 }
 
-impl GptOssClient {
+impl HarmonyClient {
     pub fn new(host: Option<&str>) -> Self {
         let config = match host {
             Some(h) => OpenAIConfig::default().with_api_base(h),
@@ -181,7 +181,7 @@ fn build_prompt(
 }
 
 #[async_trait]
-impl LlmClient for GptOssClient {
+impl LlmClient for HarmonyClient {
     async fn send_chat_messages_stream(
         &self,
         request: ChatMessageRequest,

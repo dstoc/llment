@@ -32,7 +32,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 ## Features
 - CLI arguments
   - `--provider` selects LLM backend
-    - defaults to GptOss when omitted
+    - defaults to Harmony when omitted
   - `--model` sets the model identifier
   - `--host` optionally configures the LLM host URL; provider default used when omitted
   - `--mcp` loads MCP server configuration

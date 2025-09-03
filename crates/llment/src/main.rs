@@ -64,7 +64,7 @@ impl Drop for TerminalGuard {
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[arg(long, value_enum, default_value_t = Provider::GptOss)]
+    #[arg(long, value_enum, default_value_t = Provider::Harmony)]
     provider: Provider,
     /// Model identifier to use
     #[arg(long, default_value = "gpt-oss:20b")]
