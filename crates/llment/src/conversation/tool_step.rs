@@ -11,7 +11,7 @@ use super::node::ConvNode;
 
 pub struct ToolStep {
     pub(crate) name: String,
-    pub(crate) id: usize,
+    pub(crate) id: String,
     pub(crate) args: String,
     pub(crate) result: String,
     pub(crate) collapsed: bool,
@@ -24,7 +24,7 @@ pub struct ToolStep {
 }
 
 impl ToolStep {
-    pub fn new(name: String, id: usize, args: String, result: String, collapsed: bool) -> Self {
+    pub fn new(name: String, id: String, args: String, result: String, collapsed: bool) -> Self {
         Self {
             name,
             id,

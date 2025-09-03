@@ -211,7 +211,7 @@ impl App {
                 ResponseChunk::Done => {}
             },
             ToolEvent::ToolStarted {
-                id,
+                call_id,
                 name,
                 args,
                 args_invalid,
@@ -221,18 +221,20 @@ impl App {
                 let arg_str = args_invalid.unwrap_or_else(|| args.to_string());
                 self.conversation.add_tool_step(ToolStep::new(
                     name,
-                    id,
+                    call_id,
                     arg_str,
                     String::new(),
                     true,
                 ));
             }
-            ToolEvent::ToolResult { id, result, .. } => {
+            ToolEvent::ToolResult {
+                call_id, result, ..
+            } => {
                 let (text, failed) = match result {
                     Ok(t) => (t, false),
                     Err(e) => (format!("Tool Failed: {}", e), true),
                 };
-                self.conversation.update_tool_result(id, text, failed);
+                self.conversation.update_tool_result(&call_id, text, failed);
             }
         }
     }

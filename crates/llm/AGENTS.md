@@ -61,6 +61,7 @@ Trait-based LLM client implementations for multiple providers.
   - `tool_event_stream` spawns the loop and yields `ToolEvent`s
     - join handle resolves on completion with history updated in place
     - `ToolStarted` events include original argument strings when parsing fails
+    - `ToolStarted` and `ToolResult` keep the original `ToolCall` id
 - `mcp` module
 - `load_mcp_servers` starts configured MCP servers and collects tool schemas
   - tool names are prefixed with the server name

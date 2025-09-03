@@ -24,13 +24,13 @@ pub trait ToolExecutor: Send + Sync {
 pub enum ToolEvent {
     Chunk(ResponseChunk),
     ToolStarted {
-        id: usize,
+        call_id: String,
         name: String,
         args: Value,
         args_invalid: Option<String>,
     },
     ToolResult {
-        id: usize,
+        call_id: String,
         name: String,
         result: Result<String, Box<dyn Error + Send + Sync>>,
     },
@@ -63,15 +63,10 @@ pub async fn run_tool_loop(
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
     tx: UnboundedSender<ToolEvent>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut next_id = 0usize;
     loop {
         let mut stream = client.send_chat_messages_stream(request.clone()).await?;
-        let mut handles: JoinSet<(
-            usize,
-            String,
-            String,
-            Result<String, Box<dyn Error + Send + Sync>>,
-        )> = JoinSet::new();
+        let mut handles: JoinSet<(String, String, Result<String, Box<dyn Error + Send + Sync>>)> =
+            JoinSet::new();
         let mut assistant_content: Option<String> = None;
         let mut assistant_thinking: Option<String> = None;
         while let Some(chunk) = stream.next().await {
@@ -123,10 +118,8 @@ pub async fn run_tool_loop(
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
-                let event_id = next_id;
-                next_id += 1;
                 tx.send(ToolEvent::ToolStarted {
-                    id: event_id,
+                    call_id: call.id.clone(),
                     name: call.name.clone(),
                     args: call.arguments.clone(),
                     args_invalid: call.arguments_invalid.clone(),
@@ -138,7 +131,7 @@ pub async fn run_tool_loop(
                 let call_id = call.id.clone();
                 handles.spawn(async move {
                     let res = executor.call(&name, args).await;
-                    (event_id, name, call_id, res)
+                    (call_id, name, res)
                 });
             }
             if done {
@@ -159,7 +152,7 @@ pub async fn run_tool_loop(
             break;
         }
         while let Some(res) = handles.join_next().await {
-            if let Ok((event_id, name, call_id, result)) = res {
+            if let Ok((call_id, name, result)) = res {
                 match &result {
                     Ok(text) => {
                         let content = serde_json::from_str::<Value>(&text)
@@ -177,7 +170,7 @@ pub async fn run_tool_loop(
                     )),
                 }
                 tx.send(ToolEvent::ToolResult {
-                    id: event_id,
+                    call_id,
                     name,
                     result,
                 })
