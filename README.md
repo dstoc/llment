@@ -24,7 +24,7 @@ Run with defaults (preferred):
 * `llama-server` (preferred)
 * `openai`
   * Status: incomplete for use with official OpenAI models, uses the `chat/` api which does not support thinking 
-* `gemini`
+* `gemini-rs`
   * Status: works but incomplete. Does not send encrypted thinking tokens back. Some API bugs in gemini-rs.
   * Requires GEMINI_API_KEY in env.
 * `ollama`

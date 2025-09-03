@@ -143,7 +143,7 @@ pub enum Provider {
     Ollama,
     Openai,
     Harmony,
-    Gemini,
+    GeminiRs,
 }
 
 #[derive(Clone)]
@@ -190,7 +190,7 @@ pub fn client_from(
         Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
         Provider::Openai => Arc::new(openai::OpenAiClient::new(host)),
         Provider::Harmony => Arc::new(harmony::HarmonyClient::new(host)),
-        Provider::Gemini => Arc::new(gemini::GeminiClient::new(host)),
+        Provider::GeminiRs => Arc::new(gemini::GeminiRsClient::new(host)),
     };
     Ok(Client {
         inner,
