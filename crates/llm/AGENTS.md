@@ -63,6 +63,7 @@ Trait-based LLM client implementations for multiple providers.
     - join handle resolves on completion with history updated in place
     - `ToolStarted` events include original argument strings when parsing fails
     - `ToolStarted` and `ToolResult` keep the original `ToolCall` id
+  - tool calls with invalid arguments skip executor invocation and return "Could not parse arguments as JSON"
 - `mcp` module
 - `load_mcp_servers` starts configured MCP servers and collects tool schemas
   - tool names are prefixed with the server name
