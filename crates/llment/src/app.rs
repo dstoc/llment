@@ -47,6 +47,7 @@ pub struct App {
     mcp_context: McpContext,
     session_in_tokens: u32,
     session_out_tokens: u32,
+    session_requests: u32,
     chat_history: Arc<Mutex<Vec<ChatMessage>>>,
     state: ConversationState,
     spinner: SpinnerStates,
@@ -162,6 +163,7 @@ impl App {
             client,
             session_in_tokens: 0,
             session_out_tokens: 0,
+            session_requests: 0,
             mcp_context,
             chat_history: Arc::new(Mutex::new(vec![])),
             state: ConversationState::Idle,
@@ -186,6 +188,9 @@ impl App {
 
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
+            ToolEvent::RequestStarted => {
+                self.session_requests += 1;
+            }
             ToolEvent::Chunk(chunk) => match chunk {
                 ResponseChunk::Thinking(thinking) => {
                     self.state = ConversationState::Thinking;
@@ -311,8 +316,6 @@ impl App {
         self.abort_requests();
         self.chat_history.lock().unwrap().clear();
         self.conversation.clear();
-        self.session_in_tokens = 0;
-        self.session_out_tokens = 0;
         self.state = ConversationState::Idle;
     }
 }
@@ -497,6 +500,7 @@ impl Component for App {
                                 self.conversation.set_history(&history);
                                 self.session_in_tokens = 0;
                                 self.session_out_tokens = 0;
+                                self.session_requests = 0;
                                 self.state = ConversationState::Idle;
                                 let _ = self.model.needs_redraw.send(true);
                             }
@@ -538,8 +542,8 @@ impl Component for App {
         self.prompt.render(frame, chunks[2]);
         let ctx_tokens = self.conversation.context_tokens();
         let status_right = format!(
-            "ctx {}t, Σ {}t=>{}t",
-            ctx_tokens, self.session_in_tokens, self.session_out_tokens
+            "ctx {}t, Σ {}r {}t=>{}t",
+            ctx_tokens, self.session_requests, self.session_in_tokens, self.session_out_tokens
         );
         let right_width = status_right.width() as u16;
         let status_chunks = Layout::default()
