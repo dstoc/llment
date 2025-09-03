@@ -77,6 +77,7 @@ mod tests {
                 id: "call-1".into(),
                 name: "test".into(),
                 arguments: Value::Null,
+                arguments_invalid: None,
             }),
             ResponseChunk::Done,
         ]);

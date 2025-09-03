@@ -85,6 +85,8 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments_invalid: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

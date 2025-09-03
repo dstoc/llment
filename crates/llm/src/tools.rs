@@ -27,6 +27,7 @@ pub enum ToolEvent {
         id: usize,
         name: String,
         args: Value,
+        args_invalid: Option<String>,
     },
     ToolResult {
         id: usize,
@@ -128,6 +129,7 @@ pub async fn run_tool_loop(
                     id: event_id,
                     name: call.name.clone(),
                     args: call.arguments.clone(),
+                    args_invalid: call.arguments_invalid.clone(),
                 })
                 .ok();
                 let executor = tool_executor.clone();
@@ -216,6 +218,7 @@ mod tests {
                         id: "call-1".into(),
                         name: "test".into(),
                         arguments: Value::Null,
+                        arguments_invalid: None,
                     })),
                     Ok(ResponseChunk::Done),
                 ],
