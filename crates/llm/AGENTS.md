@@ -26,7 +26,7 @@ Trait-based LLM client implementations for multiple providers.
 ## Features
 - LLM clients
 - `LlmClient` trait streams chat responses and lists supported model names
-- implementations for Ollama, OpenAI, Harmony, and GeminiRust
+- implementations for Ollama, OpenaiChat, Harmony, and GeminiRust
   - GeminiRust function responses place success data under an `output` field
     - TODO: support the `error` field
 - Harmony client uses v1/completions with Harmony format for `gpt-oss`
@@ -55,8 +55,8 @@ Trait-based LLM client implementations for multiple providers.
   - usage chunks carry `input_tokens` and `output_tokens`
   - tool call chunks hold a single `ToolCall` and repeat as needed
   - thinking, tool calls, and content stream first, followed by optional usage then `Done`
-  - OpenAI client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
-  - OpenAI client parses `reasoning_content` from streamed responses into thinking text
+  - OpenaiChat client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
+  - OpenaiChat client parses `reasoning_content` from streamed responses into thinking text
 - Tool orchestration
   - `tools` module exposes a `ToolExecutor` trait
   - `run_tool_loop` streams responses, executes tools, and issues follow-up requests
