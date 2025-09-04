@@ -141,7 +141,8 @@ pub use test_provider::TestProvider;
 pub enum Provider {
     #[default]
     Ollama,
-    OpenaiChat,
+    #[clap(name = "openai-chat")]
+    OpenAiChat,
     Harmony,
     GeminiRust,
 }
@@ -188,7 +189,7 @@ pub fn client_from(
 ) -> Result<Client, Box<dyn Error + Send + Sync>> {
     let inner: Arc<dyn LlmClient> = match provider {
         Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
-        Provider::OpenaiChat => Arc::new(openai_chat::OpenaiChatClient::new(host)),
+        Provider::OpenAiChat => Arc::new(openai_chat::OpenAiChatClient::new(host)),
         Provider::Harmony => Arc::new(harmony::HarmonyClient::new(host)),
         Provider::GeminiRust => Arc::new(gemini_rust::GeminiRustClient::new(host)?),
     };
