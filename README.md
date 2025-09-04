@@ -47,8 +47,6 @@ Run with defaults (preferred):
       > GEMINI_API_KEY=... llment --provider gemini-rust --model gemini-2.5-flash
       ```
     </details>
-* `gemini-rs` - uses the [gemini-rs](https://crates.io/crates/gemini-rs) crate to interface with the Gemini API
-  * incomplete, broken, to be removed.
  
 `--model` and `--host` can be used to customize further, e.g.
 
