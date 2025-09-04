@@ -12,8 +12,7 @@ Install with [`cargo`](https://doc.rust-lang.org/cargo/getting-started/installat
 > cargo install --git https://github.com/dstoc/llment llment mcp-edit mcp-shell
 ```
 Run with defaults (preferred):
-> * `llama-server` on localhost
-> * `gpt-oss:20b`
+> * assumes you have `llama-server` on localhost:8000 serving gpt-oss (without the `--jinja` flag)
 > * no external MCP servers, only the harmless [builtin](crates/llment/src/builtins.rs) tool `get_message_count`
 > ```sh
 > > llment
@@ -21,14 +20,16 @@ Run with defaults (preferred):
 
 ## Providers
 `--provider` can be used to select a different provider:
-* `llama-server` (preferred)
-* `openai`
-  * Status: incomplete for use with official OpenAI models, uses the `chat/` api which does not support thinking 
-* `gemini-rs`
-  * Status: works but incomplete. Does not send encrypted thinking tokens back. Some API bugs in gemini-rs.
+* `harmony` (preferred) uses [async-openai](https://crates.io/crates/async-openai) to connect with [openai/harmony](https//github.com/openai/harmony) compatible models via v1/completions API
+* `openai` - uses [async-openai](https://crates.io/crates/async-openai) to connect with models via v1/chat/completions API
+  * Status: work-in-progress 
+* `gemini-rust` - uses the [gemini-rust](https://crates.io/crates/gemini-rust) crate to interface with the Gemini API
+  * Status: functional but incomplete. Reasoning context is not maintained.
   * Requires GEMINI_API_KEY in env.
-* `ollama`
-  * Status: unknown, worked previously.
+* `gemini-rs` - uses the [gemini-rs](https://crates.io/crates/gemini-rs) crate to interface with the Gemini API
+  * incomplete, broken, to be removed.
+* `ollama` - uses the [ollama-rs](https://crates.io/crates/ollama-rs) crate to interface with the Ollama API
+  * Status: work-in-progress
  
 `--model` and `--host` can be used to customize further, e.g.
 
