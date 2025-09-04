@@ -131,7 +131,7 @@ pub mod gemini_rust;
 pub mod harmony;
 pub mod mcp;
 pub mod ollama;
-pub mod openai;
+pub mod openai_chat;
 pub mod test_provider;
 pub mod tools;
 
@@ -141,7 +141,7 @@ pub use test_provider::TestProvider;
 pub enum Provider {
     #[default]
     Ollama,
-    Openai,
+    OpenaiChat,
     Harmony,
     GeminiRust,
 }
@@ -188,7 +188,7 @@ pub fn client_from(
 ) -> Result<Client, Box<dyn Error + Send + Sync>> {
     let inner: Arc<dyn LlmClient> = match provider {
         Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
-        Provider::Openai => Arc::new(openai::OpenAiClient::new(host)),
+        Provider::OpenaiChat => Arc::new(openai_chat::OpenaiChatClient::new(host)),
         Provider::Harmony => Arc::new(harmony::HarmonyClient::new(host)),
         Provider::GeminiRust => Arc::new(gemini_rust::GeminiRustClient::new(host)?),
     };

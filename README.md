@@ -29,12 +29,12 @@ Run with defaults (preferred):
       > llment --host http://localhost:11434 --provider ollama --model qwen3:latest
       ```
     </details>
-* `openai` - uses [async-openai](https://crates.io/crates/async-openai) to connect with models via v1/chat/completions API
+* `openai-chat` - uses [async-openai](https://crates.io/crates/async-openai) to connect with models via v1/chat/completions API
   * <details>
       <summary>Example - Ollama via OpenAI compat API</summary>
      
       ```sh
-      > llment --host http://localhost:11434 --provider openai --model qwen3:latest
+      > llment --host http://localhost:11434 --provider openai-chat --model qwen3:latest
       ```
     </details>
 * `gemini-rust` - uses the [gemini-rust](https://crates.io/crates/gemini-rust) crate to interface with the Gemini API
