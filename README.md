@@ -20,7 +20,7 @@ Run with defaults (preferred):
 
 ## Providers
 `--provider` can be used to select a different provider:
-* `harmony` (preferred) uses [async-openai](https://crates.io/crates/async-openai) to connect with [openai/harmony](https//github.com/openai/harmony) compatible models via v1/completions API
+* `harmony` (preferred) uses [async-openai](https://crates.io/crates/async-openai) to connect with [openai/harmony](https://github.com/openai/harmony) compatible models via v1/completions API
 * `ollama` - uses the [ollama-rs](https://crates.io/crates/ollama-rs) crate to interface with the Ollama API
   * <details>
       <summary>Example</summary>
