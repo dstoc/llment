@@ -16,8 +16,6 @@ Trait-based LLM client implementations for multiple providers.
   - connect to OpenAI models
 - openai-harmony (v0.0.4, git tag)
   - render Harmony prompts and parse responses for gpt-oss
-- gemini-rs
-  - connect to Gemini models
 - gemini-rust
   - connect to Gemini models
 - rmcp
@@ -28,7 +26,7 @@ Trait-based LLM client implementations for multiple providers.
 ## Features
 - LLM clients
 - `LlmClient` trait streams chat responses and lists supported model names
-- implementations for Ollama, OpenAI, Harmony, GeminiRs, and GeminiRust
+- implementations for Ollama, OpenAI, Harmony, and GeminiRust
   - GeminiRust function responses place success data under an `output` field
     - TODO: support the `error` field
 - Harmony client uses v1/completions with Harmony format for `gpt-oss`
