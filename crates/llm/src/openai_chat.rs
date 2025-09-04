@@ -38,11 +38,11 @@ struct StreamingDelta {
     tool_calls: Option<Vec<ChatCompletionMessageToolCallChunk>>,
 }
 
-pub struct OpenaiChatClient {
+pub struct OpenAiChatClient {
     inner: Client<OpenAIConfig>,
 }
 
-impl OpenaiChatClient {
+impl OpenAiChatClient {
     pub fn new(host: Option<&str>) -> Self {
         let config = match host {
             Some(h) => OpenAIConfig::default().with_api_base(h),
@@ -55,7 +55,7 @@ impl OpenaiChatClient {
 }
 
 #[async_trait]
-impl LlmClient for OpenaiChatClient {
+impl LlmClient for OpenAiChatClient {
     async fn send_chat_messages_stream(
         &self,
         request: ChatMessageRequest,

@@ -29,7 +29,7 @@ Run with defaults (preferred):
       > llment --host http://localhost:11434 --provider ollama --model qwen3:latest
       ```
     </details>
-* `openai-chat` - uses [async-openai](https://crates.io/crates/async-openai) to connect with models via v1/chat/completions API
+* `openai-chat` - uses [async-openai](https://crates.io/crates/async-openai) to connect with OpenAI's chat completions API
   * <details>
       <summary>Example - Ollama via OpenAI compat API</summary>
      
