@@ -214,11 +214,8 @@ impl LlmClient for HarmonyClient {
             Ok(chunk) => {
                 output_tokens += chunk.tokens.len() as u32;
                 let mut out = vec![];
-                if !chunk.content.is_empty() {
-                    let tokens = encoding
-                        .tokenizer()
-                        .encode_with_special_tokens(&chunk.content);
-                    for t in tokens {
+                if !chunk.tokens.is_empty() {
+                    for t in chunk.tokens {
                         parser.process(t).ok();
                         if let Some(delta) = parser.last_content_delta().ok().flatten() {
                             if !delta.is_empty() && parser.current_recipient().is_none() {
