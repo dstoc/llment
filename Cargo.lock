@@ -1931,6 +1931,7 @@ dependencies = [
  "ollama-rs",
  "openai-harmony",
  "reqwest",
+ "reqwest-eventsource",
  "rmcp 0.4.0",
  "schemars 1.0.4",
  "serde",
