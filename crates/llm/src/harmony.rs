@@ -4,8 +4,7 @@ use super::{
     ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
     to_openapi_schema,
 };
-use crate::llama_server::llama_server_completions;
-use async_openai::types::*;
+use crate::llama_server::{CompletionRequest, llama_server_completion};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use openai_harmony::{
@@ -17,7 +16,6 @@ use openai_harmony::{
     load_harmony_encoding,
 };
 use reqwest::Client;
-use reqwest_eventsource::Event;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -198,15 +196,12 @@ impl LlmClient for HarmonyClient {
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
         let (prompt_tokens, prefill_tokens) = build_prompt(&encoding, &request)?;
-        let req = CreateCompletionRequestArgs::default()
-            .model(request.model_name)
-            .prompt(prompt_tokens)
-            .stream(true)
-            .stream_options(ChatCompletionStreamOptions {
-                include_usage: true,
-            })
-            .build()?;
-        let event_source = llama_server_completions(&self.http, &self.host, req).await?;
+        let input_tokens = prompt_tokens.len() as u32;
+        let req = CompletionRequest {
+            prompt: prompt_tokens,
+            stream: true,
+        };
+        let event_stream = llama_server_completion(&self.http, &self.host, req).await?;
         let mut parser = StreamableParser::new(encoding.clone(), Some(Role::Assistant))?;
         if let Some(tokens) = &prefill_tokens {
             for t in tokens {
@@ -214,84 +209,63 @@ impl LlmClient for HarmonyClient {
             }
         }
         let mut seen = parser.messages().len();
-        let mapped = event_source.flat_map(move |res| match res {
-            Ok(Event::Message(message)) => {
+        let mut output_tokens: u32 = 0;
+        let mapped = event_stream.flat_map(move |res| match res {
+            Ok(chunk) => {
+                output_tokens += chunk.tokens.len() as u32;
                 let mut out = vec![];
-                if message.data != "[DONE]" {
-                    match serde_json::from_str::<CreateCompletionResponse>(&message.data) {
-                        Ok(chunk) => {
-                            if let Some(choice) = chunk.choices.first() {
-                                if !choice.text.is_empty() {
-                                    let tokens = encoding
-                                        .tokenizer()
-                                        .encode_with_special_tokens(&choice.text);
-                                    for t in tokens {
-                                        parser.process(t).ok();
-                                        if let Some(delta) =
-                                            parser.last_content_delta().ok().flatten()
-                                        {
-                                            if !delta.is_empty()
-                                                && parser.current_recipient().is_none()
-                                            {
-                                                match parser.current_channel().as_deref() {
-                                                    Some("analysis") => {
-                                                        out.push(Ok(ResponseChunk::Thinking(
-                                                            delta,
-                                                        )));
-                                                    }
-                                                    Some("final") => {
-                                                        out.push(Ok(ResponseChunk::Content(delta)));
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
+                if !chunk.content.is_empty() {
+                    let tokens = encoding
+                        .tokenizer()
+                        .encode_with_special_tokens(&chunk.content);
+                    for t in tokens {
+                        parser.process(t).ok();
+                        if let Some(delta) = parser.last_content_delta().ok().flatten() {
+                            if !delta.is_empty() && parser.current_recipient().is_none() {
+                                match parser.current_channel().as_deref() {
+                                    Some("analysis") => {
+                                        out.push(Ok(ResponseChunk::Thinking(delta)))
                                     }
-                                }
-                                if choice.finish_reason.is_some() {
-                                    parser.process_eos().ok();
-                                }
-                                let messages = parser.messages();
-                                while seen < messages.len() {
-                                    let msg = &messages[seen];
-                                    seen += 1;
-                                    if let Some(recipient) = &msg.recipient {
-                                        if let Some(name) = recipient.strip_prefix("functions.") {
-                                            if let Some(Content::Text(TextContent { text })) =
-                                                msg.content.first()
-                                            {
-                                                let (args, args_invalid) =
-                                                    match serde_json::from_str(text) {
-                                                        Ok(v) => (v, None),
-                                                        Err(_) => (Value::Null, Some(text.clone())),
-                                                    };
-                                                out.push(Ok(ResponseChunk::ToolCall(ToolCall {
-                                                    id: Uuid::new_v4().to_string(),
-                                                    name: name.to_string(),
-                                                    arguments: args,
-                                                    arguments_invalid: args_invalid,
-                                                })));
-                                            }
-                                        }
-                                    }
-                                }
-                                if let Some(usage) = chunk.usage {
-                                    out.push(Ok(ResponseChunk::Usage {
-                                        input_tokens: usage.prompt_tokens,
-                                        output_tokens: usage.completion_tokens,
-                                    }));
-                                }
-                                if choice.finish_reason.is_some() {
-                                    out.push(Ok(ResponseChunk::Done));
+                                    Some("final") => out.push(Ok(ResponseChunk::Content(delta))),
+                                    _ => {}
                                 }
                             }
                         }
-                        Err(e) => out.push(Err(e.into())),
                     }
+                }
+                if chunk.stop {
+                    parser.process_eos().ok();
+                }
+                let messages = parser.messages();
+                while seen < messages.len() {
+                    let msg = &messages[seen];
+                    seen += 1;
+                    if let Some(recipient) = &msg.recipient {
+                        if let Some(name) = recipient.strip_prefix("functions.") {
+                            if let Some(Content::Text(TextContent { text })) = msg.content.first() {
+                                let (args, args_invalid) = match serde_json::from_str(text) {
+                                    Ok(v) => (v, None),
+                                    Err(_) => (Value::Null, Some(text.clone())),
+                                };
+                                out.push(Ok(ResponseChunk::ToolCall(ToolCall {
+                                    id: Uuid::new_v4().to_string(),
+                                    name: name.to_string(),
+                                    arguments: args,
+                                    arguments_invalid: args_invalid,
+                                })));
+                            }
+                        }
+                    }
+                }
+                if chunk.stop {
+                    out.push(Ok(ResponseChunk::Usage {
+                        input_tokens,
+                        output_tokens,
+                    }));
+                    out.push(Ok(ResponseChunk::Done));
                 }
                 tokio_stream::iter(out)
             }
-            Ok(Event::Open) => tokio_stream::iter(Vec::new()),
             Err(e) => tokio_stream::iter(vec![Err::<ResponseChunk, _>(e.into())]),
         });
         Ok(Box::pin(mapped))

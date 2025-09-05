@@ -33,8 +33,8 @@ Trait-based LLM client implementations for multiple providers.
   - implementations for Ollama, OpenAiChat, Harmony, and GeminiRust
   - GeminiRust function responses place success data under an `output` field
     - TODO: support the `error` field
-- Harmony client uses `/completions` with Harmony format for `gpt-oss`
-  - sends raw token arrays via `llama_server_completions`
+- Harmony client uses `/completion` with Harmony format for `gpt-oss`
+  - sends raw token arrays via `llama_server_completion`
 - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
@@ -93,5 +93,5 @@ Trait-based LLM client implementations for multiple providers.
 
 ## Constraints
 - uses provider-specific default host when none is supplied
-- Harmony defaults to `http://localhost:8000` and supports only `gpt-oss` via `/completions`
+- Harmony defaults to `http://localhost:8000` and supports only `gpt-oss` via `/completion`
 - deprecated `function_call` streaming is no longer supported
