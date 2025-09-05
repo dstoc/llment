@@ -209,7 +209,7 @@ fn build_grammar(tools: &[ToolInfo]) -> Result<String, Box<dyn Error + Send + Sy
     }
 
     let tool_call_rule = format!(
-        "tool-call ::= preamble? \"<|channel|>commentary to=functions.\" ({})",
+        "tool-call ::= \"<|channel|>commentary to=functions.\" ({})",
         tool_alts.join(" | ")
     );
     grammar.push('\n');
