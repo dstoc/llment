@@ -129,6 +129,7 @@ impl ChatMessageRequest {
 
 pub mod gemini_rust;
 pub mod harmony;
+mod llama_server;
 pub mod mcp;
 pub mod ollama;
 pub mod openai_chat;

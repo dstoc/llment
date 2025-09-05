@@ -14,6 +14,10 @@ Trait-based LLM client implementations for multiple providers.
   - communicate with Ollama using streaming and tools
 - async-openai
   - connect to OpenAI models
+- reqwest
+  - direct llama-server HTTP calls
+- reqwest-eventsource
+  - handle server-sent events from llama-server
 - openai-harmony (v0.0.4, git tag)
   - render Harmony prompts and parse responses for gpt-oss
 - gemini-rust
@@ -29,8 +33,8 @@ Trait-based LLM client implementations for multiple providers.
   - implementations for Ollama, OpenAiChat, Harmony, and GeminiRust
   - GeminiRust function responses place success data under an `output` field
     - TODO: support the `error` field
-- Harmony client uses v1/completions with Harmony format for `gpt-oss`
-  - sends raw token arrays to the llama-server endpoint
+- Harmony client uses `/completions` with Harmony format for `gpt-oss`
+  - sends raw token arrays via `llama_server_completions`
 - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
@@ -89,5 +93,5 @@ Trait-based LLM client implementations for multiple providers.
 
 ## Constraints
 - uses provider-specific default host when none is supplied
-- Harmony defaults to `http://localhost:8000/v1` and supports only `gpt-oss` via v1/completions
+- Harmony defaults to `http://localhost:8000` and supports only `gpt-oss` via `/completions`
 - deprecated `function_call` streaming is no longer supported
