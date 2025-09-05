@@ -1,0 +1,52 @@
+root         ::= harmony
+
+thinking  ::= "<|channel|>analysis<|message|>" not-end* "<|end|><|start|>assistant"
+preamble  ::= "<|channel|>commentary<|message|>" not-end* "<|end|><|start|>assistant"
+content   ::= "<|channel|>final<|message|>" not-return*
+harmony   ::= thinking (content | tool-call)
+
+tool-name ::= [A-Za-z0-9_.]+
+
+not-end ::= 
+    [^<] |
+    "<" [^|] |
+    "<|" [^e] |
+    "<|e" [^n] |
+    "<|en" [^d] |
+    "<|end" [^|] |
+    "<|end|" [^>]
+
+not-return ::= 
+    [^<] |
+    "<" [^|] |
+    "<|" [^r] |
+    "<|r" [^e] |
+    "<|re" [^t] |
+    "<|ret" [^u] |
+    "<|retu" [^r] |
+    "<|retur" [^n] |
+    "<|return" [^|] |
+    "<|return|" [^>]
+
+# From llama.cpp:grammars/json.gbnf
+json   ::= object
+value  ::= object | array | string | number | ("true" | "false" | "null") ws
+object ::= "{" ws (
+            string ":" ws value
+    ("," ws string ":" ws value)*
+  )? "}" ws
+
+array  ::= "[" ws (
+            value
+    ("," ws value)*
+  )? "]" ws
+
+string ::= "\"" (
+    [^"\\\\\x7F\x00-\x1F] |
+    "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
+  )* "\"" ws
+
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+
+# Optional space: by convention, applied in this grammar after literal chars when allowed
+ws ::= | " " | "\n" [ \t]{0,20}

@@ -14,6 +14,7 @@ The project is divided into crates:
 * [crates/llm](crates/llm/AGENTS.md)
 * [crates/llment](crates/llment/AGENTS.md)
 * [crates/mcp-shell](crates/mcp-shell/AGENTS.md)
+* [crates/gbnf-rs](crates/gbnf-rs/AGENTS.md)
 
 # Glossary
 MCP: Model Context Protocol

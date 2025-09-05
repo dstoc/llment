@@ -9,6 +9,8 @@ use tokio_stream::{Stream, StreamExt};
 pub struct CompletionRequest {
     pub prompt: Vec<u32>,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grammar: Option<String>,
 }
 
 /// Streamed response chunk from the llama-server `/completion` endpoint.

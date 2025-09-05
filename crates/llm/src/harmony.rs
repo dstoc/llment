@@ -1,12 +1,13 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall, ToolInfo,
     to_openapi_schema,
 };
 use crate::llama_server::{CompletionRequest, llama_server_completion};
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use gbnf_rs::Generator;
 use openai_harmony::{
     HarmonyEncoding, HarmonyEncodingName, StreamableParser,
     chat::{
@@ -183,6 +184,40 @@ fn build_prompt(
     conversation_to_prompt(encoding, &conversation, prefill)
 }
 
+const HARMONY_GRAMMAR: &str = include_str!("harmony.gbnf");
+
+fn build_grammar(tools: &[ToolInfo]) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let mut grammar = String::from(HARMONY_GRAMMAR);
+    if tools.is_empty() {
+        grammar.push_str("\ntool-call ::= preamble? \"<|channel|>commentary to=functions.\"");
+        return Ok(grammar);
+    }
+
+    let mut tool_alts = Vec::new();
+    let mut extra_rules = String::new();
+    let generator = Generator::new();
+    for tool in tools {
+        let g = generator.generate(&format!("{}_json", tool.name), &tool.parameters);
+        let rule_name = g.rules[0].name.clone();
+        extra_rules.push('\n');
+        extra_rules.push_str(&g.to_string());
+        tool_alts.push(format!(
+            "\"{name}\" ws \"<|constrain|>json<|message|>\" ws {rule} ws",
+            name = tool.name,
+            rule = rule_name
+        ));
+    }
+
+    let tool_call_rule = format!(
+        "tool-call ::= preamble? \"<|channel|>commentary to=functions.\" ({})",
+        tool_alts.join(" | ")
+    );
+    grammar.push('\n');
+    grammar.push_str(&tool_call_rule);
+    grammar.push_str(&extra_rules);
+    Ok(grammar)
+}
+
 #[async_trait]
 impl LlmClient for HarmonyClient {
     async fn send_chat_messages_stream(
@@ -197,9 +232,11 @@ impl LlmClient for HarmonyClient {
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
         let (prompt_tokens, prefill_tokens) = build_prompt(&encoding, &request)?;
         let input_tokens = prompt_tokens.len() as u32;
+        let grammar = build_grammar(&request.tools)?;
         let req = CompletionRequest {
             prompt: prompt_tokens,
             stream: true,
+            grammar: Some(grammar),
         };
         let event_stream = llama_server_completion(&self.http, &self.host, req).await?;
         let mut parser = StreamableParser::new(encoding.clone(), Some(Role::Assistant))?;
