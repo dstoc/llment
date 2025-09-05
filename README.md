@@ -20,8 +20,8 @@ Run with defaults (preferred):
 
 ## Providers
 `--provider` can be used to select a different provider:
-* `harmony` (preferred) uses [async-openai](https://crates.io/crates/async-openai) to connect with [openai/harmony](https://github.com/openai/harmony) compatible models via v1/completions API
-* `ollama` - uses the [ollama-rs](https://crates.io/crates/ollama-rs) crate to interface with the Ollama API
+* `harmony` (preferred) connects with [openai/harmony](https://github.com/openai/harmony) compatible models via the [llama-server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server) `/completion` API
+* `ollama` - uses [ollama-rs](https://crates.io/crates/ollama-rs) to interface with the Ollama API
   * <details>
       <summary>Example</summary>
      
@@ -29,7 +29,7 @@ Run with defaults (preferred):
       > llment --host http://localhost:11434 --provider ollama --model qwen3:latest
       ```
     </details>
-* `openai-chat` - uses [async-openai](https://crates.io/crates/async-openai) to connect with OpenAI's chat completions API
+* `openai-chat` - uses [async-openai](https://crates.io/crates/async-openai) to connect with OpenAI's `/v1/chat/completions` API
   * <details>
       <summary>Example - Ollama via OpenAI compat API</summary>
      
