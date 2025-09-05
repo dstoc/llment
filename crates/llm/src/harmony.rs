@@ -231,7 +231,7 @@ impl LlmClient for HarmonyClient {
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
         let (prompt_tokens, prefill_tokens) = build_prompt(&encoding, &request)?;
-        let input_tokens = prompt_tokens.len() as u32;
+        let mut input_tokens = prompt_tokens.len() as u32;
         let grammar = build_grammar(&request.tools)?;
         let req = CompletionRequest {
             prompt: prompt_tokens,
@@ -291,11 +291,13 @@ impl LlmClient for HarmonyClient {
                         }
                     }
                 }
+                out.push(Ok(ResponseChunk::Usage {
+                    input_tokens,
+                    output_tokens,
+                }));
+                input_tokens = 0;
+                output_tokens = 0;
                 if chunk.stop {
-                    out.push(Ok(ResponseChunk::Usage {
-                        input_tokens,
-                        output_tokens,
-                    }));
                     out.push(Ok(ResponseChunk::Done));
                 }
                 tokio_stream::iter(out)

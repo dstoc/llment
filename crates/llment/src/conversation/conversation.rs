@@ -176,6 +176,7 @@ impl Conversation {
                 Vec::new(),
                 String::new(),
             )));
+            self.needs_layout = true;
         }
         match self.items.last_mut().unwrap() {
             Node::Assistant(block) => block,
@@ -279,9 +280,13 @@ impl Conversation {
         }
     }
 
-    pub fn set_usage(&mut self, input_tokens: u32, output_tokens: u32) {
+    pub fn add_usage(&mut self, input_tokens: u32, output_tokens: u32) {
+        let block = self.ensure_last_assistant();
+        block.add_usage(input_tokens, output_tokens);
+    }
+    pub fn maybe_reset_usage(&mut self) {
         if let Some(Node::Assistant(block)) = self.items.last_mut() {
-            block.set_usage(input_tokens, output_tokens);
+            block.reset_usage();
         }
     }
 
