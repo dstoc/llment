@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::io::stdout;
+use std::io::{stderr, stdout};
 use std::time::Duration;
 
 use app::{App, AppModel};
@@ -45,12 +45,14 @@ impl TerminalGuard {
             EnableMouseCapture,
             EnableBracketedPaste
         )?;
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            TerminalGuard::exit();
+            default(info);
+        }));
         Ok(Self)
     }
-}
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
+    fn exit() {
         let _ = crossterm::execute!(
             stdout(),
             DisableBracketedPaste,
@@ -59,6 +61,12 @@ impl Drop for TerminalGuard {
             crossterm::cursor::Show
         );
         let _ = crossterm::terminal::disable_raw_mode();
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        TerminalGuard::exit();
     }
 }
 
