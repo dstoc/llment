@@ -51,10 +51,16 @@ impl AssistantBlock {
         }
     }
 
-    pub fn set_usage(&mut self, in_tokens: u32, out_tokens: u32) {
-        self.input_tokens = in_tokens;
-        self.output_tokens = out_tokens;
-        self.total_tokens = in_tokens + out_tokens;
+    pub fn add_usage(&mut self, in_tokens: u32, out_tokens: u32) {
+        self.input_tokens += in_tokens;
+        self.output_tokens += out_tokens;
+        self.total_tokens += in_tokens + out_tokens;
+    }
+
+    pub fn reset_usage(&mut self) {
+        self.input_tokens = 0;
+        self.output_tokens = 0;
+        self.total_tokens = 0;
     }
 
     pub(crate) fn record_activity(&mut self) {

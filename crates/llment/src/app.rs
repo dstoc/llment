@@ -211,7 +211,7 @@ impl App {
                 } => {
                     self.session_in_tokens += input_tokens;
                     self.session_out_tokens += output_tokens;
-                    self.conversation.set_usage(input_tokens, output_tokens);
+                    self.conversation.add_usage(input_tokens, output_tokens);
                 }
                 ResponseChunk::Done => {}
             },
@@ -260,6 +260,7 @@ impl App {
 
     fn send_request(&mut self, prompt: Option<String>) {
         self.apply_prompt();
+        self.conversation.maybe_reset_usage();
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
         if let Some(prompt) = prompt {
