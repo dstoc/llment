@@ -26,6 +26,8 @@ Trait-based LLM client implementations for multiple providers.
   - connect to MCP servers
 - schemars
   - define and manipulate tool schemas
+- gbnf-rs
+  - generate GBNF grammars from tool schemas
 
 ## Features
 - LLM clients
@@ -35,7 +37,10 @@ Trait-based LLM client implementations for multiple providers.
     - TODO: support the `error` field
 - Harmony client uses `/completion` with Harmony format for `gpt-oss`
   - sends raw token arrays via `llama_server_completion`
-- Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
+  - sends a GBNF grammar that constrains tool call JSON to each tool's schema
+  - grammar base loaded from `.gbnf` file with `include_str!`
+  - tool-call rule appended to allow only declared tool names
+  - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
   - tool calls render in the commentary channel with constrained JSON

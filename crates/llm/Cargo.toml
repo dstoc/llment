@@ -10,6 +10,7 @@ async-openai = { version = "0.29.0", features = ["byot"] }
 async-trait = "0.1.88"
 clap = { version = "4.5.43", features = ["derive"] }
 futures-util = "0.3.31"
+gbnf-rs = { version = "0.1.0", path = "../gbnf-rs" }
 gemini-rust = "1.3.1"
 ollama-rs = { git = "https://github.com/dstoc/ollama-rs", branch = "RobJellinghaus/streaming-tools", version = "0.3.2", features = ["macros", "stream"] }
 openai-harmony = { git = "https://github.com/openai/harmony", tag = "v0.0.4", version = "0.0.4" }
