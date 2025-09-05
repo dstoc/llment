@@ -143,18 +143,7 @@ impl AgentMode for CodeAgentMode {
         }
     }
 
-    fn step(&mut self, last_message: Option<&ChatMessage>) -> AgentModeStep {
-        if let Some(ChatMessage::Assistant(msg)) = last_message {
-            if msg.thinking.is_some() && msg.content.is_empty() && msg.tool_calls.is_empty() {
-                return AgentModeStep {
-                    role: Some(format!("code-agent/{}", self.current_role.as_str())),
-                    prompt: None,
-                    clear_history: false,
-                    stop: false,
-                };
-            }
-        }
-
+    fn step(&mut self, _last_message: Option<&ChatMessage>) -> AgentModeStep {
         let mut state = self.state.lock().unwrap();
         if let Some(role) = state.role.take() {
             self.current_role = role;
