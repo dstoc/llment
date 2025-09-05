@@ -3,9 +3,7 @@ root         ::= harmony
 thinking  ::= "<|channel|>analysis<|message|>" not-end* "<|end|><|start|>assistant"
 preamble  ::= "<|channel|>commentary<|message|>" not-end* "<|end|><|start|>assistant"
 content   ::= "<|channel|>final<|message|>" not-return*
-harmony   ::= thinking (content | tool-call)
-
-tool-name ::= [A-Za-z0-9_.]+
+harmony   ::= thinking (content | preamble? tool-call)
 
 not-end ::= 
     [^<] |
@@ -46,7 +44,7 @@ string ::= "\"" (
     "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
   )* "\"" ws
 
-number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
+number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9]{0,16})? ws
 
 # Optional space: by convention, applied in this grammar after literal chars when allowed
 ws ::= | " " | "\n" [ \t]{0,20}
