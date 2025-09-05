@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "files": {
+      "command": "target/debug/mcp-edit"
+    }
+  }
+}
