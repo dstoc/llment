@@ -328,6 +328,7 @@ impl Generator {
 
 #[cfg(test)]
 mod tests {
+    #![allow(dead_code)]
     use super::*;
     use schemars::JsonSchema;
 
