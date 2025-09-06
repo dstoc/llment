@@ -231,13 +231,13 @@ fn build_grammar(
 
     match root {
         GrammarRoot::Harmony => {
-            grammar.push_str("\nroot ::= harmony");
+            grammar.push_str("\nroot ::= harmony-default");
         }
         GrammarRoot::PrefillThinking => {
-            grammar.push_str("\nroot ::= harmony_prefill_thinking");
+            grammar.push_str("\nroot ::= harmony-prefill-thinking");
         }
         GrammarRoot::PrefillContent => {
-            grammar.push_str("\nroot ::= harmony_prefill_content");
+            grammar.push_str("\nroot ::= harmony-prefill-content");
         }
     }
     Ok(grammar)
@@ -476,12 +476,12 @@ mod tests {
     fn grammar_root_selection() {
         let g = build_grammar(&[], GrammarRoot::Harmony).unwrap();
         assert_eq!(g.matches("root ::=").count(), 1);
-        assert!(g.contains("root ::= harmony"));
+        assert!(g.contains("root ::= harmony-default"));
         let g = build_grammar(&[], GrammarRoot::PrefillThinking).unwrap();
         assert_eq!(g.matches("root ::=").count(), 1);
-        assert!(g.contains("root ::= harmony_prefill_thinking"));
+        assert!(g.contains("root ::= harmony-prefill-thinking"));
         let g = build_grammar(&[], GrammarRoot::PrefillContent).unwrap();
         assert_eq!(g.matches("root ::=").count(), 1);
-        assert!(g.contains("root ::= harmony_prefill_content"));
+        assert!(g.contains("root ::= harmony-prefill-content"));
     }
 }
