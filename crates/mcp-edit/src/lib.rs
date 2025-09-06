@@ -189,40 +189,17 @@ impl FsServer {
 
     fn resolve_for_write(&self, path: &str) -> Result<PathBuf, McpError> {
         let p = Path::new(path);
-        let joined = if p.is_absolute() {
-            match p.strip_prefix(&self.mount_point) {
-                Ok(rel) => self.workspace_root.join(rel),
-                Err(_) => p.to_path_buf(),
-            }
-        } else {
-            self.workspace_root.join(p)
-        };
-        let parent = joined.parent().ok_or_else(|| {
+        let parent = p.parent().ok_or_else(|| {
             McpError::invalid_params("file_path must have a parent directory".to_string(), None)
         })?;
-        let normalized_parent = Self::normalize(parent);
-        if !normalized_parent.starts_with(&self.workspace_root) {
-            return Err(McpError::invalid_params(
-                "path must be within the workspace".to_string(),
-                None,
-            ));
-        }
-        let canonical_parent = fs::canonicalize(&normalized_parent).map_err(|_| {
-            McpError::invalid_params(
-                format!(
-                    "path '{}' does not exist",
-                    self.display_path(&normalized_parent)
-                ),
-                None,
-            )
+        let parent_str = parent.to_str().ok_or_else(|| {
+            McpError::invalid_params("parent path must be valid UTF-8".to_string(), None)
         })?;
-        if !canonical_parent.starts_with(&self.workspace_root) {
-            return Err(McpError::invalid_params(
-                "path must be within the workspace".to_string(),
-                None,
-            ));
-        }
-        Ok(canonical_parent.join(joined.file_name().unwrap()))
+        let canonical_parent = self.resolve(parent_str)?;
+        let file_name = p.file_name().ok_or_else(|| {
+            McpError::invalid_params("file_path must have a file name".to_string(), None)
+        })?;
+        Ok(canonical_parent.join(file_name))
     }
 
     fn display_path(&self, path: &Path) -> String {
