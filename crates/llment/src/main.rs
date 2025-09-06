@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::io::{stderr, stdout};
+use std::io::stdout;
 use std::time::Duration;
 
 use app::{App, AppModel};

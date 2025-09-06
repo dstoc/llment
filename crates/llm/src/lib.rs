@@ -262,6 +262,7 @@ pub trait LlmClient: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    #![allow(dead_code)]
     use super::*;
     use schemars::{self, JsonSchema};
 
