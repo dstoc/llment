@@ -25,6 +25,7 @@ MCP server offering file system editing utilities.
 - mount point hides actual workspace path in responses
   - defaults to `/home/user/workspace`
   - error messages include mount point paths for missing or invalid files
+  - accepts mount-point paths with or without a trailing slash
 - tools
   - `replace`
     - enforces the expected number of string replacements

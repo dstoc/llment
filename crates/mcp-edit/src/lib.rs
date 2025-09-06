@@ -158,7 +158,10 @@ impl FsServer {
     fn resolve(&self, path: &str) -> Result<PathBuf, McpError> {
         let p = Path::new(path);
         let joined = if p.is_absolute() {
-            p.to_path_buf()
+            match p.strip_prefix(&self.mount_point) {
+                Ok(rel) => self.workspace_root.join(rel),
+                Err(_) => p.to_path_buf(),
+            }
         } else {
             self.workspace_root.join(p)
         };
@@ -187,7 +190,10 @@ impl FsServer {
     fn resolve_for_write(&self, path: &str) -> Result<PathBuf, McpError> {
         let p = Path::new(path);
         let joined = if p.is_absolute() {
-            p.to_path_buf()
+            match p.strip_prefix(&self.mount_point) {
+                Ok(rel) => self.workspace_root.join(rel),
+                Err(_) => p.to_path_buf(),
+            }
         } else {
             self.workspace_root.join(p)
         };
@@ -862,6 +868,33 @@ mod tests {
             .clone();
         assert!(text.contains("visible.txt"));
         assert!(!text.contains("ignored.txt"));
+    }
+
+    #[tokio::test]
+    async fn list_directory_mount_path_trailing_slash() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        fs::write(dir.path().join("file.txt"), "abc").unwrap();
+        let server = FsServer::new(dir.path());
+
+        let paths = ["/home/user/workspace", "/home/user/workspace/"];
+        for p in paths {
+            let result = server
+                .list_directory(Parameters(ListDirectoryParams {
+                    path: p.into(),
+                    ignore: None,
+                }))
+                .await
+                .unwrap();
+            let text = result.content.unwrap()[0]
+                .raw
+                .as_text()
+                .unwrap()
+                .text
+                .clone();
+            assert!(text.contains("[DIR] sub"));
+            assert!(text.contains("file.txt"));
+        }
     }
 
     #[tokio::test]
