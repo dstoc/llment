@@ -37,6 +37,7 @@ MCP server offering file system editing utilities.
     - reads and concatenates multiple files using glob patterns
   - `create_file`
     - creates parent directories as needed
+    - allows paths in the workspace root
   - `glob`
     - always respects git ignore
     - optional case sensitivity
