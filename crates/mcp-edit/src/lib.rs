@@ -189,13 +189,15 @@ impl FsServer {
 
     fn resolve_for_write(&self, path: &str) -> Result<PathBuf, McpError> {
         let p = Path::new(path);
-        let parent = p.parent().ok_or_else(|| {
-            McpError::invalid_params("file_path must have a parent directory".to_string(), None)
-        })?;
-        let parent_str = parent.to_str().ok_or_else(|| {
-            McpError::invalid_params("parent path must be valid UTF-8".to_string(), None)
-        })?;
-        let canonical_parent = self.resolve(parent_str)?;
+        let canonical_parent = match p.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => {
+                let parent_str = parent.to_str().ok_or_else(|| {
+                    McpError::invalid_params("parent path must be valid UTF-8".to_string(), None)
+                })?;
+                self.resolve(parent_str)?
+            }
+            _ => self.workspace_root.clone(),
+        };
         let file_name = p.file_name().ok_or_else(|| {
             McpError::invalid_params("file_path must have a file name".to_string(), None)
         })?;
@@ -949,16 +951,15 @@ mod tests {
     #[tokio::test]
     async fn create_file_writes_content() {
         let dir = tempdir().unwrap();
-        let file_path = dir.path().join("new.txt");
         let server = FsServer::new(dir.path());
         server
             .create_file(Parameters(CreateFileParams {
-                file_path: file_path.to_string_lossy().to_string(),
+                file_path: "new.txt".into(),
                 content: "hello".into(),
             }))
             .await
             .unwrap();
-        let content = fs::read_to_string(file_path).unwrap();
+        let content = fs::read_to_string(dir.path().join("new.txt")).unwrap();
         assert_eq!(content, "hello");
     }
 
