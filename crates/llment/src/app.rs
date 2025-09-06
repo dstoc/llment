@@ -45,6 +45,8 @@ pub struct App {
 
     client: Arc<Mutex<llm::Client>>,
     mcp_context: McpContext,
+    request_in_tokens: u32,
+    request_out_tokens: u32,
     session_in_tokens: u32,
     session_out_tokens: u32,
     session_requests: u32,
@@ -164,6 +166,8 @@ impl App {
             session_in_tokens: 0,
             session_out_tokens: 0,
             session_requests: 0,
+            request_in_tokens: 0,
+            request_out_tokens: 0,
             mcp_context,
             chat_history: Arc::new(Mutex::new(vec![])),
             state: ConversationState::Idle,
@@ -189,7 +193,10 @@ impl App {
     fn handle_tool_event(&mut self, ev: ToolEvent) {
         match ev {
             ToolEvent::RequestStarted => {
+                self.request_in_tokens = 0;
+                self.request_out_tokens = 0;
                 self.session_requests += 1;
+                let _ = self.model.needs_redraw.send(true);
             }
             ToolEvent::Chunk(chunk) => match chunk {
                 ResponseChunk::Thinking(thinking) => {
@@ -211,7 +218,9 @@ impl App {
                 } => {
                     self.session_in_tokens += input_tokens;
                     self.session_out_tokens += output_tokens;
-                    self.conversation.add_usage(input_tokens, output_tokens);
+                    self.request_in_tokens += input_tokens;
+                    self.request_out_tokens += output_tokens;
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 ResponseChunk::Done => {}
             },
@@ -260,7 +269,6 @@ impl App {
 
     fn send_request(&mut self, prompt: Option<String>) {
         self.apply_prompt();
-        self.conversation.maybe_reset_usage();
         self.state = ConversationState::Thinking;
         let _ = self.model.needs_redraw.send(true);
         if let Some(prompt) = prompt {
@@ -541,7 +549,7 @@ impl Component for App {
         self.conversation.render(frame, chunks[0]);
         self.error.render(frame, chunks[1]);
         self.prompt.render(frame, chunks[2]);
-        let ctx_tokens = self.conversation.context_tokens();
+        let ctx_tokens = self.request_in_tokens + self.request_out_tokens;
         let status_right = format!(
             "ctx {}t, Σ {}r {}t=>{}t",
             ctx_tokens, self.session_requests, self.session_in_tokens, self.session_out_tokens

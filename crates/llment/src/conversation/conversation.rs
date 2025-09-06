@@ -280,16 +280,6 @@ impl Conversation {
         }
     }
 
-    pub fn add_usage(&mut self, input_tokens: u32, output_tokens: u32) {
-        let block = self.ensure_last_assistant();
-        block.add_usage(input_tokens, output_tokens);
-    }
-    pub fn maybe_reset_usage(&mut self) {
-        if let Some(Node::Assistant(block)) = self.items.last_mut() {
-            block.reset_usage();
-        }
-    }
-
     pub fn redo_last(&mut self) -> Option<String> {
         while !self.items.is_empty() {
             if let Some(Node::User(user)) = self.items.pop() {
@@ -348,17 +338,6 @@ impl Conversation {
                 _ => {}
             }
         }
-    }
-
-    pub fn context_tokens(&self) -> u32 {
-        self.items
-            .iter()
-            .rev()
-            .find_map(|item| match item {
-                Node::Assistant(block) => Some(block.total_tokens),
-                _ => None,
-            })
-            .unwrap_or(0)
     }
 }
 

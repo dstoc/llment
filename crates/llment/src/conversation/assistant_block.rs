@@ -24,9 +24,6 @@ pub struct AssistantBlock {
     started: Option<Instant>,
     last_update: Option<Instant>,
     spinner: SpinnerStates,
-    pub(crate) input_tokens: u32,
-    pub(crate) output_tokens: u32,
-    pub(crate) total_tokens: u32,
 }
 
 impl AssistantBlock {
@@ -45,22 +42,7 @@ impl AssistantBlock {
             started: None,
             last_update: None,
             spinner,
-            input_tokens: 0,
-            output_tokens: 0,
-            total_tokens: 0,
         }
-    }
-
-    pub fn add_usage(&mut self, in_tokens: u32, out_tokens: u32) {
-        self.input_tokens += in_tokens;
-        self.output_tokens += out_tokens;
-        self.total_tokens += in_tokens + out_tokens;
-    }
-
-    pub fn reset_usage(&mut self) {
-        self.input_tokens = 0;
-        self.output_tokens = 0;
-        self.total_tokens = 0;
     }
 
     pub(crate) fn record_activity(&mut self) {
