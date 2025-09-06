@@ -38,6 +38,13 @@ impl HarmonyClient {
     }
 }
 
+#[derive(Copy, Clone)]
+enum GrammarRoot {
+    Harmony,
+    PrefillThinking,
+    PrefillContent,
+}
+
 fn conversation_to_prompt(
     encoding: &HarmonyEncoding,
     conversation: &Conversation,
@@ -66,7 +73,7 @@ fn conversation_to_prompt(
 fn build_prompt(
     encoding: &HarmonyEncoding,
     request: &ChatMessageRequest,
-) -> Result<(Vec<u32>, Option<Vec<u32>>), Box<dyn Error + Send + Sync>> {
+) -> Result<(Vec<u32>, Option<Vec<u32>>, GrammarRoot), Box<dyn Error + Send + Sync>> {
     let mut system_msgs = Vec::new();
     let mut other_msgs = Vec::new();
     let mut developer = DeveloperContent::new();
@@ -156,6 +163,7 @@ fn build_prompt(
         }
     }
     let mut prefill: Option<String> = None;
+    let mut root = GrammarRoot::Harmony;
     if let Some(ChatMessage::Assistant(a)) = other_msgs.last() {
         if a.tool_calls.is_empty() {
             let thinking = a.thinking.as_deref().unwrap_or("");
@@ -164,10 +172,12 @@ fn build_prompt(
                 (false, true) => {
                     convo_msgs.pop();
                     prefill = Some(format!("<|channel|>analysis<|message|>{}", thinking));
+                    root = GrammarRoot::PrefillThinking;
                 }
                 (true, false) => {
                     convo_msgs.pop();
                     prefill = Some(format!("<|channel|>final<|message|>{}", content));
+                    root = GrammarRoot::PrefillContent;
                 }
                 (false, false) => {
                     convo_msgs.pop();
@@ -175,46 +185,61 @@ fn build_prompt(
                         "<|channel|>analysis<|message|>{}<|end|><|start|>assistant<|channel|>final<|message|>{}",
                         thinking, content
                     ));
+                    root = GrammarRoot::PrefillContent;
                 }
                 _ => {}
             }
         }
     }
     let conversation = Conversation::from_messages(convo_msgs);
-    conversation_to_prompt(encoding, &conversation, prefill)
+    conversation_to_prompt(encoding, &conversation, prefill).map(|(t, p)| (t, p, root))
 }
 
 const HARMONY_GRAMMAR: &str = include_str!("harmony.gbnf");
 
-fn build_grammar(tools: &[ToolInfo]) -> Result<String, Box<dyn Error + Send + Sync>> {
+fn build_grammar(
+    tools: &[ToolInfo],
+    root: GrammarRoot,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let mut grammar = String::from(HARMONY_GRAMMAR);
     if tools.is_empty() {
         grammar.push_str("\ntool-call ::= preamble? \"<|channel|>commentary to=functions.\"");
-        return Ok(grammar);
+    } else {
+        let mut tool_alts = Vec::new();
+        let mut extra_rules = String::new();
+        let generator = Generator::new();
+        for tool in tools {
+            let g = generator.generate(&format!("{}_json", tool.name), &tool.parameters);
+            let rule_name = g.rules[0].name.clone();
+            extra_rules.push('\n');
+            extra_rules.push_str(&g.to_string());
+            tool_alts.push(format!(
+                "\"{name}\" ws \"<|constrain|>json<|message|>\" ws {rule} ws",
+                name = tool.name,
+                rule = rule_name
+            ));
+        }
+
+        let tool_call_rule = format!(
+            "tool-call ::= \"<|channel|>commentary to=functions.\" ({})",
+            tool_alts.join(" | ")
+        );
+        grammar.push('\n');
+        grammar.push_str(&tool_call_rule);
+        grammar.push_str(&extra_rules);
     }
 
-    let mut tool_alts = Vec::new();
-    let mut extra_rules = String::new();
-    let generator = Generator::new();
-    for tool in tools {
-        let g = generator.generate(&format!("{}_json", tool.name), &tool.parameters);
-        let rule_name = g.rules[0].name.clone();
-        extra_rules.push('\n');
-        extra_rules.push_str(&g.to_string());
-        tool_alts.push(format!(
-            "\"{name}\" ws \"<|constrain|>json<|message|>\" ws {rule} ws",
-            name = tool.name,
-            rule = rule_name
-        ));
+    match root {
+        GrammarRoot::Harmony => {
+            grammar.push_str("\nroot ::= harmony");
+        }
+        GrammarRoot::PrefillThinking => {
+            grammar.push_str("\nroot ::= harmony_prefill_thinking");
+        }
+        GrammarRoot::PrefillContent => {
+            grammar.push_str("\nroot ::= harmony_prefill_content");
+        }
     }
-
-    let tool_call_rule = format!(
-        "tool-call ::= \"<|channel|>commentary to=functions.\" ({})",
-        tool_alts.join(" | ")
-    );
-    grammar.push('\n');
-    grammar.push_str(&tool_call_rule);
-    grammar.push_str(&extra_rules);
     Ok(grammar)
 }
 
@@ -230,9 +255,9 @@ impl LlmClient for HarmonyClient {
         .await
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(e))?;
-        let (prompt_tokens, prefill_tokens) = build_prompt(&encoding, &request)?;
+        let (prompt_tokens, prefill_tokens, root) = build_prompt(&encoding, &request)?;
         let mut input_tokens = prompt_tokens.len() as u32;
-        let grammar = build_grammar(&request.tools)?;
+        let grammar = build_grammar(&request.tools, root)?;
         let req = CompletionRequest {
             prompt: prompt_tokens,
             stream: true,
@@ -321,26 +346,28 @@ mod tests {
     fn prompt_and_prefill(
         encoding: &HarmonyEncoding,
         request: &ChatMessageRequest,
-    ) -> (String, Option<Vec<u32>>) {
-        let (prompt_tokens, prefill_tokens) = build_prompt(encoding, request).unwrap();
+    ) -> (String, Option<Vec<u32>>, GrammarRoot) {
+        let (prompt_tokens, prefill_tokens, root) = build_prompt(encoding, request).unwrap();
         let prompt = encoding
             .tokenizer()
             .decode_utf8(&prompt_tokens)
             .unwrap()
             .to_string();
-        (prompt, prefill_tokens)
+        (prompt, prefill_tokens, root)
     }
 
-    fn setup(messages: Vec<ChatMessage>) -> (HarmonyEncoding, String, Option<Vec<u32>>) {
+    fn setup(
+        messages: Vec<ChatMessage>,
+    ) -> (HarmonyEncoding, String, Option<Vec<u32>>, GrammarRoot) {
         let encoding = load_harmony_encoding(HarmonyEncodingName::HarmonyGptOss).unwrap();
         let request = ChatMessageRequest::new("gpt-oss".into(), messages);
-        let (prompt, prefill_tokens) = prompt_and_prefill(&encoding, &request);
-        (encoding, prompt, prefill_tokens)
+        let (prompt, prefill_tokens, root) = prompt_and_prefill(&encoding, &request);
+        (encoding, prompt, prefill_tokens, root)
     }
 
     #[test]
     fn prefill_with_thinking() {
-        let (_, prompt, prefill_tokens) = setup(vec![
+        let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("Hi".into()),
             ChatMessage::Assistant(AssistantMessage {
                 content: String::new(),
@@ -357,7 +384,7 @@ mod tests {
 
     #[test]
     fn prefill_with_content() {
-        let (_, prompt, prefill_tokens) = setup(vec![
+        let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("Hi".into()),
             ChatMessage::assistant("Hello".into()),
         ]);
@@ -370,7 +397,7 @@ mod tests {
 
     #[test]
     fn thinking_and_content_history() {
-        let (_, prompt, prefill_tokens) = setup(vec![
+        let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("Hi".into()),
             ChatMessage::Assistant(AssistantMessage {
                 content: "Hello".into(),
@@ -398,7 +425,7 @@ mod tests {
 
     #[test]
     fn tool_call_and_response() {
-        let (_, prompt, prefill_tokens) = setup(vec![
+        let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("2+2?".into()),
             ChatMessage::Assistant(AssistantMessage {
                 content: String::new(),
@@ -428,7 +455,7 @@ mod tests {
 
     #[test]
     fn parser_continues_after_prefill() {
-        let (encoding, _, prefill_tokens) = setup(vec![
+        let (encoding, _, prefill_tokens, _) = setup(vec![
             ChatMessage::user("Hi".into()),
             ChatMessage::assistant("Hello".into()),
         ]);
@@ -443,5 +470,18 @@ mod tests {
         }
         let delta = parser.last_content_delta().unwrap().unwrap();
         assert_eq!(delta, " world");
+    }
+
+    #[test]
+    fn grammar_root_selection() {
+        let g = build_grammar(&[], GrammarRoot::Harmony).unwrap();
+        assert_eq!(g.matches("root ::=").count(), 1);
+        assert!(g.contains("root ::= harmony"));
+        let g = build_grammar(&[], GrammarRoot::PrefillThinking).unwrap();
+        assert_eq!(g.matches("root ::=").count(), 1);
+        assert!(g.contains("root ::= harmony_prefill_thinking"));
+        let g = build_grammar(&[], GrammarRoot::PrefillContent).unwrap();
+        assert_eq!(g.matches("root ::=").count(), 1);
+        assert!(g.contains("root ::= harmony_prefill_content"));
     }
 }

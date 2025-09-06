@@ -1,9 +1,10 @@
-root         ::= harmony
-
 thinking  ::= "<|channel|>analysis<|message|>" not-end* "<|end|><|start|>assistant"
 preamble  ::= "<|channel|>commentary<|message|>" not-end* "<|end|><|start|>assistant"
 content   ::= "<|channel|>final<|message|>" not-return*
 harmony   ::= thinking (content | preamble? tool-call)
+
+harmony_prefill_thinking ::= not-end* "<|end|><|start|>assistant" (content | preamble? tool-call)
+harmony_prefill_content  ::= not-return*
 
 not-end ::= 
     [^<] |

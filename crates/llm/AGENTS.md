@@ -38,7 +38,8 @@ Trait-based LLM client implementations for multiple providers.
 - Harmony client uses `/completion` with Harmony format for `gpt-oss`
   - sends raw token arrays via `llama_server_completion`
   - sends a GBNF grammar that constrains tool call JSON to each tool's schema
-  - grammar base loaded from `.gbnf` file with `include_str!`
+  - grammar base loaded from `.gbnf` file with `include_str!` and no root rule
+    - appends `root ::= harmony` or `root ::= harmony_prefill_*` based on prefill context
   - tool-call rule appended to allow only declared tool names
   - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
