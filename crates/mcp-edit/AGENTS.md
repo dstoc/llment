@@ -22,6 +22,7 @@ MCP server offering file system editing utilities.
 ## Features
 - workspace root via CLI
   - paths may be absolute or relative to this directory
+  - trailing slashes on the workspace path are ignored
 - mount point hides actual workspace path in responses
   - defaults to `/home/user/workspace`
   - error messages include mount point paths for missing or invalid files

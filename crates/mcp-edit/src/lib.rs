@@ -163,18 +163,23 @@ impl FsServer {
             self.workspace_root.join(p)
         };
         let normalized = Self::normalize(&joined);
-        if !normalized.starts_with(&self.workspace_root) {
-            return Err(McpError::invalid_params(
-                "path must be within the workspace".to_string(),
-                None,
-            ));
-        }
-        let canonical = fs::canonicalize(&normalized).map_err(|_| {
-            McpError::invalid_params(
-                format!("path '{}' does not exist", self.display_path(&normalized)),
-                None,
-            )
-        })?;
+        let canonical = match fs::canonicalize(&normalized) {
+            Ok(p) => p,
+            Err(_) => {
+                // If the non-canonical path is within the workspace, return a not-exist error.
+                if normalized.starts_with(&self.workspace_root) {
+                    return Err(McpError::invalid_params(
+                        format!("path '{}' does not exist", self.display_path(&normalized)),
+                        None,
+                    ));
+                } else {
+                    return Err(McpError::invalid_params(
+                        "path must be within the workspace".to_string(),
+                        None,
+                    ));
+                }
+            }
+        };
         if !canonical.starts_with(&self.workspace_root) {
             return Err(McpError::invalid_params(
                 "path must be within the workspace".to_string(),
@@ -195,21 +200,25 @@ impl FsServer {
             McpError::invalid_params("file_path must have a parent directory".to_string(), None)
         })?;
         let normalized_parent = Self::normalize(parent);
-        if !normalized_parent.starts_with(&self.workspace_root) {
-            return Err(McpError::invalid_params(
-                "path must be within the workspace".to_string(),
-                None,
-            ));
-        }
-        let canonical_parent = fs::canonicalize(&normalized_parent).map_err(|_| {
-            McpError::invalid_params(
-                format!(
-                    "path '{}' does not exist",
-                    self.display_path(&normalized_parent)
-                ),
-                None,
-            )
-        })?;
+        let canonical_parent = match fs::canonicalize(&normalized_parent) {
+            Ok(p) => p,
+            Err(_) => {
+                if normalized_parent.starts_with(&self.workspace_root) {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "path '{}' does not exist",
+                            self.display_path(&normalized_parent)
+                        ),
+                        None,
+                    ));
+                } else {
+                    return Err(McpError::invalid_params(
+                        "path must be within the workspace".to_string(),
+                        None,
+                    ));
+                }
+            }
+        };
         if !canonical_parent.starts_with(&self.workspace_root) {
             return Err(McpError::invalid_params(
                 "path must be within the workspace".to_string(),
@@ -1298,6 +1307,21 @@ mod tests {
             .unwrap_err();
         assert_eq!(err_existing.message, err_missing.message);
         assert_eq!(err_existing.message, "path must be within the workspace");
+    }
+
+    #[tokio::test]
+    async fn resolve_accepts_workspace_root_without_trailing_slash() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let server = FsServer::new(&root);
+        // Ensure the path equal to the workspace root is accepted without a trailing slash
+        server
+            .list_directory(Parameters(ListDirectoryParams {
+                path: root.clone(),
+                ignore: None,
+            }))
+            .await
+            .expect("workspace root should be resolvable without trailing slash");
     }
 
     #[test]
