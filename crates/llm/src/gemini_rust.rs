@@ -125,13 +125,30 @@ impl LlmClient for GeminiRustClient {
         }
 
         if request.think.unwrap_or(true) {
-            builder = builder.with_thoughts_included(true);
+            builder = builder.with_thinking_config(gemini_rust::ThinkingConfig {
+                thinking_budget: Some(-1),
+                include_thoughts: Some(true),
+            });
         }
 
+        let mut input_tokens = 0u32;
+        let mut output_tokens = 0u32;
         let stream = builder.execute_stream().await?;
-        let mapped = stream.flat_map(|res| match res {
+        let mapped = stream.flat_map(move |res| match res {
             Ok(chunk) => {
                 let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
+                if let Some(usage) = chunk.usage_metadata {
+                    let input_delta = usage.prompt_token_count as u32 - input_tokens;
+                    input_tokens += input_delta;
+                    let output_delta = usage.total_token_count as u32
+                        - usage.prompt_token_count as u32
+                        - output_tokens;
+                    output_tokens += output_delta;
+                    out.push(Ok(ResponseChunk::Usage {
+                        input_tokens: input_delta,
+                        output_tokens: output_delta,
+                    }));
+                }
                 if let Some(candidate) = chunk.candidates.first() {
                     if let Some(parts) = &candidate.content.parts {
                         for part in parts {
@@ -156,12 +173,6 @@ impl LlmClient for GeminiRustClient {
                         }
                     }
                     if candidate.finish_reason.is_some() {
-                        if let Some(usage) = chunk.usage_metadata {
-                            out.push(Ok(ResponseChunk::Usage {
-                                input_tokens: usage.prompt_token_count as u32,
-                                output_tokens: usage.candidates_token_count.unwrap_or(0) as u32,
-                            }));
-                        }
                         out.push(Ok(ResponseChunk::Done));
                     }
                 }
