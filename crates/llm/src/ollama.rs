@@ -21,7 +21,8 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::{
-    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, JsonResult, LlmClient,
+    ResponseChunk, ToolCall,
 };
 
 pub struct OllamaClient {
@@ -80,8 +81,11 @@ impl LlmClient for OllamaClient {
                     }
                     ChatMessage::Tool(t) => {
                         let content_str = match t.content {
-                            Value::String(s) => s,
-                            v => v.to_string(),
+                            JsonResult::Content { content } => match content {
+                                Value::String(s) => s,
+                                v => v.to_string(),
+                            },
+                            JsonResult::Error { error } => error,
                         };
                         let mut msg = OllamaChatMessage::new(OllamaMessageRole::Tool, content_str);
                         msg.tool_name = Some(t.tool_name);

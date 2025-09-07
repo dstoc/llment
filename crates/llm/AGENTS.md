@@ -33,8 +33,7 @@ Trait-based LLM client implementations for multiple providers.
 - LLM clients
 - `LlmClient` trait streams chat responses and lists supported model names
   - implementations for Ollama, OpenAiChat, Harmony, and GeminiRust
-  - GeminiRust function responses place success data under an `output` field
-    - TODO: support the `error` field
+  - GeminiRust function responses place success data under an `output` field and errors under an `error` field
 - Harmony client uses `/completion` with Harmony format for `gpt-oss`
   - sends raw token arrays via `llama_server_completion`
   - sends a GBNF grammar that constrains tool call JSON to each tool's schema
@@ -60,7 +59,7 @@ Trait-based LLM client implementations for multiple providers.
 - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
     - `AssistantMessage` holds a `Vec<AssistantPart>` for text, tool calls, and thinking segments
     - tool calls include an `id` string, assigned locally when missing
-    - tool messages carry the same `id` and store `content` as `serde_json::Value`
+    - tool messages carry the same `id` and store results via `JsonResult` (`content` or `error`)
 - Chat message, request, and response types serialize to and from JSON
   - skips serializing fields that are `None`, empty strings, or empty arrays
 - Responses

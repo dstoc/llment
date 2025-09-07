@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use super::{
-    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
-    to_openapi_schema,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, JsonResult, LlmClient,
+    ResponseChunk, ToolCall, to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
 use async_trait::async_trait;
@@ -131,8 +131,11 @@ impl LlmClient for OpenAiChatClient {
                 }
                 ChatMessage::Tool(t) => {
                     let content_str = match &t.content {
-                        Value::String(s) => s.clone(),
-                        v => v.to_string(),
+                        JsonResult::Content { content } => match content {
+                            Value::String(s) => s.clone(),
+                            v => v.to_string(),
+                        },
+                        JsonResult::Error { error } => error.clone(),
                     };
                     serde_json::to_value(ChatCompletionRequestMessage::Tool(
                         ChatCompletionRequestToolMessageArgs::default()

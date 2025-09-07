@@ -13,8 +13,8 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::{
-    AssistantMessage, AssistantPart, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk,
-    ToolCall,
+    AssistantMessage, AssistantPart, ChatMessage, ChatMessageRequest, JsonResult, LlmClient,
+    ResponseChunk, ToolCall,
 };
 
 #[async_trait]
@@ -181,13 +181,15 @@ pub async fn run_tool_loop(
                             .unwrap_or_else(|_| Value::String(text.clone()));
                         chat_history.lock().unwrap().push(ChatMessage::tool(
                             call_id.clone(),
-                            content,
+                            JsonResult::Content { content },
                             name.clone(),
                         ));
                     }
                     Err(err) => chat_history.lock().unwrap().push(ChatMessage::tool(
                         call_id.clone(),
-                        Value::String(format!("Tool Failed: {}", err)),
+                        JsonResult::Error {
+                            error: format!("Tool Failed: {}", err),
+                        },
                         name.clone(),
                     )),
                 }
@@ -210,6 +212,7 @@ pub async fn run_tool_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::JsonResult;
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use tokio_stream::{self};
@@ -403,10 +406,12 @@ mod tests {
         let updated = history.lock().unwrap().clone();
         assert_eq!(updated.len(), 4);
         if let ChatMessage::Tool(t) = &updated[2] {
-            assert_eq!(
-                t.content,
-                Value::String("Tool Failed: Could not parse arguments as JSON".into())
-            );
+            match &t.content {
+                JsonResult::Error { error } => {
+                    assert_eq!(error, "Tool Failed: Could not parse arguments as JSON")
+                }
+                _ => panic!("expected tool failure message"),
+            }
         } else {
             panic!("expected tool failure message");
         }

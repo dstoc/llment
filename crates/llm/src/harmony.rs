@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use super::{
-    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
-    ToolInfo, to_openapi_schema,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, JsonResult, LlmClient,
+    ResponseChunk, ToolCall, ToolInfo, to_openapi_schema,
 };
 use crate::llama_server::{CompletionRequest, llama_server_completion};
 use async_trait::async_trait;
@@ -149,8 +149,11 @@ fn build_prompt(
             }
             ChatMessage::Tool(t) => {
                 let content_str = match &t.content {
-                    Value::String(s) => s.clone(),
-                    v => v.to_string(),
+                    JsonResult::Content { content } => match content {
+                        Value::String(s) => s.clone(),
+                        v => v.to_string(),
+                    },
+                    JsonResult::Error { error } => error.clone(),
                 };
                 convo_msgs.push(
                     Message::from_author_and_content(
@@ -355,7 +358,7 @@ impl LlmClient for HarmonyClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AssistantMessage, AssistantPart, ToolCall};
+    use crate::{AssistantMessage, AssistantPart, JsonResult, ToolCall};
     use serde_json::json;
 
     fn prompt_and_prefill(
@@ -460,7 +463,13 @@ mod tests {
                     arguments_invalid: None,
                 })],
             }),
-            ChatMessage::tool("1".into(), json!({"sum": 4}), "add".into()),
+            ChatMessage::tool(
+                "1".into(),
+                JsonResult::Content {
+                    content: json!({"sum": 4}),
+                },
+                "add".into(),
+            ),
         ]);
         assert!(prefill_tokens.is_none());
         let args = json!({"a": 2, "b": 2}).to_string();
