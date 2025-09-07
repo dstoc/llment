@@ -33,11 +33,11 @@ impl ChatMessage {
         Self::System(SystemMessage { content })
     }
 
-    pub fn tool(id: String, content: Value, tool_name: String) -> Self {
+    pub fn tool(id: String, content: JsonResult, tool_name: String) -> Self {
         Self::Tool(ToolMessage {
             id,
-            content,
             tool_name,
+            content,
         })
     }
 }
@@ -63,8 +63,25 @@ pub struct SystemMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolMessage {
     pub id: String,
-    pub content: Value,
     pub tool_name: String,
+    #[serde(flatten)]
+    pub content: JsonResult,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum JsonResult {
+    Content { content: Value },
+    Error { error: String },
+}
+
+impl JsonResult {
+    pub fn as_result(&self) -> Result<&Value, &str> {
+        match self {
+            JsonResult::Content { content } => Ok(content),
+            JsonResult::Error { error } => Err(error),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

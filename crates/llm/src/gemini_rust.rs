@@ -10,8 +10,8 @@ use reqwest::Client as HttpClient;
 use uuid::Uuid;
 
 use super::{
-    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
-    to_openapi_schema,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, JsonResult, LlmClient,
+    ResponseChunk, ToolCall, to_openapi_schema,
 };
 
 pub struct GeminiRustClient {
@@ -101,13 +101,20 @@ impl LlmClient for GeminiRustClient {
                         system_instruction = Some(s.content);
                     }
                 }
-                ChatMessage::Tool(t) => {
-                    builder = builder.with_function_response(
-                        t.tool_name,
-                        serde_json::json!({ "output": t.content }),
-                    );
-                    // TODO: Support the "error" field on tool responses.
-                }
+                ChatMessage::Tool(t) => match t.content {
+                    JsonResult::Content { content } => {
+                        builder = builder.with_function_response(
+                            t.tool_name,
+                            serde_json::json!({ "output": content }),
+                        );
+                    }
+                    JsonResult::Error { error } => {
+                        builder = builder.with_function_response(
+                            t.tool_name,
+                            serde_json::json!({ "error": error }),
+                        );
+                    }
+                },
             }
         }
         if let Some(si) = system_instruction {
