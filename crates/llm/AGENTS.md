@@ -43,7 +43,7 @@ Trait-based LLM client implementations for multiple providers.
   - tool-call rule appended to allow only declared tool names
   - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
-  - assistant parts render as individual Harmony messages, emitting thinking before final content when both are present
+  - assistant parts render as individual Harmony messages in their original order
   - the last assistant part is removed from the prompt and used as a prefill when it's text or thinking
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
   - tool calls render in the commentary channel with constrained JSON
