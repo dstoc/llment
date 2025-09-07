@@ -20,7 +20,9 @@ use ollama_rs::{
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::{ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall};
+use super::{
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+};
 
 pub struct OllamaClient {
     inner: Ollama,
@@ -51,18 +53,26 @@ impl LlmClient for OllamaClient {
                     }
                     ChatMessage::Assistant(a) => {
                         let mut msg =
-                            OllamaChatMessage::new(OllamaMessageRole::Assistant, a.content);
-                        msg.tool_calls = a
-                            .tool_calls
-                            .into_iter()
-                            .map(|tc| OllamaToolCall {
-                                function: OllamaToolCallFunction {
-                                    name: tc.name,
-                                    arguments: tc.arguments,
-                                },
-                            })
-                            .collect();
-                        msg.thinking = a.thinking;
+                            OllamaChatMessage::new(OllamaMessageRole::Assistant, String::new());
+                        for part in a.content {
+                            match part {
+                                AssistantPart::Text { text } => {
+                                    msg.content.push_str(&text);
+                                }
+                                AssistantPart::ToolCall(tc) => {
+                                    msg.tool_calls.push(OllamaToolCall {
+                                        function: OllamaToolCallFunction {
+                                            name: tc.name,
+                                            arguments: tc.arguments,
+                                        },
+                                    });
+                                }
+                                AssistantPart::Thinking { text } => {
+                                    let thinking = msg.thinking.get_or_insert_with(String::new);
+                                    thinking.push_str(&text);
+                                }
+                            }
+                        }
                         msg
                     }
                     ChatMessage::System(s) => {

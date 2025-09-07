@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
     to_openapi_schema,
 };
 use async_openai::{Client, config::OpenAIConfig, types::*};
@@ -72,14 +72,23 @@ impl LlmClient for OpenAiChatClient {
                 )),
                 ChatMessage::Assistant(a) => {
                     let mut builder = ChatCompletionRequestAssistantMessageArgs::default();
-                    if !a.content.is_empty() {
+                    let mut content_acc = String::new();
+                    let mut thinking_acc = String::new();
+                    let mut tool_calls_acc: Vec<ToolCall> = Vec::new();
+                    for part in a.content {
+                        match part {
+                            AssistantPart::Text { text } => content_acc.push_str(&text),
+                            AssistantPart::Thinking { text } => thinking_acc.push_str(&text),
+                            AssistantPart::ToolCall(tc) => tool_calls_acc.push(tc),
+                        }
+                    }
+                    if !content_acc.is_empty() {
                         builder.content(ChatCompletionRequestAssistantMessageContent::Text(
-                            a.content,
+                            content_acc,
                         ));
                     }
-                    if !a.tool_calls.is_empty() {
-                        let tool_calls: Vec<ChatCompletionMessageToolCall> = a
-                            .tool_calls
+                    if !tool_calls_acc.is_empty() {
+                        let tool_calls: Vec<ChatCompletionMessageToolCall> = tool_calls_acc
                             .into_iter()
                             .map(|tc| {
                                 let args = tc
@@ -100,12 +109,12 @@ impl LlmClient for OpenAiChatClient {
                     let result = serde_json::to_value(ChatCompletionRequestMessage::Assistant(
                         builder.build().unwrap(),
                     ));
-                    if let Some(thinking) = a.thinking {
+                    if !thinking_acc.is_empty() {
                         result.map(|mut inner| {
-                            inner
-                                .as_object_mut()
-                                .unwrap()
-                                .insert("reasoning_content".to_string(), Value::String(thinking));
+                            inner.as_object_mut().unwrap().insert(
+                                "reasoning_content".to_string(),
+                                Value::String(thinking_acc),
+                            );
                             inner
                         })
                     } else {

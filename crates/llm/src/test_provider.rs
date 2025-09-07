@@ -100,7 +100,11 @@ mod tests {
         let updated = history.lock().unwrap().clone();
         let final_msg = updated.last().unwrap();
         if let ChatMessage::Assistant(a) = final_msg {
-            assert_eq!(a.content, "final");
+            assert_eq!(a.content.len(), 1);
+            match &a.content[0] {
+                crate::AssistantPart::Text { text } => assert_eq!(text, "final"),
+                _ => panic!("expected text part"),
+            }
         } else {
             panic!("expected assistant message");
         }

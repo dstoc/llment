@@ -1,8 +1,8 @@
 use std::error::Error;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall, ToolInfo,
-    to_openapi_schema,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    ToolInfo, to_openapi_schema,
 };
 use crate::llama_server::{CompletionRequest, llama_server_completion};
 use async_trait::async_trait;
@@ -109,7 +109,7 @@ fn build_prompt(
         system_msgs.push(Message::from_role_and_content(Role::Developer, developer));
     }
     let mut convo_msgs = system_msgs;
-    for msg in &other_msgs {
+    for (idx, msg) in other_msgs.iter().enumerate() {
         match msg {
             ChatMessage::User(u) => {
                 convo_msgs.push(Message::from_role_and_content(
@@ -118,31 +118,42 @@ fn build_prompt(
                 ));
             }
             ChatMessage::Assistant(a) => {
-                if let Some(thinking) = &a.thinking {
-                    if !thinking.is_empty() && a.content.is_empty() {
-                        convo_msgs.push(
-                            Message::from_role_and_content(Role::Assistant, thinking.clone())
-                                .with_channel("analysis"),
-                        );
+                let has_text = a
+                    .content
+                    .iter()
+                    .any(|p| matches!(p, AssistantPart::Text { .. }));
+                let is_last_msg = idx == other_msgs.len() - 1;
+                for part in &a.content {
+                    match part {
+                        AssistantPart::Thinking { text } => {
+                            if !text.is_empty() && (!has_text || is_last_msg) {
+                                convo_msgs.push(
+                                    Message::from_role_and_content(Role::Assistant, text.clone())
+                                        .with_channel("analysis"),
+                                );
+                            }
+                        }
+                        AssistantPart::Text { text } => {
+                            if !text.is_empty() {
+                                convo_msgs.push(
+                                    Message::from_role_and_content(Role::Assistant, text.clone())
+                                        .with_channel("final"),
+                                );
+                            }
+                        }
+                        AssistantPart::ToolCall(tc) => {
+                            let args = tc
+                                .arguments_invalid
+                                .clone()
+                                .unwrap_or_else(|| tc.arguments.to_string());
+                            convo_msgs.push(
+                                Message::from_role_and_content(Role::Assistant, args)
+                                    .with_channel("commentary")
+                                    .with_recipient(format!("functions.{}", tc.name))
+                                    .with_content_type("<|constrain|>json"),
+                            );
+                        }
                     }
-                }
-                for tc in &a.tool_calls {
-                    let args = tc
-                        .arguments_invalid
-                        .clone()
-                        .unwrap_or_else(|| tc.arguments.to_string());
-                    convo_msgs.push(
-                        Message::from_role_and_content(Role::Assistant, args)
-                            .with_channel("commentary")
-                            .with_recipient(format!("functions.{}", tc.name))
-                            .with_content_type("<|constrain|>json"),
-                    );
-                }
-                if !a.content.is_empty() {
-                    convo_msgs.push(
-                        Message::from_role_and_content(Role::Assistant, a.content.clone())
-                            .with_channel("final"),
-                    );
                 }
             }
             ChatMessage::Tool(t) => {
@@ -165,29 +176,47 @@ fn build_prompt(
     let mut prefill: Option<String> = None;
     let mut root = GrammarRoot::Harmony;
     if let Some(ChatMessage::Assistant(a)) = other_msgs.last() {
-        if a.tool_calls.is_empty() {
-            let thinking = a.thinking.as_deref().unwrap_or("");
-            let content = a.content.as_str();
-            match (thinking.is_empty(), content.is_empty()) {
-                (false, true) => {
-                    convo_msgs.pop();
-                    prefill = Some(format!("<|channel|>analysis<|message|>{}", thinking));
-                    root = GrammarRoot::PrefillThinking;
+        if !a
+            .content
+            .iter()
+            .any(|p| matches!(p, AssistantPart::ToolCall(_)))
+        {
+            let mut thinking_parts = Vec::new();
+            let mut text_parts = Vec::new();
+            for part in &a.content {
+                match part {
+                    AssistantPart::Thinking { text } => thinking_parts.push(text.clone()),
+                    AssistantPart::Text { text } => text_parts.push(text.clone()),
+                    AssistantPart::ToolCall(_) => {}
                 }
-                (true, false) => {
+            }
+            let total_parts = thinking_parts.len() + text_parts.len();
+            if total_parts > 0 {
+                for _ in 0..total_parts {
                     convo_msgs.pop();
-                    prefill = Some(format!("<|channel|>final<|message|>{}", content));
-                    root = GrammarRoot::PrefillContent;
                 }
-                (false, false) => {
-                    convo_msgs.pop();
-                    prefill = Some(format!(
-                        "<|channel|>analysis<|message|>{}<|end|><|start|>assistant<|channel|>final<|message|>{}",
-                        thinking, content
-                    ));
-                    root = GrammarRoot::PrefillContent;
+                let mut pf = String::new();
+                let mut first = true;
+                for text in &thinking_parts {
+                    if !first {
+                        pf.push_str("<|end|><|start|>assistant");
+                    }
+                    pf.push_str(&format!("<|channel|>analysis<|message|>{}", text));
+                    first = false;
                 }
-                _ => {}
+                for text in &text_parts {
+                    if !first {
+                        pf.push_str("<|end|><|start|>assistant");
+                    }
+                    pf.push_str(&format!("<|channel|>final<|message|>{}", text));
+                    first = false;
+                }
+                prefill = Some(pf);
+                root = if text_parts.is_empty() {
+                    GrammarRoot::PrefillThinking
+                } else {
+                    GrammarRoot::PrefillContent
+                };
             }
         }
     }
@@ -340,7 +369,7 @@ impl LlmClient for HarmonyClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AssistantMessage, ToolCall};
+    use crate::{AssistantMessage, AssistantPart, ToolCall};
     use serde_json::json;
 
     fn prompt_and_prefill(
@@ -370,9 +399,9 @@ mod tests {
         let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("Hi".into()),
             ChatMessage::Assistant(AssistantMessage {
-                content: String::new(),
-                tool_calls: vec![],
-                thinking: Some("ponder".into()),
+                content: vec![AssistantPart::Thinking {
+                    text: "ponder".into(),
+                }],
             }),
         ]);
         assert!(prefill_tokens.is_some());
@@ -400,15 +429,25 @@ mod tests {
         let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("Hi".into()),
             ChatMessage::Assistant(AssistantMessage {
-                content: "Hello".into(),
-                tool_calls: vec![],
-                thinking: Some("ponder".into()),
+                content: vec![
+                    AssistantPart::Text {
+                        text: "Hello".into(),
+                    },
+                    AssistantPart::Thinking {
+                        text: "ponder".into(),
+                    },
+                ],
             }),
             ChatMessage::user("How are you?".into()),
             ChatMessage::Assistant(AssistantMessage {
-                content: "I'm good".into(),
-                tool_calls: vec![],
-                thinking: Some("think".into()),
+                content: vec![
+                    AssistantPart::Text {
+                        text: "I'm good".into(),
+                    },
+                    AssistantPart::Thinking {
+                        text: "think".into(),
+                    },
+                ],
             }),
         ]);
         assert!(prefill_tokens.is_some());
@@ -428,14 +467,12 @@ mod tests {
         let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("2+2?".into()),
             ChatMessage::Assistant(AssistantMessage {
-                content: String::new(),
-                tool_calls: vec![ToolCall {
+                content: vec![AssistantPart::ToolCall(ToolCall {
                     id: "1".into(),
                     name: "add".into(),
                     arguments: json!({"a": 2, "b": 2}),
                     arguments_invalid: None,
-                }],
-                thinking: None,
+                })],
             }),
             ChatMessage::tool("1".into(), json!({"sum": 4}), "add".into()),
         ]);

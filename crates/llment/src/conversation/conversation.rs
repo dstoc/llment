@@ -1,5 +1,5 @@
 use crossterm::event::{Event, MouseButton, MouseEventKind};
-use llm::ChatMessage;
+use llm::{AssistantPart, ChatMessage};
 use ratatui::{Frame, layout::Rect};
 use serde_json::to_string;
 
@@ -300,26 +300,31 @@ impl Conversation {
                     self.push_user(u.content.clone());
                 }
                 ChatMessage::Assistant(a) => {
-                    if let Some(thinking) = &a.thinking {
-                        if !thinking.is_empty() {
-                            self.append_thinking(thinking);
+                    for part in &a.content {
+                        match part {
+                            AssistantPart::Thinking { text } => {
+                                if !text.is_empty() {
+                                    self.append_thinking(text);
+                                }
+                            }
+                            AssistantPart::Text { text } => {
+                                if !text.is_empty() {
+                                    self.append_response(text);
+                                }
+                            }
+                            AssistantPart::ToolCall(call) => {
+                                let args = call.arguments_invalid.clone().unwrap_or_else(|| {
+                                    to_string(&call.arguments).unwrap_or_default()
+                                });
+                                self.add_tool_step(ToolStep::new(
+                                    call.name.clone(),
+                                    call.id.clone(),
+                                    args,
+                                    String::new(),
+                                    false,
+                                ));
+                            }
                         }
-                    }
-                    if !a.content.is_empty() {
-                        self.append_response(&a.content);
-                    }
-                    for call in &a.tool_calls {
-                        let args = call
-                            .arguments_invalid
-                            .clone()
-                            .unwrap_or_else(|| to_string(&call.arguments).unwrap_or_default());
-                        self.add_tool_step(ToolStep::new(
-                            call.name.clone(),
-                            call.id.clone(),
-                            args,
-                            String::new(),
-                            false,
-                        ));
                     }
                 }
                 ChatMessage::Tool(tmsg) => {
