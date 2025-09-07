@@ -1,5 +1,5 @@
 use crossterm::event::{Event, MouseButton, MouseEventKind};
-use llm::{AssistantPart, ChatMessage};
+use llm::{AssistantPart, ChatMessage, JsonResult};
 use ratatui::{Frame, layout::Rect};
 use serde_json::to_string;
 
@@ -328,12 +328,16 @@ impl Conversation {
                     }
                 }
                 ChatMessage::Tool(tmsg) => {
-                    if !self.update_tool_result(&tmsg.id, tmsg.content.to_string(), false) {
+                    let result = match &tmsg.content {
+                        JsonResult::Content { content } => to_string(content).unwrap_or_default(),
+                        JsonResult::Error { error } => error.clone(),
+                    };
+                    if !self.update_tool_result(&tmsg.id, result.clone(), false) {
                         let mut step = ToolStep::new(
                             tmsg.tool_name.clone(),
                             tmsg.id.clone(),
                             String::new(),
-                            tmsg.content.to_string(),
+                            result,
                             false,
                         );
                         step.done = true;
