@@ -109,6 +109,7 @@ fn build_prompt(
         system_msgs.push(Message::from_role_and_content(Role::Developer, developer));
     }
     let mut convo_msgs = system_msgs;
+    let mut last_assistant_parts = 0usize;
     for (idx, msg) in other_msgs.iter().enumerate() {
         match msg {
             ChatMessage::User(u) => {
@@ -123,36 +124,57 @@ fn build_prompt(
                     .iter()
                     .any(|p| matches!(p, AssistantPart::Text { .. }));
                 let is_last_msg = idx == other_msgs.len() - 1;
+
+                let thinking_parts: Vec<&String> = a
+                    .content
+                    .iter()
+                    .filter_map(|p| match p {
+                        AssistantPart::Thinking { text } => Some(text),
+                        _ => None,
+                    })
+                    .collect();
+                let text_parts: Vec<&String> = a
+                    .content
+                    .iter()
+                    .filter_map(|p| match p {
+                        AssistantPart::Text { text } => Some(text),
+                        _ => None,
+                    })
+                    .collect();
+                if !thinking_parts.is_empty() && (!has_text || is_last_msg) {
+                    for text in &thinking_parts {
+                        convo_msgs.push(
+                            Message::from_role_and_content(Role::Assistant, (*text).clone())
+                                .with_channel("analysis"),
+                        );
+                        if is_last_msg {
+                            last_assistant_parts += 1;
+                        }
+                    }
+                }
+                for text in &text_parts {
+                    if !text.is_empty() {
+                        convo_msgs.push(
+                            Message::from_role_and_content(Role::Assistant, (*text).clone())
+                                .with_channel("final"),
+                        );
+                        if is_last_msg {
+                            last_assistant_parts += 1;
+                        }
+                    }
+                }
                 for part in &a.content {
-                    match part {
-                        AssistantPart::Thinking { text } => {
-                            if !text.is_empty() && (!has_text || is_last_msg) {
-                                convo_msgs.push(
-                                    Message::from_role_and_content(Role::Assistant, text.clone())
-                                        .with_channel("analysis"),
-                                );
-                            }
-                        }
-                        AssistantPart::Text { text } => {
-                            if !text.is_empty() {
-                                convo_msgs.push(
-                                    Message::from_role_and_content(Role::Assistant, text.clone())
-                                        .with_channel("final"),
-                                );
-                            }
-                        }
-                        AssistantPart::ToolCall(tc) => {
-                            let args = tc
-                                .arguments_invalid
-                                .clone()
-                                .unwrap_or_else(|| tc.arguments.to_string());
-                            convo_msgs.push(
-                                Message::from_role_and_content(Role::Assistant, args)
-                                    .with_channel("commentary")
-                                    .with_recipient(format!("functions.{}", tc.name))
-                                    .with_content_type("<|constrain|>json"),
-                            );
-                        }
+                    if let AssistantPart::ToolCall(tc) = part {
+                        let args = tc
+                            .arguments_invalid
+                            .clone()
+                            .unwrap_or_else(|| tc.arguments.to_string());
+                        convo_msgs.push(
+                            Message::from_role_and_content(Role::Assistant, args)
+                                .with_channel("commentary")
+                                .with_recipient(format!("functions.{}", tc.name))
+                                .with_content_type("<|constrain|>json"),
+                        );
                     }
                 }
             }
@@ -176,48 +198,40 @@ fn build_prompt(
     let mut prefill: Option<String> = None;
     let mut root = GrammarRoot::Harmony;
     if let Some(ChatMessage::Assistant(a)) = other_msgs.last() {
-        if !a
-            .content
-            .iter()
-            .any(|p| matches!(p, AssistantPart::ToolCall(_)))
+        if last_assistant_parts > 0
+            && !a
+                .content
+                .iter()
+                .any(|p| matches!(p, AssistantPart::ToolCall(_)))
         {
-            let mut thinking_parts = Vec::new();
-            let mut text_parts = Vec::new();
-            for part in &a.content {
-                match part {
-                    AssistantPart::Thinking { text } => thinking_parts.push(text.clone()),
-                    AssistantPart::Text { text } => text_parts.push(text.clone()),
-                    AssistantPart::ToolCall(_) => {}
-                }
+            for _ in 0..last_assistant_parts {
+                convo_msgs.pop();
             }
-            let total_parts = thinking_parts.len() + text_parts.len();
-            if total_parts > 0 {
-                for _ in 0..total_parts {
-                    convo_msgs.pop();
+            let mut pf = String::new();
+            let mut first = true;
+            for text in a.content.iter().filter_map(|p| match p {
+                AssistantPart::Thinking { text } => Some(text),
+                _ => None,
+            }) {
+                if !first {
+                    pf.push_str("<|end|><|start|>assistant");
                 }
-                let mut pf = String::new();
-                let mut first = true;
-                for text in &thinking_parts {
-                    if !first {
-                        pf.push_str("<|end|><|start|>assistant");
-                    }
-                    pf.push_str(&format!("<|channel|>analysis<|message|>{}", text));
-                    first = false;
-                }
-                for text in &text_parts {
-                    if !first {
-                        pf.push_str("<|end|><|start|>assistant");
-                    }
-                    pf.push_str(&format!("<|channel|>final<|message|>{}", text));
-                    first = false;
-                }
-                prefill = Some(pf);
-                root = if text_parts.is_empty() {
-                    GrammarRoot::PrefillThinking
-                } else {
-                    GrammarRoot::PrefillContent
-                };
+                pf.push_str(&format!("<|channel|>analysis<|message|>{}", text));
+                root = GrammarRoot::PrefillThinking;
+                first = false;
             }
+            for text in a.content.iter().filter_map(|p| match p {
+                AssistantPart::Text { text } => Some(text),
+                _ => None,
+            }) {
+                if !first {
+                    pf.push_str("<|end|><|start|>assistant");
+                }
+                pf.push_str(&format!("<|channel|>final<|message|>{}", text));
+                root = GrammarRoot::PrefillContent;
+                first = false;
+            }
+            prefill = Some(pf);
         }
     }
     let conversation = Conversation::from_messages(convo_msgs);
