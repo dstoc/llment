@@ -43,6 +43,7 @@ Trait-based LLM client implementations for multiple providers.
   - tool-call rule appended to allow only declared tool names
   - Harmony client builds prompts via helper that handles thinking, final, or both segments when the last history message is from the assistant and emits optional prefills accordingly
   - analysis segments preceding final content are omitted from prompts unless the final message is prefilled
+  - assistant parts render as individual Harmony messages, emitting thinking before final content when both are present
   - streaming parser is primed with prefill tokens so continuation in the same channel is captured
   - tool calls render in the commentary channel with constrained JSON
   - tool responses map to tool role messages in the commentary channel addressed to the assistant
@@ -55,7 +56,8 @@ Trait-based LLM client implementations for multiple providers.
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
   - tool calls hold name and arguments directly and preserve unparseable argument strings
   - tool info stores name, description, and parameters without wrapper enums
-  - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
+- chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
+    - `AssistantMessage` holds a `Vec<AssistantPart>` for text, tool calls, and thinking segments
     - tool calls include an `id` string, assigned locally when missing
     - tool messages carry the same `id` and store `content` as `serde_json::Value`
 - Chat message, request, and response types serialize to and from JSON

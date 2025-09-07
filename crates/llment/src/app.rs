@@ -14,7 +14,7 @@ use crate::{
 };
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, Provider, ResponseChunk,
+    AssistantPart, ChatMessage, ChatMessageRequest, Provider, ResponseChunk,
     mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -481,9 +481,9 @@ impl Component for App {
                     let mut history = self.chat_history.lock().unwrap();
                     let len_before = history.len();
                     history.retain(|msg| match msg {
-                        ChatMessage::Assistant(a) => {
-                            !(a.content.is_empty() && a.tool_calls.is_empty())
-                        }
+                        ChatMessage::Assistant(a) => a.content.iter().any(|p| {
+                            matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))
+                        }),
                         _ => true,
                     });
                     if history.len() != len_before {

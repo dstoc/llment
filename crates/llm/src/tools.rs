@@ -13,7 +13,8 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::{
-    AssistantMessage, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk, ToolCall,
+    AssistantMessage, AssistantPart, ChatMessage, ChatMessageRequest, LlmClient, ResponseChunk,
+    ToolCall,
 };
 
 #[async_trait]
@@ -104,19 +105,21 @@ pub async fn run_tool_loop(
                         .lock()
                         .unwrap()
                         .push(ChatMessage::Assistant(AssistantMessage {
-                            content,
-                            tool_calls: vec![],
-                            thinking: None,
+                            content: vec![AssistantPart::Text { text: content }],
                         }));
+                }
+                let mut parts: Vec<AssistantPart> = tool_calls
+                    .clone()
+                    .into_iter()
+                    .map(AssistantPart::ToolCall)
+                    .collect();
+                if let Some(thinking) = assistant_thinking.take() {
+                    parts.insert(0, AssistantPart::Thinking { text: thinking });
                 }
                 chat_history
                     .lock()
                     .unwrap()
-                    .push(ChatMessage::Assistant(AssistantMessage {
-                        content: "".into(),
-                        tool_calls: tool_calls.clone(),
-                        thinking: assistant_thinking.take(),
-                    }));
+                    .push(ChatMessage::Assistant(AssistantMessage { content: parts }));
             }
             tx.send(ToolEvent::Chunk(chunk)).ok();
             for call in tool_calls {
@@ -155,14 +158,17 @@ pub async fn run_tool_loop(
             }
         }
         if assistant_content.is_some() || assistant_thinking.is_some() {
+            let mut parts: Vec<AssistantPart> = Vec::new();
+            if let Some(thinking) = assistant_thinking.take() {
+                parts.push(AssistantPart::Thinking { text: thinking });
+            }
+            if let Some(content) = assistant_content.take() {
+                parts.push(AssistantPart::Text { text: content });
+            }
             chat_history
                 .lock()
                 .unwrap()
-                .push(ChatMessage::Assistant(AssistantMessage {
-                    content: assistant_content.unwrap_or_default(),
-                    tool_calls: Vec::new(),
-                    thinking: assistant_thinking,
-                }));
+                .push(ChatMessage::Assistant(AssistantMessage { content: parts }));
         }
         if handles.is_empty() {
             break;
@@ -277,23 +283,32 @@ mod tests {
         // First assistant message should contain the preamble content with no tool calls
         let preamble_msg = &updated[1];
         if let ChatMessage::Assistant(a) = preamble_msg {
-            assert_eq!(a.tool_calls.len(), 0);
-            assert_eq!(a.content, "first");
+            assert_eq!(a.content.len(), 1);
+            match &a.content[0] {
+                AssistantPart::Text { text } => assert_eq!(text, "first"),
+                _ => panic!("expected text part"),
+            }
         } else {
             panic!("expected assistant preamble message");
         }
-        // Next assistant message should carry the tool call with empty content
+        // Next assistant message should carry the tool call
         let call_msg = &updated[2];
         if let ChatMessage::Assistant(a) = call_msg {
-            assert_eq!(a.tool_calls.len(), 1);
-            assert_eq!(a.tool_calls[0].name, "test");
-            assert_eq!(a.content, "");
+            assert_eq!(a.content.len(), 1);
+            match &a.content[0] {
+                AssistantPart::ToolCall(tc) => assert_eq!(tc.name, "test"),
+                _ => panic!("expected tool call part"),
+            }
         } else {
             panic!("expected assistant message with tool call");
         }
         let final_msg = updated.last().unwrap();
         if let ChatMessage::Assistant(a) = final_msg {
-            assert_eq!(a.content, "final");
+            assert_eq!(a.content.len(), 1);
+            match &a.content[0] {
+                AssistantPart::Text { text } => assert_eq!(text, "final"),
+                _ => panic!("expected text part"),
+            }
         } else {
             panic!("expected assistant message");
         }

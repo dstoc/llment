@@ -10,7 +10,7 @@ use reqwest::Client as HttpClient;
 use uuid::Uuid;
 
 use super::{
-    ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
+    AssistantPart, ChatMessage, ChatMessageRequest, ChatStream, LlmClient, ResponseChunk, ToolCall,
     to_openapi_schema,
 };
 
@@ -62,27 +62,35 @@ impl LlmClient for GeminiRustClient {
                     builder = builder.with_user_message(u.content);
                 }
                 ChatMessage::Assistant(a) => {
-                    if !a.tool_calls.is_empty() {
-                        let parts: Vec<Part> = a
-                            .tool_calls
-                            .into_iter()
-                            .map(|tc| Part::FunctionCall {
-                                function_call: gemini_rust::FunctionCall::new(
-                                    tc.name,
-                                    tc.arguments,
-                                ),
-                            })
-                            .collect();
+                    let mut parts_vec: Vec<Part> = Vec::new();
+                    for part in a.content {
+                        match part {
+                            AssistantPart::Text { text } => {
+                                parts_vec.push(Part::Text {
+                                    text,
+                                    thought: None,
+                                });
+                            }
+                            AssistantPart::ToolCall(tc) => {
+                                parts_vec.push(Part::FunctionCall {
+                                    function_call: gemini_rust::FunctionCall::new(
+                                        tc.name,
+                                        tc.arguments,
+                                    ),
+                                });
+                            }
+                            AssistantPart::Thinking { .. } => {}
+                        }
+                    }
+                    if !parts_vec.is_empty() {
                         let content = Content {
-                            parts: Some(parts),
+                            parts: Some(parts_vec),
                             role: Some(Role::Model),
                         };
                         builder = builder.with_message(Message {
                             content,
                             role: Role::Model,
                         });
-                    } else if !a.content.is_empty() {
-                        builder = builder.with_model_message(a.content);
                     }
                 }
                 ChatMessage::System(s) => {
