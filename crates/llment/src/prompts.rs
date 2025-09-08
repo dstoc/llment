@@ -6,6 +6,26 @@ use std::{
     path::{Path, PathBuf},
 };
 
+fn collect_files(dir: &Path) -> Vec<String> {
+    fn recurse(path: &Path, base: &Path, out: &mut Vec<String>) {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    recurse(&path, base, out);
+                } else if path.is_file() {
+                    if let Ok(rel) = path.strip_prefix(base) {
+                        out.push(rel.to_string_lossy().replace('\\', "/"));
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    recurse(dir, dir, &mut out);
+    out
+}
+
 #[derive(RustEmbed)]
 #[folder = "prompts"]
 pub(crate) struct PromptAssets;
@@ -29,13 +49,14 @@ pub(crate) fn load_prompt(
     let enabled_tools: HashSet<String> = enabled_tools.into_iter().collect();
     let mut env = Environment::new();
     let prompt_dir = prompt_dir.map(PathBuf::from);
+    let loader_dir = prompt_dir.clone();
     env.set_loader(move |name| {
         let mut candidates: Vec<String> = vec![name.to_string()];
         if !name.ends_with(".md") {
             candidates.push(format!("{}.md", name));
         }
         for candidate in candidates {
-            if let Some(dir) = &prompt_dir {
+            if let Some(dir) = &loader_dir {
                 let path = dir.join(&candidate);
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     return Ok(Some(content));
@@ -48,17 +69,28 @@ pub(crate) fn load_prompt(
         }
         Ok(None)
     });
+    let glob_dir = prompt_dir;
     env.add_function(
         "glob",
-        |pattern: String| -> Result<Vec<String>, minijinja::Error> {
+        move |pattern: String| -> Result<Vec<String>, minijinja::Error> {
             let glob = Glob::new(&pattern).map_err(|e| {
                 minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())
             })?;
             let matcher = glob.compile_matcher();
-            let mut matches: Vec<String> = Assets::iter()
-                .map(|f| f.as_ref().to_string())
-                .filter(|name| matcher.is_match(name))
-                .collect();
+            let mut set: HashSet<String> = HashSet::new();
+            if let Some(dir) = &glob_dir {
+                for name in collect_files(dir) {
+                    if matcher.is_match(&name) {
+                        set.insert(name);
+                    }
+                }
+            }
+            for name in Assets::iter().map(|f| f.as_ref().to_string()) {
+                if matcher.is_match(&name) {
+                    set.insert(name);
+                }
+            }
+            let mut matches: Vec<String> = set.into_iter().collect();
             matches.sort();
             Ok(matches)
         },
@@ -110,6 +142,17 @@ mod tests {
     #[test]
     fn load_md_with_glob() {
         let content = load_prompt("sys/glob", None, Vec::new(), None).unwrap();
+        assert!(content.contains("You are a helpful assistant."));
+    }
+
+    #[test]
+    fn glob_merges_override_and_assets() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("sys")).unwrap();
+        fs::write(dir.path().join("sys/custom.md"), "Custom").unwrap();
+
+        let content = load_prompt("sys/glob", None, Vec::new(), Some(dir.path())).unwrap();
+        assert!(content.contains("Custom"));
         assert!(content.contains("You are a helpful assistant."));
     }
 

@@ -79,6 +79,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - `.md` files are rendered with miniJinja and may include other templates via `{% include %}`
           - includes check the override directory before embedded assets
         - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
+          - results merge filenames from the override directory and embedded assets
         - templates may call `tool_enabled("name")` to check for available tools
         - parameters correspond to `prompts/` paths without the extension
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
@@ -143,6 +144,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - `/prompt` and `/role` commands use embedded prompt assets via `prompts::load_prompt`
   - prompt assets and the `load_prompt` helper reside in `src/prompts.rs`
     - `load_prompt` registers `glob("pattern")`, `tool_enabled("name")`, and `role()` functions for templates
+      - `glob` merges results from the override directory with embedded assets
 - Bespoke component framework
   - `Component` trait defines `init`, `handle_event`, `update`, `render`
   - `App` orchestrates event handling, updates, and rendering via `tokio::sync::watch` channels
