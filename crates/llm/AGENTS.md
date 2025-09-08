@@ -54,7 +54,7 @@ Trait-based LLM client implementations for multiple providers.
 - Tool schemas
   - `to_openapi_schema` strips `$schema` and converts unsigned ints to signed formats
 - Core message and tool types defined locally instead of re-exporting from `ollama-rs`
-  - tool calls hold name and arguments directly and preserve unparseable argument strings
+  - tool calls hold name and arguments via `JsonResult`, preserving unparseable argument strings in the `error` variant
   - tool info stores name, description, and parameters without wrapper enums
 - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
     - `AssistantMessage` holds a `Vec<AssistantPart>` for text, tool calls, and thinking segments
@@ -75,7 +75,7 @@ Trait-based LLM client implementations for multiple providers.
   - `tool_event_stream` spawns the loop and yields `ToolEvent`s
     - `RequestStarted` fires when a new request is sent
     - join handle resolves on completion with history updated in place
-    - `ToolStarted` events include original argument strings when parsing fails
+    - `ToolStarted` events carry arguments as `JsonResult` and include original argument strings when parsing fails
     - `ToolStarted` and `ToolResult` keep the original `ToolCall` id
   - tool calls with invalid arguments skip executor invocation and return "Could not parse arguments as JSON"
 - `mcp` module

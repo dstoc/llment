@@ -133,10 +133,10 @@ fn build_prompt(
                             );
                         }
                         AssistantPart::ToolCall(tc) => {
-                            let args = tc
-                                .arguments_invalid
-                                .clone()
-                                .unwrap_or_else(|| tc.arguments.to_string());
+                            let args = match &tc.arguments {
+                                JsonResult::Content { content } => content.to_string(),
+                                JsonResult::Error { error } => error.clone(),
+                            };
                             convo_msgs.push(
                                 Message::from_role_and_content(Role::Assistant, args)
                                     .with_channel("commentary")
@@ -320,15 +320,16 @@ impl LlmClient for HarmonyClient {
                     if let Some(recipient) = &msg.recipient {
                         if let Some(name) = recipient.strip_prefix("functions.") {
                             if let Some(Content::Text(TextContent { text })) = msg.content.first() {
-                                let (args, args_invalid) = match serde_json::from_str(text) {
-                                    Ok(v) => (v, None),
-                                    Err(_) => (Value::Null, Some(text.clone())),
+                                let arguments = match serde_json::from_str(text) {
+                                    Ok(v) => JsonResult::Content { content: v },
+                                    Err(_) => JsonResult::Error {
+                                        error: text.clone(),
+                                    },
                                 };
                                 out.push(Ok(ResponseChunk::ToolCall(ToolCall {
                                     id: Uuid::new_v4().to_string(),
                                     name: name.to_string(),
-                                    arguments: args,
-                                    arguments_invalid: args_invalid,
+                                    arguments,
                                 })));
                             }
                         }
@@ -459,8 +460,9 @@ mod tests {
                 content: vec![AssistantPart::ToolCall(ToolCall {
                     id: "1".into(),
                     name: "add".into(),
-                    arguments: json!({"a": 2, "b": 2}),
-                    arguments_invalid: None,
+                    arguments: JsonResult::Content {
+                        content: json!({"a": 2, "b": 2}),
+                    },
                 })],
             }),
             ChatMessage::tool(

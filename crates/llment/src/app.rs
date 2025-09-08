@@ -14,7 +14,7 @@ use crate::{
 };
 use crossterm::event::Event;
 use llm::{
-    AssistantPart, ChatMessage, ChatMessageRequest, Provider, ResponseChunk,
+    AssistantPart, ChatMessage, ChatMessageRequest, JsonResult, Provider, ResponseChunk,
     mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -228,11 +228,13 @@ impl App {
                 call_id,
                 name,
                 args,
-                args_invalid,
             } => {
                 self.state = ConversationState::CallingTool(name.clone());
                 let _ = self.model.needs_redraw.send(true);
-                let arg_str = args_invalid.unwrap_or_else(|| args.to_string());
+                let arg_str = match args {
+                    JsonResult::Content { content } => content.to_string(),
+                    JsonResult::Error { error } => error,
+                };
                 self.conversation.add_tool_step(ToolStep::new(
                     name,
                     call_id,

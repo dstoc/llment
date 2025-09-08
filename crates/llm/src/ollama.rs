@@ -61,10 +61,14 @@ impl LlmClient for OllamaClient {
                                     msg.content.push_str(&text);
                                 }
                                 AssistantPart::ToolCall(tc) => {
+                                    let args = match tc.arguments {
+                                        JsonResult::Content { content } => content,
+                                        JsonResult::Error { .. } => Value::Null,
+                                    };
                                     msg.tool_calls.push(OllamaToolCall {
                                         function: OllamaToolCallFunction {
                                             name: tc.name,
-                                            arguments: tc.arguments,
+                                            arguments: args,
                                         },
                                     });
                                 }
@@ -130,8 +134,9 @@ impl LlmClient for OllamaClient {
                     .map(|tc| ToolCall {
                         id: Uuid::new_v4().to_string(),
                         name: tc.function.name,
-                        arguments: tc.function.arguments,
-                        arguments_invalid: None,
+                        arguments: JsonResult::Content {
+                            content: tc.function.arguments,
+                        },
                     })
                     .collect();
                 for tc in tool_calls {

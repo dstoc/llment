@@ -28,8 +28,7 @@ pub enum ToolEvent {
     ToolStarted {
         call_id: String,
         name: String,
-        args: Value,
-        args_invalid: Option<String>,
+        args: JsonResult,
     },
     ToolResult {
         call_id: String,
@@ -127,17 +126,19 @@ pub async fn run_tool_loop(
                     call_id: call.id.clone(),
                     name: call.name.clone(),
                     args: call.arguments.clone(),
-                    args_invalid: call.arguments_invalid.clone(),
                 })
                 .ok();
                 let executor = tool_executor.clone();
                 let name = call.name.clone();
                 let args = call.arguments.clone();
                 let call_id = call.id.clone();
-                let args_invalid = call.arguments_invalid.clone();
                 handles.spawn(async move {
-                    if args_invalid.is_some() {
-                        (
+                    match args {
+                        JsonResult::Content { content } => {
+                            let res = executor.call(&name, content).await;
+                            (call_id, name, res)
+                        }
+                        JsonResult::Error { .. } => (
                             call_id,
                             name,
                             Err::<String, Box<dyn Error + Send + Sync>>(Box::new(
@@ -146,10 +147,7 @@ pub async fn run_tool_loop(
                                     "Could not parse arguments as JSON",
                                 ),
                             )),
-                        )
-                    } else {
-                        let res = executor.call(&name, args).await;
-                        (call_id, name, res)
+                        ),
                     }
                 });
             }
@@ -235,8 +233,9 @@ mod tests {
                     Ok(ResponseChunk::ToolCall(crate::ToolCall {
                         id: "call-1".into(),
                         name: "test".into(),
-                        arguments: Value::Null,
-                        arguments_invalid: None,
+                        arguments: JsonResult::Content {
+                            content: Value::Null,
+                        },
                     })),
                     Ok(ResponseChunk::Done),
                 ],
@@ -351,8 +350,9 @@ mod tests {
                     Ok(ResponseChunk::ToolCall(crate::ToolCall {
                         id: "call-1".into(),
                         name: "test".into(),
-                        arguments: Value::Null,
-                        arguments_invalid: Some("nope".into()),
+                        arguments: JsonResult::Error {
+                            error: "nope".into(),
+                        },
                     })),
                     Ok(ResponseChunk::Done),
                 ],
