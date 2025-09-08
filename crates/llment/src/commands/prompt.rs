@@ -45,6 +45,10 @@ impl PromptCommandInstance {
         let mut names: Vec<String> = Assets::iter()
             .filter_map(|f| {
                 let name = f.as_ref();
+                if !name.starts_with("system/") {
+                    return None;
+                }
+                let name = name.strip_prefix("system/")?;
                 if name.contains('/') {
                     return None;
                 }
@@ -57,7 +61,8 @@ impl PromptCommandInstance {
             })
             .collect();
         if let Some(dir) = &self.prompt_dir {
-            if let Ok(entries) = std::fs::read_dir(dir) {
+            let system_dir = dir.join("system");
+            if let Ok(entries) = std::fs::read_dir(system_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {

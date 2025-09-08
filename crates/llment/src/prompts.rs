@@ -111,7 +111,7 @@ pub(crate) fn load_prompt(
     let role_clone = role_content.clone();
     env.add_function("role", move || Ok(role_clone.clone()));
 
-    if let Ok(tmpl) = env.get_template(name) {
+    if let Ok(tmpl) = env.get_template(&format!("system/{}", name)) {
         if let Ok(rendered) = tmpl.render(()) {
             return Some(rendered);
         }
@@ -127,13 +127,13 @@ mod tests {
 
     #[test]
     fn load_md_prompt() {
-        let content = load_prompt("sys/hello", None, Vec::new(), None).unwrap();
+        let content = load_prompt("hello", None, Vec::new(), None).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn load_md_with_include() {
-        let content = load_prompt("sys/outer", None, Vec::new(), None).unwrap();
+        let content = load_prompt("outer", None, Vec::new(), None).unwrap();
         assert!(content.contains("Outer."));
         assert!(content.contains("Inner."));
         assert!(content.contains("Deep."));
@@ -141,50 +141,50 @@ mod tests {
 
     #[test]
     fn load_md_with_glob() {
-        let content = load_prompt("sys/glob", None, Vec::new(), None).unwrap();
+        let content = load_prompt("glob", None, Vec::new(), None).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn glob_merges_override_and_assets() {
         let dir = tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("sys")).unwrap();
-        fs::write(dir.path().join("sys/custom.md"), "Custom").unwrap();
+        fs::create_dir_all(dir.path().join("system")).unwrap();
+        fs::write(dir.path().join("system/custom.md"), "Custom").unwrap();
 
-        let content = load_prompt("sys/glob", None, Vec::new(), Some(dir.path())).unwrap();
+        let content = load_prompt("glob", None, Vec::new(), Some(dir.path())).unwrap();
         assert!(content.contains("Custom"));
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn tool_enabled_fn() {
-        let content = load_prompt("sys/tool", None, vec!["shell.run".to_string()], None).unwrap();
+        let content = load_prompt("tool", None, vec!["shell.run".to_string()], None).unwrap();
         assert!(content.contains("Enabled!"));
-        let content = load_prompt("sys/tool", None, Vec::new(), None).unwrap();
+        let content = load_prompt("tool", None, Vec::new(), None).unwrap();
         assert!(content.contains("Disabled!"));
     }
 
     #[test]
     fn load_prompt_from_dir_overrides_assets() {
         let dir = tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("sys")).unwrap();
-        fs::write(dir.path().join("sys/hello.md"), "Override").unwrap();
+        fs::create_dir_all(dir.path().join("system")).unwrap();
+        fs::write(dir.path().join("system/hello.md"), "Override").unwrap();
 
-        let content = load_prompt("sys/hello", None, Vec::new(), Some(dir.path())).unwrap();
+        let content = load_prompt("hello", None, Vec::new(), Some(dir.path())).unwrap();
         assert_eq!(content, "Override");
     }
 
     #[test]
     fn load_include_from_dir_overrides_assets() {
         let dir = tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("sys")).unwrap();
+        fs::create_dir_all(dir.path().join("system")).unwrap();
         fs::write(
-            dir.path().join("sys/inner.md"),
-            "Override Inner. {% include \"sys/deep\" %}",
+            dir.path().join("system/inner.md"),
+            "Override Inner. {% include \"system/deep\" %}",
         )
         .unwrap();
 
-        let content = load_prompt("sys/outer", None, Vec::new(), Some(dir.path())).unwrap();
+        let content = load_prompt("outer", None, Vec::new(), Some(dir.path())).unwrap();
         assert!(content.contains("Outer."));
         assert!(content.contains("Override Inner."));
         assert!(content.contains("Deep."));
@@ -193,13 +193,12 @@ mod tests {
     #[test]
     fn load_role_from_dir() {
         let dir = tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("sys")).unwrap();
-        fs::write(dir.path().join("sys/role.md"), "Role: {{ role() }}").unwrap();
+        fs::create_dir_all(dir.path().join("system")).unwrap();
+        fs::write(dir.path().join("system/role.md"), "Role: {{ role() }}").unwrap();
         fs::create_dir_all(dir.path().join("roles")).unwrap();
         fs::write(dir.path().join("roles/custom.md"), "custom role").unwrap();
 
-        let content =
-            load_prompt("sys/role", Some("custom"), Vec::new(), Some(dir.path())).unwrap();
+        let content = load_prompt("role", Some("custom"), Vec::new(), Some(dir.path())).unwrap();
         assert_eq!(content, "Role: custom role");
     }
 }
