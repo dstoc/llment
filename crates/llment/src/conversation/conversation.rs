@@ -313,9 +313,12 @@ impl Conversation {
                                 }
                             }
                             AssistantPart::ToolCall(call) => {
-                                let args = call.arguments_invalid.clone().unwrap_or_else(|| {
-                                    to_string(&call.arguments).unwrap_or_default()
-                                });
+                                let args = match &call.arguments {
+                                    JsonResult::Content { content } => {
+                                        to_string(content).unwrap_or_default()
+                                    }
+                                    JsonResult::Error { error } => error.clone(),
+                                };
                                 self.add_tool_step(ToolStep::new(
                                     call.name.clone(),
                                     call.id.clone(),

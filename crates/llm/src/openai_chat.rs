@@ -91,9 +91,10 @@ impl LlmClient for OpenAiChatClient {
                         let tool_calls: Vec<ChatCompletionMessageToolCall> = tool_calls_acc
                             .into_iter()
                             .map(|tc| {
-                                let args = tc
-                                    .arguments_invalid
-                                    .unwrap_or_else(|| tc.arguments.to_string());
+                                let args = match &tc.arguments {
+                                    JsonResult::Content { content } => content.to_string(),
+                                    JsonResult::Error { error } => error.clone(),
+                                };
                                 ChatCompletionMessageToolCall {
                                     id: tc.id,
                                     r#type: ChatCompletionToolType::Function,
@@ -228,16 +229,16 @@ impl LlmClient for OpenAiChatClient {
                         if matches!(choice.finish_reason, Some(FinishReason::ToolCalls)) {
                             if !pending_tool_calls.is_empty() {
                                 for b in pending_tool_calls.drain(..) {
-                                    let (args, args_invalid) =
-                                        match serde_json::from_str(&b.arguments) {
-                                            Ok(v) => (v, None),
-                                            Err(_) => (Value::Null, Some(b.arguments.clone())),
-                                        };
+                                    let arguments = match serde_json::from_str(&b.arguments) {
+                                        Ok(v) => JsonResult::Content { content: v },
+                                        Err(_) => JsonResult::Error {
+                                            error: b.arguments.clone(),
+                                        },
+                                    };
                                     tool_calls.push(ToolCall {
                                         id: b.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
                                         name: b.name.unwrap_or_default(),
-                                        arguments: args,
-                                        arguments_invalid: args_invalid,
+                                        arguments,
                                     });
                                 }
                             }

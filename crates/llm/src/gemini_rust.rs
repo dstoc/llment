@@ -7,6 +7,7 @@ use gemini_rust::{
     Role,
 };
 use reqwest::Client as HttpClient;
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::{
@@ -72,11 +73,12 @@ impl LlmClient for GeminiRustClient {
                                 });
                             }
                             AssistantPart::ToolCall(tc) => {
+                                let args = match tc.arguments {
+                                    JsonResult::Content { content } => content,
+                                    JsonResult::Error { .. } => Value::Null,
+                                };
                                 parts_vec.push(Part::FunctionCall {
-                                    function_call: gemini_rust::FunctionCall::new(
-                                        tc.name,
-                                        tc.arguments,
-                                    ),
+                                    function_call: gemini_rust::FunctionCall::new(tc.name, args),
                                 });
                             }
                             AssistantPart::Thinking { .. } => {}
@@ -171,8 +173,9 @@ impl LlmClient for GeminiRustClient {
                                     out.push(Ok(ResponseChunk::ToolCall(ToolCall {
                                         id: Uuid::new_v4().to_string(),
                                         name: function_call.name.clone(),
-                                        arguments: function_call.args.clone(),
-                                        arguments_invalid: None,
+                                        arguments: JsonResult::Content {
+                                            content: function_call.args.clone(),
+                                        },
                                     })));
                                 }
                                 _ => {}

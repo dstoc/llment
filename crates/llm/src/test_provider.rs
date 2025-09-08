@@ -52,7 +52,7 @@ impl LlmClient for TestProvider {
 mod tests {
     use super::*;
     use crate::tools::{ToolExecutor, run_tool_loop};
-    use crate::{ChatMessage, ToolCall};
+    use crate::{ChatMessage, JsonResult, ToolCall};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
 
@@ -76,8 +76,9 @@ mod tests {
             ResponseChunk::ToolCall(ToolCall {
                 id: "call-1".into(),
                 name: "test".into(),
-                arguments: Value::Null,
-                arguments_invalid: None,
+                arguments: JsonResult::Content {
+                    content: Value::Null,
+                },
             }),
             ResponseChunk::Done,
         ]);
