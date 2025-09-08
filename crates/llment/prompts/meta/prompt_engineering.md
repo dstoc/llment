@@ -25,14 +25,15 @@ You are tasked to help users write Rust code and understand complex systems.
 
 In the llment workspace, prompts are found in `crates/llment/prompts`:
 
-* **Full system prompts** – Store these in the top‑level `prompts/` directory.
+* **Full system prompts** – Store these in the `prompts/system/` directory.
   They are loaded directly by the application and should *not* be nested
   inside sub‑folders.
 * **Meta‑prompts** – Keep them in `prompts/meta/`. The system references
-  them by a relative path from the workspace root (e.g., `meta/sys/llment`).
-* **Snippet prompts** – Place reusable fragments in a dedicated sub‑directory
-  such as `snippets/`. Snippets are Markdown files that may contain MiniJinja
-  tags and are included using MiniJinja’s `{% include %}`.
+  them by a relative path from the workspace root (e.g., `meta/system/llment`).
+* **Snippet prompts** – Store reusable fragments under `prompts/snippets/`.
+  Organize them into sub‑directories like `instructions/`, `env/`, or
+  `shell/`. Snippets are Markdown files that may contain MiniJinja tags and
+  are included using MiniJinja’s `{% include %}`.
 
 ### File extensions
 
@@ -99,10 +100,9 @@ now, keep snippets static.
 
 ## Summary
 
-* Full system prompts live in the top‑level `prompts/` directory.
+* Full system prompts live in the `prompts/system/` directory.
 * Meta‑prompts for LLment itself live in `prompts/meta/`.
-* Snippets are stored in sub‑directories (e.g., `snippets/`) and rendered
-  with MiniJinja.
+* Snippets reside under `prompts/snippets/` and are rendered with MiniJinja.
 * Use `{% include %}` and the `glob("pattern")` helper to compose
   prompts from snippets.
 * Load a prompt by its relative path; the name is the file path relative

@@ -81,7 +81,10 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
           - results merge filenames from the override directory and embedded assets
         - templates may call `tool_enabled("name")` to check for available tools
-        - parameters correspond to `prompts/` paths without the extension
+        - parameters correspond to `prompts/system/` paths without the extension
+        - includes remain relative to the `prompts/` directory
+        - snippet fragments reside under `prompts/snippets/` and may be included
+          by relative path
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
       - `/role` loads a role from `prompts/roles`
         - templates in the override directory are included and take precedence
