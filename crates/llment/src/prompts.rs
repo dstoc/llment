@@ -1,7 +1,10 @@
 use globset::Glob;
 use minijinja::Environment;
 use rust_embed::RustEmbed;
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 #[derive(RustEmbed)]
 #[folder = "prompts"]
@@ -21,15 +24,23 @@ pub(crate) fn load_prompt(
     name: &str,
     role: Option<&str>,
     enabled_tools: impl IntoIterator<Item = String>,
+    prompt_dir: Option<&Path>,
 ) -> Option<String> {
     let enabled_tools: HashSet<String> = enabled_tools.into_iter().collect();
     let mut env = Environment::new();
-    env.set_loader(|name| {
+    let prompt_dir = prompt_dir.map(PathBuf::from);
+    env.set_loader(move |name| {
         let mut candidates: Vec<String> = vec![name.to_string()];
         if !name.ends_with(".md") {
             candidates.push(format!("{}.md", name));
         }
         for candidate in candidates {
+            if let Some(dir) = &prompt_dir {
+                let path = dir.join(&candidate);
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    return Ok(Some(content));
+                }
+            }
             if let Some(file) = Assets::get(&candidate) {
                 let content = String::from_utf8_lossy(file.data.as_ref()).to_string();
                 return Ok(Some(content));
@@ -79,16 +90,18 @@ pub(crate) fn load_prompt(
 #[cfg(test)]
 mod tests {
     use super::load_prompt;
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn load_md_prompt() {
-        let content = load_prompt("sys/hello", None, Vec::new()).unwrap();
+        let content = load_prompt("sys/hello", None, Vec::new(), None).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn load_md_with_include() {
-        let content = load_prompt("sys/outer", None, Vec::new()).unwrap();
+        let content = load_prompt("sys/outer", None, Vec::new(), None).unwrap();
         assert!(content.contains("Outer."));
         assert!(content.contains("Inner."));
         assert!(content.contains("Deep."));
@@ -96,15 +109,54 @@ mod tests {
 
     #[test]
     fn load_md_with_glob() {
-        let content = load_prompt("sys/glob", None, Vec::new()).unwrap();
+        let content = load_prompt("sys/glob", None, Vec::new(), None).unwrap();
         assert!(content.contains("You are a helpful assistant."));
     }
 
     #[test]
     fn tool_enabled_fn() {
-        let content = load_prompt("sys/tool", None, vec!["shell.run".to_string()]).unwrap();
+        let content = load_prompt("sys/tool", None, vec!["shell.run".to_string()], None).unwrap();
         assert!(content.contains("Enabled!"));
-        let content = load_prompt("sys/tool", None, Vec::new()).unwrap();
+        let content = load_prompt("sys/tool", None, Vec::new(), None).unwrap();
         assert!(content.contains("Disabled!"));
+    }
+
+    #[test]
+    fn load_prompt_from_dir_overrides_assets() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("sys")).unwrap();
+        fs::write(dir.path().join("sys/hello.md"), "Override").unwrap();
+
+        let content = load_prompt("sys/hello", None, Vec::new(), Some(dir.path())).unwrap();
+        assert_eq!(content, "Override");
+    }
+
+    #[test]
+    fn load_include_from_dir_overrides_assets() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("sys")).unwrap();
+        fs::write(
+            dir.path().join("sys/inner.md"),
+            "Override Inner. {% include \"sys/deep\" %}",
+        )
+        .unwrap();
+
+        let content = load_prompt("sys/outer", None, Vec::new(), Some(dir.path())).unwrap();
+        assert!(content.contains("Outer."));
+        assert!(content.contains("Override Inner."));
+        assert!(content.contains("Deep."));
+    }
+
+    #[test]
+    fn load_role_from_dir() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("sys")).unwrap();
+        fs::write(dir.path().join("sys/role.md"), "Role: {{ role() }}").unwrap();
+        fs::create_dir_all(dir.path().join("roles")).unwrap();
+        fs::write(dir.path().join("roles/custom.md"), "custom role").unwrap();
+
+        let content =
+            load_prompt("sys/role", Some("custom"), Vec::new(), Some(dir.path())).unwrap();
+        assert_eq!(content, "Role: custom role");
     }
 }

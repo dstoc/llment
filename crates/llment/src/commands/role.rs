@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
 pub struct RoleCommand {
     pub(crate) needs_update: watch::Sender<bool>,
     pub(crate) update_tx: UnboundedSender<Update>,
+    pub(crate) prompt_dir: Option<PathBuf>,
 }
 
 impl Command for RoleCommand {
@@ -26,6 +28,7 @@ impl Command for RoleCommand {
             needs_update: self.needs_update.clone(),
             update_tx: self.update_tx.clone(),
             param: String::new(),
+            prompt_dir: self.prompt_dir.clone(),
         })
     }
 }
@@ -34,6 +37,7 @@ struct RoleCommandInstance {
     needs_update: watch::Sender<bool>,
     update_tx: UnboundedSender<Update>,
     param: String,
+    prompt_dir: Option<PathBuf>,
 }
 
 impl RoleCommandInstance {
@@ -53,6 +57,21 @@ impl RoleCommandInstance {
                 }
             })
             .collect();
+        if let Some(dir) = &self.prompt_dir {
+            let roles_dir = dir.join("roles");
+            if let Ok(entries) = std::fs::read_dir(roles_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            if stem.starts_with(typed) {
+                                names.push(stem.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if "none".starts_with(typed) {
             names.push("none".to_string());
         }
