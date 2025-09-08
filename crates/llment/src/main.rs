@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::io::stdout;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use app::{App, AppModel};
@@ -83,6 +84,9 @@ pub struct Args {
     /// Path to MCP configuration JSON
     #[arg(long)]
     mcp: Option<String>,
+    /// Directory containing custom prompt templates
+    #[arg(long)]
+    prompt_dir: Option<PathBuf>,
 }
 
 #[tokio::main]

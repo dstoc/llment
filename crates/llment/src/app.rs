@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     Args, Component,
@@ -42,6 +45,8 @@ pub struct App {
     pub model: AppModel,
     conversation: Conversation,
     prompt: Prompt,
+
+    prompt_dir: Option<PathBuf>,
 
     client: Arc<Mutex<llm::Client>>,
     mcp_context: McpContext,
@@ -96,6 +101,7 @@ impl App {
     pub fn new(model: AppModel, args: Args) -> Self {
         let (update_tx, update_rx) = unbounded_channel();
         let mcp_context = McpContext::default();
+        let prompt_dir = args.prompt_dir.clone();
         let client =
             llm::client_from(args.provider, args.model.clone(), args.host.as_deref()).unwrap();
         let client = Arc::new(Mutex::new(client));
@@ -123,10 +129,12 @@ impl App {
                     Box::new(PromptCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
+                        prompt_dir: prompt_dir.clone(),
                     }),
                     Box::new(RoleCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
+                        prompt_dir: prompt_dir.clone(),
                     }),
                     Box::new(AgentModeCommand {
                         needs_update: model.needs_update.clone(),
@@ -162,6 +170,7 @@ impl App {
                 ],
             ),
             model,
+            prompt_dir,
             client,
             session_in_tokens: 0,
             session_out_tokens: 0,
@@ -259,7 +268,9 @@ impl App {
         if let Some(name) = &self.selected_prompt {
             let tool_names = self.mcp_context.tool_names();
             let role = self.selected_role.as_deref();
-            if let Some(content) = prompts::load_prompt(name, role, tool_names) {
+            if let Some(content) =
+                prompts::load_prompt(name, role, tool_names, self.prompt_dir.as_deref())
+            {
                 let mut history = self.chat_history.lock().unwrap();
                 while matches!(history.first(), Some(ChatMessage::System(_))) {
                     history.remove(0);

@@ -34,8 +34,9 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - `--provider` selects LLM backend
     - defaults to Harmony when omitted
   - `--model` sets the model identifier
-  - `--host` optionally configures the LLM host URL; provider default used when omitted
-  - `--mcp` loads MCP server configuration
+- `--host` optionally configures the LLM host URL; provider default used when omitted
+- `--mcp` loads MCP server configuration
+- `--prompt-dir` loads prompt templates from a directory before falling back to embedded assets
 - Layout
   - scrollable conversation pane
     - mouse wheel adjusts scroll
@@ -73,13 +74,16 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/save` writes conversation history to a file
       - `/load` restores conversation history from a file and aborts any pending request
       - default prompt `default` is active on startup; default role is none
-      - `/prompt` loads a root prompt from embedded markdown templates
+      - `/prompt` loads a root prompt from markdown templates
+        - templates in a user-specified prompt directory override embedded assets
         - `.md` files are rendered with miniJinja and may include other templates via `{% include %}`
+          - includes check the override directory before embedded assets
         - templates may call `glob("pattern")` to iterate over prompt files matching a glob pattern
         - templates may call `tool_enabled("name")` to check for available tools
         - parameters correspond to `prompts/` paths without the extension
         - selecting a prompt sets it as active; it is applied to conversation history when a request is sent (including `/continue`) and persists across `/clear`
       - `/role` loads a role from `prompts/roles`
+        - templates in the override directory are included and take precedence
         - passing `none` clears the active role
         - completion suggestions include roles matching the typed prefix and `none` when it matches
       - `/agent-mode` activates an agent mode that drives follow-up prompts

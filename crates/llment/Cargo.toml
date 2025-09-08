@@ -28,3 +28,4 @@ arc-swap = "1.7.1"
 
 [dev-dependencies]
 insta = "1.43.1"
+tempfile = "3.21.0"
