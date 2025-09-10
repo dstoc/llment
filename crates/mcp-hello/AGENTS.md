@@ -16,6 +16,7 @@ Simple MCP server that provides a greeting tool.
     - returns "Hello, world!"
 - server
   - runs over stdio
+  - includes tools capability in MCP initialize response
 
 ## Constraints
 - None
