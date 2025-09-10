@@ -155,7 +155,7 @@ impl FsServer {
         normalized
     }
 
-    fn resolve(&self, path: &str) -> Result<PathBuf, McpError> {
+    fn resolve(&self, path: &str) -> Result<PathBuf, String> {
         let p = Path::new(path);
         let joined = if p.is_absolute() {
             match p.strip_prefix(&self.mount_point) {
@@ -167,40 +167,30 @@ impl FsServer {
         };
         let normalized = Self::normalize(&joined);
         if !normalized.starts_with(&self.workspace_root) {
-            return Err(McpError::invalid_params(
-                "path must be within the workspace".to_string(),
-                None,
-            ));
+            return Err("path must be within the workspace".to_string());
         }
-        let canonical = fs::canonicalize(&normalized).map_err(|_| {
-            McpError::invalid_params(
-                format!("path '{}' does not exist", self.display_path(&normalized)),
-                None,
-            )
-        })?;
+        let canonical = fs::canonicalize(&normalized)
+            .map_err(|_| format!("path '{}' does not exist", self.display_path(&normalized)))?;
         if !canonical.starts_with(&self.workspace_root) {
-            return Err(McpError::invalid_params(
-                "path must be within the workspace".to_string(),
-                None,
-            ));
+            return Err("path must be within the workspace".to_string());
         }
         Ok(canonical)
     }
 
-    fn resolve_for_write(&self, path: &str) -> Result<PathBuf, McpError> {
+    fn resolve_for_write(&self, path: &str) -> Result<PathBuf, String> {
         let p = Path::new(path);
         let canonical_parent = match p.parent() {
             Some(parent) if !parent.as_os_str().is_empty() => {
-                let parent_str = parent.to_str().ok_or_else(|| {
-                    McpError::invalid_params("parent path must be valid UTF-8".to_string(), None)
-                })?;
+                let parent_str = parent
+                    .to_str()
+                    .ok_or_else(|| "parent path must be valid UTF-8".to_string())?;
                 self.resolve(parent_str)?
             }
             _ => self.workspace_root.clone(),
         };
-        let file_name = p.file_name().ok_or_else(|| {
-            McpError::invalid_params("file_path must have a file name".to_string(), None)
-        })?;
+        let file_name = p
+            .file_name()
+            .ok_or_else(|| "file_path must have a file name".to_string())?;
         Ok(canonical_parent.join(file_name))
     }
 
@@ -210,6 +200,10 @@ impl FsServer {
         } else {
             path.display().to_string()
         }
+    }
+
+    fn tool_error(msg: impl Into<String>) -> CallToolResult {
+        CallToolResult::error(vec![Content::text(msg.into())])
     }
 }
 
@@ -256,27 +250,30 @@ impl FsServer {
             new_string,
             expected_replacements,
         } = params;
-        let canonical_path = self.resolve(&file_path)?;
-        let content = fs::read_to_string(&canonical_path).map_err(|e| {
-            McpError::internal_error(
-                format!(
+        let canonical_path = match self.resolve(&file_path) {
+            Ok(p) => p,
+            Err(msg) => return Ok(Self::tool_error(msg)),
+        };
+        let content = match fs::read_to_string(&canonical_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(Self::tool_error(format!(
                     "failed to read file {}: {e}",
                     self.display_path(&canonical_path)
-                ),
-                None,
-            )
-        })?;
-        let updated = replace_in_content(&content, &old_string, &new_string, expected_replacements)
-            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-        fs::write(&canonical_path, updated).map_err(|e| {
-            McpError::internal_error(
-                format!(
-                    "failed to write file {}: {e}",
-                    self.display_path(&canonical_path)
-                ),
-                None,
-            )
-        })?;
+                )));
+            }
+        };
+        let updated =
+            match replace_in_content(&content, &old_string, &new_string, expected_replacements) {
+                Ok(u) => u,
+                Err(e) => return Ok(Self::tool_error(e.to_string())),
+            };
+        if let Err(e) = fs::write(&canonical_path, updated) {
+            return Ok(Self::tool_error(format!(
+                "failed to write file {}: {e}",
+                self.display_path(&canonical_path)
+            )));
+        }
         Ok(CallToolResult::success(vec![Content::text(
             "Replaced text in file.".to_string(),
         )]))
@@ -288,15 +285,15 @@ impl FsServer {
         Parameters(params): Parameters<ListDirectoryParams>,
     ) -> Result<CallToolResult, McpError> {
         let ListDirectoryParams { path, ignore } = params;
-        let canonical_path = self.resolve(&path)?;
+        let canonical_path = match self.resolve(&path) {
+            Ok(p) => p,
+            Err(msg) => return Ok(Self::tool_error(msg)),
+        };
         if !canonical_path.is_dir() {
-            return Err(McpError::internal_error(
-                format!(
-                    "failed to read dir {}: not a directory",
-                    self.display_path(&canonical_path)
-                ),
-                None,
-            ));
+            return Ok(Self::tool_error(format!(
+                "failed to read dir {}: not a directory",
+                self.display_path(&canonical_path)
+            )));
         }
         let mut builder = GlobSetBuilder::new();
         if let Some(patterns) = ignore {
@@ -315,8 +312,10 @@ impl FsServer {
         walk_builder.standard_filters(true);
         walk_builder.max_depth(Some(1));
         for result in walk_builder.build() {
-            let entry =
-                result.map_err(|e| McpError::internal_error(format!("walk error: {e}"), None))?;
+            let entry = match result {
+                Ok(e) => e,
+                Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
+            };
             let path = entry.path();
             if path == canonical_path {
                 continue;
@@ -365,16 +364,19 @@ impl FsServer {
             offset,
             limit,
         } = params;
-        let canonical_path = self.resolve(&path)?;
-        let data = fs::read(&canonical_path).map_err(|e| {
-            McpError::internal_error(
-                format!(
+        let canonical_path = match self.resolve(&path) {
+            Ok(p) => p,
+            Err(msg) => return Ok(Self::tool_error(msg)),
+        };
+        let data = match fs::read(&canonical_path) {
+            Ok(d) => d,
+            Err(e) => {
+                return Ok(Self::tool_error(format!(
                     "failed to read file {}: {e}",
                     self.display_path(&canonical_path)
-                ),
-                None,
-            )
-        })?;
+                )));
+            }
+        };
         if let Ok(content) = String::from_utf8(data.clone()) {
             let lines: Vec<&str> = content.lines().collect();
             let start = offset.unwrap_or(0);
@@ -439,26 +441,26 @@ impl FsServer {
             recursive,
         } = params;
         if paths.is_empty() {
-            return Err(McpError::invalid_params(
-                "paths must not be empty".to_string(),
-                None,
-            ));
+            return Ok(Self::tool_error("paths must not be empty".to_string()));
         }
 
-        let include_set =
-            if let Some(pats) = include {
-                let mut builder = GlobSetBuilder::new();
-                for p in pats {
-                    builder.add(Glob::new(&p).map_err(|e| {
-                        McpError::invalid_params(format!("invalid include glob: {e}"), None)
-                    })?);
+        let include_set = if let Some(pats) = include {
+            let mut builder = GlobSetBuilder::new();
+            for p in pats {
+                match Glob::new(&p) {
+                    Ok(g) => {
+                        builder.add(g);
+                    }
+                    Err(e) => return Ok(Self::tool_error(format!("invalid include glob: {e}"))),
                 }
-                Some(builder.build().map_err(|e| {
-                    McpError::internal_error(format!("include build error: {e}"), None)
-                })?)
-            } else {
-                None
-            };
+            }
+            match builder.build() {
+                Ok(set) => Some(set),
+                Err(e) => return Ok(Self::tool_error(format!("include build error: {e}"))),
+            }
+        } else {
+            None
+        };
 
         let mut exclude_patterns = exclude.unwrap_or_default();
         exclude_patterns.extend([
@@ -466,20 +468,23 @@ impl FsServer {
             "**/.git/**".into(),
             "**/target/**".into(),
         ]);
-        let exclude_set =
-            if exclude_patterns.is_empty() {
-                None
-            } else {
-                let mut builder = GlobSetBuilder::new();
-                for p in exclude_patterns {
-                    builder.add(Glob::new(&p).map_err(|e| {
-                        McpError::invalid_params(format!("invalid exclude glob: {e}"), None)
-                    })?);
+        let exclude_set = if exclude_patterns.is_empty() {
+            None
+        } else {
+            let mut builder = GlobSetBuilder::new();
+            for p in exclude_patterns {
+                match Glob::new(&p) {
+                    Ok(g) => {
+                        builder.add(g);
+                    }
+                    Err(e) => return Ok(Self::tool_error(format!("invalid exclude glob: {e}"))),
                 }
-                Some(builder.build().map_err(|e| {
-                    McpError::internal_error(format!("exclude build error: {e}"), None)
-                })?)
-            };
+            }
+            match builder.build() {
+                Ok(set) => Some(set),
+                Err(e) => return Ok(Self::tool_error(format!("exclude build error: {e}"))),
+            }
+        };
 
         let mut file_paths = Vec::new();
         for pattern in paths {
@@ -488,19 +493,26 @@ impl FsServer {
             } else {
                 self.workspace_root.join(&pattern)
             };
-            let glob_iter = glob::glob(pattern_path.to_string_lossy().as_ref()).map_err(|e| {
-                McpError::invalid_params(format!("invalid glob pattern: {e}"), None)
-            })?;
+            let glob_iter = match glob::glob(pattern_path.to_string_lossy().as_ref()) {
+                Ok(g) => g,
+                Err(e) => return Ok(Self::tool_error(format!("invalid glob pattern: {e}"))),
+            };
             for entry in glob_iter {
-                let path = entry
-                    .map_err(|e| McpError::internal_error(format!("glob error: {e}"), None))?;
-                let canonical = fs::canonicalize(&path).map_err(|e| {
-                    McpError::internal_error(format!("failed to canonicalize path: {e}"), None)
-                })?;
+                let path = match entry {
+                    Ok(p) => p,
+                    Err(e) => return Ok(Self::tool_error(format!("glob error: {e}"))),
+                };
+                let canonical = match fs::canonicalize(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Ok(Self::tool_error(format!(
+                            "failed to canonicalize path: {e}"
+                        )));
+                    }
+                };
                 if !canonical.starts_with(&self.workspace_root) {
-                    return Err(McpError::invalid_params(
+                    return Ok(Self::tool_error(
                         "path must be within the workspace".to_string(),
-                        None,
                     ));
                 }
                 if canonical.is_file() {
@@ -513,18 +525,21 @@ impl FsServer {
                         builder.max_depth(Some(1));
                     }
                     for result in builder.build() {
-                        let entry = result.map_err(|e| {
-                            McpError::internal_error(format!("walk error: {e}"), None)
-                        })?;
+                        let entry = match result {
+                            Ok(e) => e,
+                            Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
+                        };
                         if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                             continue;
                         }
-                        let canon = fs::canonicalize(entry.path()).map_err(|e| {
-                            McpError::internal_error(
-                                format!("failed to canonicalize path: {e}"),
-                                None,
-                            )
-                        })?;
+                        let canon = match fs::canonicalize(entry.path()) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                return Ok(Self::tool_error(format!(
+                                    "failed to canonicalize path: {e}"
+                                )));
+                            }
+                        };
                         file_paths.push(canon);
                     }
                 }
@@ -549,9 +564,15 @@ impl FsServer {
                 }
             }
             let user_path = self.display_path(&file);
-            let data = fs::read(&file).map_err(|e| {
-                McpError::internal_error(format!("failed to read file {}: {e}", user_path), None)
-            })?;
+            let data = match fs::read(&file) {
+                Ok(d) => d,
+                Err(e) => {
+                    return Ok(Self::tool_error(format!(
+                        "failed to read file {}: {e}",
+                        user_path
+                    )));
+                }
+            };
             if let Ok(content) = String::from_utf8(data.clone()) {
                 text_output.push_str(&format!("===== {} =====\n{}\n\n", user_path, content));
             } else {
@@ -595,27 +616,29 @@ impl FsServer {
             "create_file called when modification tools disabled"
         );
         let CreateFileParams { file_path, content } = params;
-        let canonical_path = self.resolve_for_write(&file_path)?;
+        let canonical_path = match self.resolve_for_write(&file_path) {
+            Ok(p) => p,
+            Err(msg) => return Ok(Self::tool_error(msg)),
+        };
         if canonical_path.exists() {
-            return Err(McpError::invalid_params(
-                format!("file {} already exists", self.display_path(&canonical_path)),
-                None,
-            ));
+            return Ok(Self::tool_error(format!(
+                "file {} already exists",
+                self.display_path(&canonical_path)
+            )));
         }
         if let Some(parent) = canonical_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                McpError::internal_error(format!("failed to create parent dirs: {e}"), None)
-            })?;
+            if let Err(e) = fs::create_dir_all(parent) {
+                return Ok(Self::tool_error(format!(
+                    "failed to create parent dirs: {e}"
+                )));
+            }
         }
-        fs::write(&canonical_path, content).map_err(|e| {
-            McpError::internal_error(
-                format!(
-                    "failed to create file {}: {e}",
-                    self.display_path(&canonical_path)
-                ),
-                None,
-            )
-        })?;
+        if let Err(e) = fs::write(&canonical_path, content) {
+            return Ok(Self::tool_error(format!(
+                "failed to create file {}: {e}",
+                self.display_path(&canonical_path)
+            )));
+        }
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Created file: {}",
             self.display_path(&canonical_path)
@@ -633,22 +656,30 @@ impl FsServer {
             case_sensitive,
         } = params;
         let root = if let Some(p) = path {
-            self.resolve(&p)?
+            match self.resolve(&p) {
+                Ok(r) => r,
+                Err(msg) => return Ok(Self::tool_error(msg)),
+            }
         } else {
             self.workspace_root.clone()
         };
         let mut builder = WalkBuilder::new(&root);
         builder.git_ignore(true);
         builder.standard_filters(true);
-        let glob = GlobBuilder::new(&pattern)
+        let glob = match GlobBuilder::new(&pattern)
             .case_insensitive(!case_sensitive.unwrap_or(false))
             .build()
-            .map_err(|e| McpError::invalid_params(format!("invalid glob pattern: {e}"), None))?
-            .compile_matcher();
+        {
+            Ok(g) => g,
+            Err(e) => return Ok(Self::tool_error(format!("invalid glob pattern: {e}"))),
+        }
+        .compile_matcher();
         let mut matches = Vec::new();
         for result in builder.build() {
-            let entry =
-                result.map_err(|e| McpError::internal_error(format!("walk error: {e}"), None))?;
+            let entry = match result {
+                Ok(e) => e,
+                Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
+            };
             if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                 continue;
             }
@@ -696,19 +727,24 @@ impl FsServer {
             include,
         } = params;
         let root = if let Some(p) = path {
-            self.resolve(&p)?
+            match self.resolve(&p) {
+                Ok(r) => r,
+                Err(msg) => return Ok(Self::tool_error(msg)),
+            }
         } else {
             self.workspace_root.clone()
         };
-        let matcher = RegexMatcher::new(&pattern)
-            .map_err(|e| McpError::invalid_params(format!("invalid regex: {e}"), None))?;
+        let matcher = match RegexMatcher::new(&pattern) {
+            Ok(m) => m,
+            Err(e) => return Ok(Self::tool_error(format!("invalid regex: {e}"))),
+        };
         let include_matcher = if let Some(ref inc) = include {
             Some(
-                Glob::new(inc)
-                    .map_err(|e| {
-                        McpError::invalid_params(format!("invalid include glob: {e}"), None)
-                    })?
-                    .compile_matcher(),
+                match Glob::new(inc) {
+                    Ok(g) => g,
+                    Err(e) => return Ok(Self::tool_error(format!("invalid include glob: {e}"))),
+                }
+                .compile_matcher(),
             )
         } else {
             None
@@ -719,8 +755,10 @@ impl FsServer {
         let mut results = Vec::new();
         let mut searcher = Searcher::new();
         for result in builder.build() {
-            let entry =
-                result.map_err(|e| McpError::internal_error(format!("walk error: {e}"), None))?;
+            let entry = match result {
+                Ok(e) => e,
+                Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
+            };
             if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                 continue;
             }
@@ -746,10 +784,7 @@ impl FsServer {
                     Ok(true)
                 }),
             ) {
-                return Err(McpError::internal_error(
-                    format!("search error: {err}"),
-                    None,
-                ));
+                return Ok(Self::tool_error(format!("search error: {err}")));
             }
         }
         let mut output = format!(
@@ -975,8 +1010,10 @@ mod tests {
                 content: "bye".into(),
             }))
             .await
-            .unwrap_err();
-        assert!(err.message.contains("/home/user/workspace/new.txt"));
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert!(msg.contains("/home/user/workspace/new.txt"));
         let content = fs::read_to_string(file_path).unwrap();
         assert_eq!(content, "hi");
     }
@@ -1069,9 +1106,11 @@ mod tests {
                 limit: None,
             }))
             .await
-            .unwrap_err();
-        assert!(err.message.contains("/home/user/workspace/missing.txt"));
-        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert!(msg.contains("/home/user/workspace/missing.txt"));
+        assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
@@ -1084,9 +1123,11 @@ mod tests {
                 content: "hi".into(),
             }))
             .await
-            .unwrap_err();
-        assert!(err.message.contains("/home/user/workspace/subdir"));
-        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert!(msg.contains("/home/user/workspace/subdir"));
+        assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
@@ -1099,9 +1140,11 @@ mod tests {
                 ignore: None,
             }))
             .await
-            .unwrap_err();
-        assert!(err.message.contains("/home/user/workspace/missing"));
-        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert!(msg.contains("/home/user/workspace/missing"));
+        assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
@@ -1115,9 +1158,11 @@ mod tests {
                 content: "hi".into(),
             }))
             .await
-            .unwrap_err();
-        assert!(err.message.contains("/home/user/workspace/dir"));
-        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert!(msg.contains("/home/user/workspace/dir"));
+        assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
@@ -1131,9 +1176,11 @@ mod tests {
                 ignore: None,
             }))
             .await
-            .unwrap_err();
-        assert!(err.message.contains("/home/user/workspace/f"));
-        assert!(!err.message.contains(dir.path().to_string_lossy().as_ref()));
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert!(msg.contains("/home/user/workspace/f"));
+        assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
@@ -1147,8 +1194,10 @@ mod tests {
                 ignore: None,
             }))
             .await
-            .unwrap_err();
-        assert_eq!(err.message, "path must be within the workspace");
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert_eq!(msg, "path must be within the workspace");
     }
 
     #[tokio::test]
@@ -1163,8 +1212,10 @@ mod tests {
                 limit: None,
             }))
             .await
-            .unwrap_err();
-        assert_eq!(err.message, "path must be within the workspace");
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert_eq!(msg, "path must be within the workspace");
     }
 
     #[tokio::test]
@@ -1178,8 +1229,10 @@ mod tests {
                 content: "hi".into(),
             }))
             .await
-            .unwrap_err();
-        assert_eq!(err.message, "path must be within the workspace");
+            .unwrap();
+        assert!(err.is_error.unwrap());
+        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        assert_eq!(msg, "path must be within the workspace");
     }
 
     #[tokio::test]
@@ -1272,7 +1325,7 @@ mod tests {
                 limit: None,
             }))
             .await
-            .unwrap_err();
+            .unwrap();
         let err_missing = server
             .read_file(Parameters(ReadFileParams {
                 path: missing.to_string_lossy().to_string(),
@@ -1280,9 +1333,19 @@ mod tests {
                 limit: None,
             }))
             .await
-            .unwrap_err();
-        assert_eq!(err_existing.message, err_missing.message);
-        assert_eq!(err_existing.message, "path must be within the workspace");
+            .unwrap();
+        let msg_existing = err_existing.content.unwrap()[0]
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        let msg_missing = err_missing.content.unwrap()[0]
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert_eq!(msg_existing, msg_missing);
+        assert_eq!(msg_existing, "path must be within the workspace");
     }
 
     #[tokio::test]
@@ -1299,16 +1362,26 @@ mod tests {
                 content: "new".into(),
             }))
             .await
-            .unwrap_err();
+            .unwrap();
         let err_missing = server
             .create_file(Parameters(CreateFileParams {
                 file_path: missing.to_string_lossy().to_string(),
                 content: "new".into(),
             }))
             .await
-            .unwrap_err();
-        assert_eq!(err_existing.message, err_missing.message);
-        assert_eq!(err_existing.message, "path must be within the workspace");
+            .unwrap();
+        let msg_existing = err_existing.content.unwrap()[0]
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        let msg_missing = err_missing.content.unwrap()[0]
+            .as_text()
+            .unwrap()
+            .text
+            .clone();
+        assert_eq!(msg_existing, msg_missing);
+        assert_eq!(msg_existing, "path must be within the workspace");
     }
 
     #[test]

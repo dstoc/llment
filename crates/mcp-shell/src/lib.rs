@@ -31,6 +31,10 @@ pub struct ShellServer {
 }
 
 impl ShellServer {
+    fn tool_error(msg: impl Into<String>) -> CallToolResult {
+        CallToolResult::error(vec![Content::text(msg.into())])
+    }
+
     async fn new(
         container: Option<String>,
         time_limit: Duration,
@@ -314,10 +318,12 @@ Only a maximum of 10k bytes or 200 lines will be returned."#
         let dir = workdir.unwrap_or_else(|| self.workdir.clone());
         let mut run_slot = self.run.lock().await;
         if run_slot.is_some() {
-            return Err(McpError::invalid_params("command already running", None));
+            return Ok(Self::tool_error("command already running"));
         }
-        let handle = spawn_command(self.container.clone(), command, stdin, dir)
-            .map_err(|e| McpError::internal_error(format!("spawn failed: {e}"), None))?;
+        let handle = match spawn_command(self.container.clone(), command, stdin, dir) {
+            Ok(h) => h,
+            Err(e) => return Ok(Self::tool_error(format!("spawn failed: {e}"))),
+        };
         let mut state = CommandState::new(handle);
         let timed_out = collect_output(&mut state, self.time_limit).await;
         let stdout = state.stdout.clone();
@@ -360,9 +366,10 @@ Only a maximum of 10k bytes or 200 lines will be returned."#
         Parameters(_p): Parameters<WaitParams>,
     ) -> Result<CallToolResult, McpError> {
         let mut run_slot = self.run.lock().await;
-        let state = run_slot
-            .as_mut()
-            .ok_or_else(|| McpError::invalid_params("no running command", None))?;
+        let state = match run_slot.as_mut() {
+            Some(s) => s,
+            None => return Ok(Self::tool_error("no running command")),
+        };
         let timed_out = collect_output(state, self.time_limit).await;
         let stdout = state.stdout[state.stdout_pos..].to_string();
         let stderr = state.stderr[state.stderr_pos..].to_string();
@@ -402,11 +409,13 @@ Only a maximum of 10k bytes or 200 lines will be returned."#
         Parameters(_p): Parameters<TerminateParams>,
     ) -> Result<CallToolResult, McpError> {
         let mut run_slot = self.run.lock().await;
-        let state = run_slot
-            .take()
-            .ok_or_else(|| McpError::invalid_params("no running command", None))?;
-        kill(Pid::from_raw(state.pid), Signal::SIGTERM)
-            .map_err(|e| McpError::internal_error(format!("terminate failed: {e}"), None))?;
+        let state = match run_slot.take() {
+            Some(s) => s,
+            None => return Ok(Self::tool_error("no running command")),
+        };
+        if let Err(e) = kill(Pid::from_raw(state.pid), Signal::SIGTERM) {
+            return Ok(Self::tool_error(format!("terminate failed: {e}")));
+        }
         drop(run_slot);
         Ok(CallToolResult::success(vec![Content::text("{}")]))
     }

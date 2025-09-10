@@ -47,6 +47,8 @@ MCP server offering file system editing utilities.
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
   - optional parameters prefix descriptions with "Optional."
+- tool errors reported via `CallToolResult::error`
+  - operations return execution errors instead of protocol errors
 
 ## Constraints
 - paths outside the workspace return the same error regardless of file existence
