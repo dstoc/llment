@@ -3,6 +3,7 @@ use tokio::sync::{mpsc::UnboundedSender, watch};
 use crate::{
     app::Update,
     components::completion::{Command, CommandInstance, CompletionResult},
+    history_edits,
 };
 
 pub struct ResponseCommand {
@@ -45,9 +46,8 @@ impl CommandInstance for ResponseCommandInstance {
     }
 
     fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let _ = self
-            .update_tx
-            .send(Update::AppendResponse(self.param.clone()));
+        let edit = history_edits::append_response(self.param.clone());
+        let _ = self.update_tx.send(Update::EditHistory(edit));
         let _ = self.needs_update.send(true);
         Ok(())
     }

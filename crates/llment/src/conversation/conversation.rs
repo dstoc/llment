@@ -280,18 +280,6 @@ impl Conversation {
         }
     }
 
-    pub fn redo_last(&mut self) -> Option<String> {
-        while !self.items.is_empty() {
-            if let Some(Node::User(user)) = self.items.pop() {
-                self.needs_layout = true;
-                self.ensure_layout(self.width);
-                self.scroll_to_bottom();
-                return Some(user.text);
-            }
-        }
-        None
-    }
-
     pub fn set_history(&mut self, history: &[ChatMessage]) {
         self.clear();
         for msg in history {

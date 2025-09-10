@@ -13,12 +13,13 @@ use crate::{
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
+    history_edits::{HistoryEdit, HistoryEditResult},
     modes::AgentMode,
     prompts,
 };
 use crossterm::event::Event;
 use llm::{
-    AssistantPart, ChatMessage, ChatMessageRequest, JsonResult, Provider, ResponseChunk,
+    ChatMessage, ChatMessageRequest, JsonResult, Provider, ResponseChunk,
     mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -86,14 +87,8 @@ pub(crate) enum Update {
     SetProvider(Provider, Option<String>),
     SetPrompt(String),
     SetRole(Option<String>),
-    Redo,
-    Pop,
-    Clear,
     Continue,
-    Save(String),
-    Load(String),
-    AppendThought(String),
-    AppendResponse(String),
+    EditHistory(HistoryEdit),
     SetMode(
         Option<Box<dyn AgentMode>>,
         Option<RunningService<RoleClient, McpService>>,
@@ -461,28 +456,34 @@ impl Component for App {
                 Ok(Update::SetRole(role)) => {
                     self.selected_role = role;
                 }
-                Ok(Update::AppendThought(text)) => {
-                    let mut history = self.chat_history.lock().unwrap();
-                    history.push(ChatMessage::Assistant(llm::AssistantMessage {
-                        content: vec![AssistantPart::Thinking { text: text.clone() }],
-                    }));
-                    self.conversation.set_history(&history);
-                    let _ = self.model.needs_redraw.send(true);
-                }
-                Ok(Update::AppendResponse(text)) => {
-                    let mut history = self.chat_history.lock().unwrap();
-                    let append = matches!(history.last(), Some(ChatMessage::Assistant(a)) if !a
-                        .content
-                        .iter()
-                        .any(|p| matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))));
-                    if append {
-                        if let Some(ChatMessage::Assistant(a)) = history.last_mut() {
-                            a.content.push(AssistantPart::Text { text: text.clone() });
+                Ok(Update::EditHistory(edit)) => {
+                    let mut history_guard = self.chat_history.lock().unwrap();
+                    let result = edit(&mut history_guard);
+                    let history = history_guard.clone();
+                    drop(history_guard);
+                    match result {
+                        Ok(HistoryEditResult {
+                            prompt,
+                            reset_session,
+                            abort_requests,
+                        }) => {
+                            if abort_requests {
+                                self.abort_requests();
+                            }
+                            if reset_session {
+                                self.session_in_tokens = 0;
+                                self.session_out_tokens = 0;
+                                self.session_requests = 0;
+                            }
+                            if let Some(p) = prompt {
+                                self.prompt.set_prompt(p);
+                            }
+                            self.conversation.set_history(&history);
                         }
-                    } else {
-                        history.push(ChatMessage::assistant(text.clone()));
+                        Err(err) => {
+                            self.error.set(err);
+                        }
                     }
-                    self.conversation.set_history(&history);
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::SetMode(mode, service)) => {
@@ -507,75 +508,6 @@ impl Component for App {
                         self.selected_role = None;
                     }
                     let _ = self.model.needs_redraw.send(true);
-                }
-                Ok(Update::Clear) => {
-                    self.clear();
-                    let _ = self.model.needs_redraw.send(true);
-                }
-                Ok(Update::Pop) => {
-                    let mut history = self.chat_history.lock().unwrap();
-                    let mut removed = false;
-                    if let Some(ChatMessage::Assistant(a)) = history.last_mut() {
-                        if a.content.pop().is_some() {
-                            removed = true;
-                            if a.content.is_empty() {
-                                history.pop();
-                            }
-                        }
-                    }
-                    if !removed {
-                        history.pop();
-                    }
-                    let history_clone = history.clone();
-                    drop(history);
-                    self.conversation.set_history(&history_clone);
-                    let _ = self.model.needs_redraw.send(true);
-                }
-                Ok(Update::Redo) => {
-                    if let Some(text) = self.conversation.redo_last() {
-                        self.abort_requests();
-                        let mut history = self.chat_history.lock().unwrap();
-                        while let Some(msg) = history.pop() {
-                            if matches!(msg, ChatMessage::User(_)) {
-                                break;
-                            }
-                        }
-                        drop(history);
-                        self.prompt.set_prompt(text);
-                    }
-                }
-                Ok(Update::Save(path)) => {
-                    let history = { self.chat_history.lock().unwrap().clone() };
-                    if let Err(err) =
-                        std::fs::write(&path, serde_json::to_string_pretty(&history).unwrap())
-                    {
-                        self.error.set(format!("failed to save: {}", err));
-                        let _ = self.model.needs_redraw.send(true);
-                    }
-                }
-                Ok(Update::Load(path)) => {
-                    self.abort_requests();
-                    match std::fs::read_to_string(&path) {
-                        Ok(data) => match serde_json::from_str::<Vec<ChatMessage>>(&data) {
-                            Ok(history) => {
-                                *self.chat_history.lock().unwrap() = history.clone();
-                                self.conversation.set_history(&history);
-                                self.session_in_tokens = 0;
-                                self.session_out_tokens = 0;
-                                self.session_requests = 0;
-                                self.state = ConversationState::Idle;
-                                let _ = self.model.needs_redraw.send(true);
-                            }
-                            Err(err) => {
-                                self.error.set(format!("failed to parse: {}", err));
-                                let _ = self.model.needs_redraw.send(true);
-                            }
-                        },
-                        Err(err) => {
-                            self.error.set(format!("failed to load: {}", err));
-                            let _ = self.model.needs_redraw.send(true);
-                        }
-                    }
                 }
                 Err(_) => break,
             }
