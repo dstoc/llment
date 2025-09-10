@@ -462,31 +462,27 @@ impl Component for App {
                     self.selected_role = role;
                 }
                 Ok(Update::AppendThought(text)) => {
-                    {
-                        let mut history = self.chat_history.lock().unwrap();
-                        history.push(ChatMessage::Assistant(llm::AssistantMessage {
-                            content: vec![AssistantPart::Thinking { text: text.clone() }],
-                        }));
-                    }
-                    self.conversation.push_assistant();
-                    self.conversation.append_thinking(&text);
+                    let mut history = self.chat_history.lock().unwrap();
+                    history.push(ChatMessage::Assistant(llm::AssistantMessage {
+                        content: vec![AssistantPart::Thinking { text: text.clone() }],
+                    }));
+                    self.conversation.set_history(&history);
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::AppendResponse(text)) => {
                     let mut history = self.chat_history.lock().unwrap();
-                    let append = matches!(history.last(), Some(ChatMessage::Assistant(a)) if !a.content.iter().any(|p| matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))));
+                    let append = matches!(history.last(), Some(ChatMessage::Assistant(a)) if !a
+                        .content
+                        .iter()
+                        .any(|p| matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))));
                     if append {
                         if let Some(ChatMessage::Assistant(a)) = history.last_mut() {
                             a.content.push(AssistantPart::Text { text: text.clone() });
                         }
-                        drop(history);
-                        self.conversation.append_response(&text);
                     } else {
                         history.push(ChatMessage::assistant(text.clone()));
-                        drop(history);
-                        self.conversation.push_assistant();
-                        self.conversation.append_response(&text);
                     }
+                    self.conversation.set_history(&history);
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::SetMode(mode, service)) => {
