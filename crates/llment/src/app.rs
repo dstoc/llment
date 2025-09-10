@@ -457,15 +457,16 @@ impl Component for App {
                     self.selected_role = role;
                 }
                 Ok(Update::EditHistory(edit)) => {
-                    let mut history_guard = self.chat_history.lock().unwrap();
+                    let history_arc = self.chat_history.clone();
+                    let mut history_guard = history_arc.lock().unwrap();
                     let result = edit(&mut history_guard);
                     let history = history_guard.clone();
-                    let (prompt, reset_session, abort_requests_flag) = match result {
-                        Ok(HistoryEditResult {
-                            prompt,
-                            reset_session,
-                            abort_requests,
-                        }) => (prompt, reset_session, abort_requests),
+                    let HistoryEditResult {
+                        prompt,
+                        reset_session,
+                        abort_requests,
+                    } = match result {
+                        Ok(res) => res,
                         Err(err) => {
                             drop(history_guard);
                             self.error.set(err);
@@ -473,10 +474,10 @@ impl Component for App {
                             continue;
                         }
                     };
-                    drop(history_guard);
-                    if abort_requests_flag {
+                    if abort_requests {
                         self.abort_requests();
                     }
+                    drop(history_guard);
                     if reset_session {
                         self.session_in_tokens = 0;
                         self.session_out_tokens = 0;
