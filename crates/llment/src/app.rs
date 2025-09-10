@@ -8,7 +8,8 @@ use crate::{
     builtins::setup_builtin_tools,
     commands::{
         AgentModeCommand, ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand,
-        ProviderCommand, QuitCommand, RedoCommand, RepairCommand, RoleCommand, SaveCommand,
+        ProviderCommand, QuitCommand, RedoCommand, RepairCommand, ResponseCommand, RoleCommand,
+        SaveCommand, ThoughtCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
@@ -91,6 +92,8 @@ pub(crate) enum Update {
     Continue,
     Save(String),
     Load(String),
+    AppendThought(String),
+    AppendResponse(String),
     SetMode(
         Option<Box<dyn AgentMode>>,
         Option<RunningService<RoleClient, McpService>>,
@@ -149,6 +152,14 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(ContinueCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(ThoughtCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(ResponseCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -449,6 +460,34 @@ impl Component for App {
                 }
                 Ok(Update::SetRole(role)) => {
                     self.selected_role = role;
+                }
+                Ok(Update::AppendThought(text)) => {
+                    {
+                        let mut history = self.chat_history.lock().unwrap();
+                        history.push(ChatMessage::Assistant(llm::AssistantMessage {
+                            content: vec![AssistantPart::Thinking { text: text.clone() }],
+                        }));
+                    }
+                    self.conversation.push_assistant();
+                    self.conversation.append_thinking(&text);
+                    let _ = self.model.needs_redraw.send(true);
+                }
+                Ok(Update::AppendResponse(text)) => {
+                    let mut history = self.chat_history.lock().unwrap();
+                    let append = matches!(history.last(), Some(ChatMessage::Assistant(a)) if !a.content.iter().any(|p| matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))));
+                    if append {
+                        if let Some(ChatMessage::Assistant(a)) = history.last_mut() {
+                            a.content.push(AssistantPart::Text { text: text.clone() });
+                        }
+                        drop(history);
+                        self.conversation.append_response(&text);
+                    } else {
+                        history.push(ChatMessage::assistant(text.clone()));
+                        drop(history);
+                        self.conversation.push_assistant();
+                        self.conversation.append_response(&text);
+                    }
+                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::SetMode(mode, service)) => {
                     self.mcp_context.remove("agent");

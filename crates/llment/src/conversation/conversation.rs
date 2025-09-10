@@ -184,6 +184,17 @@ impl Conversation {
         }
     }
 
+    pub fn push_assistant(&mut self) {
+        self.items.push(Node::Assistant(AssistantBlock::new(
+            false,
+            Vec::new(),
+            String::new(),
+        )));
+        self.needs_layout = true;
+        self.ensure_layout(self.width);
+        self.scroll_to_bottom();
+    }
+
     pub fn push_user(&mut self, text: String) {
         self.items.push(Node::User(UserBubble::new(text)));
         self.needs_layout = true;

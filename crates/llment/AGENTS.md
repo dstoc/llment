@@ -55,7 +55,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - clicking the field focuses it
     - cursor hidden when unfocused
     - recognizes `/` commands
-      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, `/role`, and `/agent-mode`
+      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/thought`, `/response`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, `/role`, and `/agent-mode`
         - width adjusts to content
         - `Up`/`Down` navigate selection
         - `Tab` completes and `Enter` executes
