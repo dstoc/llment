@@ -116,21 +116,25 @@ impl ToolExecutor for McpContext {
                 arguments: args.as_object().cloned(),
             })
             .await?;
-
-        if let Some(content) = result.content {
-            let text = content
+        let text = if let Some(content) = result.content {
+            content
                 .into_iter()
                 .filter_map(|c| match c.raw {
                     RawContent::Text(t) => Some(t.text),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
-                .join("\n");
-            Ok(text)
+                .join("\n")
         } else if let Some(value) = result.structured_content {
-            Ok(value.to_string())
+            value.to_string()
         } else {
-            Ok(String::new())
+            String::new()
+        };
+
+        if result.is_error.unwrap_or(false) {
+            Err(text.into())
+        } else {
+            Ok(text)
         }
     }
 }

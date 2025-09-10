@@ -90,6 +90,7 @@ Trait-based LLM client implementations for multiple providers.
     - provides a non-blocking `tool_names` snapshot of available tools
     - implements `ToolExecutor` for MCP calls
       - unrecognized or unprefixed tool names return "{name} is not a valid tool name"
+      - tool execution errors with `is_error` set propagate as `Err`
     - tool call chunks insert assistant messages immediately before execution
       - accumulated assistant content is flushed as a separate assistant message
       - the tool-call assistant message carries empty `content` with `tool_calls` populated
