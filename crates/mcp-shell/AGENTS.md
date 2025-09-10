@@ -36,6 +36,8 @@ MCP server exposing shell command execution.
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
   - optional parameters prefix descriptions with "Optional."
+- tool errors reported via `CallToolResult::error`
+  - state issues like missing or running commands return execution errors
 
 ## Constraints
 - working directory must already exist; it is not created automatically
