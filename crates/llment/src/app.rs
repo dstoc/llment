@@ -8,8 +8,8 @@ use crate::{
     builtins::setup_builtin_tools,
     commands::{
         AgentModeCommand, ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand,
-        ProviderCommand, QuitCommand, RedoCommand, RepairCommand, ResponseCommand, RoleCommand,
-        SaveCommand, ThoughtCommand,
+        ProviderCommand, QuitCommand, RedoCommand, ResponseCommand, RoleCommand, SaveCommand,
+        ThoughtCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
@@ -88,7 +88,6 @@ pub(crate) enum Update {
     SetRole(Option<String>),
     Redo,
     Clear,
-    Repair,
     Continue,
     Save(String),
     Load(String),
@@ -144,10 +143,6 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(RedoCommand {
-                        needs_update: model.needs_update.clone(),
-                        update_tx: update_tx.clone(),
-                    }),
-                    Box::new(RepairCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -524,20 +519,6 @@ impl Component for App {
                         drop(history);
                         self.prompt.set_prompt(text);
                     }
-                }
-                Ok(Update::Repair) => {
-                    let mut history = self.chat_history.lock().unwrap();
-                    let len_before = history.len();
-                    history.retain(|msg| match msg {
-                        ChatMessage::Assistant(a) => a.content.iter().any(|p| {
-                            matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))
-                        }),
-                        _ => true,
-                    });
-                    if history.len() != len_before {
-                        self.conversation.set_history(&history);
-                    }
-                    let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Save(path)) => {
                     let history = { self.chat_history.lock().unwrap().clone() };

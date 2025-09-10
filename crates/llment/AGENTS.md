@@ -55,7 +55,7 @@ Basic terminal chat interface scaffold using a bespoke component framework built
     - clicking the field focuses it
     - cursor hidden when unfocused
     - recognizes `/` commands
-      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/repair`, `/continue`, `/thought`, `/response`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, `/role`, and `/agent-mode`
+      - `/` opens a popup with `/quit`, `/clear`, `/redo`, `/continue`, `/thought`, `/response`, `/save`, `/load`, `/model`, `/provider`, `/prompt`, `/role`, and `/agent-mode`
         - width adjusts to content
         - `Up`/`Down` navigate selection
         - `Tab` completes and `Enter` executes
@@ -69,7 +69,6 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - `/quit` exits the application
       - `/clear` resets conversation history, aborts any pending request, and zeroes context counters
       - `/redo` rolls back the last assistant block, restores the previous user message in the input, refocuses the prompt for editing, aborts any pending request, and recalculates context tokens
-      - `/repair` removes assistant blocks with no content or tool calls
       - `/continue` resends the conversation without adding a new user message
       - `/save` writes conversation history to a file
       - `/load` restores conversation history from a file and aborts any pending request
