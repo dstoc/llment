@@ -460,30 +460,32 @@ impl Component for App {
                     let mut history_guard = self.chat_history.lock().unwrap();
                     let result = edit(&mut history_guard);
                     let history = history_guard.clone();
-                    drop(history_guard);
-                    match result {
+                    let (prompt, reset_session, abort_requests_flag) = match result {
                         Ok(HistoryEditResult {
                             prompt,
                             reset_session,
                             abort_requests,
-                        }) => {
-                            if abort_requests {
-                                self.abort_requests();
-                            }
-                            if reset_session {
-                                self.session_in_tokens = 0;
-                                self.session_out_tokens = 0;
-                                self.session_requests = 0;
-                            }
-                            if let Some(p) = prompt {
-                                self.prompt.set_prompt(p);
-                            }
-                            self.conversation.set_history(&history);
-                        }
+                        }) => (prompt, reset_session, abort_requests),
                         Err(err) => {
+                            drop(history_guard);
                             self.error.set(err);
+                            let _ = self.model.needs_redraw.send(true);
+                            continue;
                         }
+                    };
+                    drop(history_guard);
+                    if abort_requests_flag {
+                        self.abort_requests();
                     }
+                    if reset_session {
+                        self.session_in_tokens = 0;
+                        self.session_out_tokens = 0;
+                        self.session_requests = 0;
+                    }
+                    if let Some(p) = prompt {
+                        self.prompt.set_prompt(p);
+                    }
+                    self.conversation.set_history(&history);
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::SetMode(mode, service)) => {
