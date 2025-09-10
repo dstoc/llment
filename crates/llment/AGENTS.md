@@ -104,6 +104,9 @@ Basic terminal chat interface scaffold using a bespoke component framework built
       - command commit behavior
         - on successful commit, the router clears the active command instance
         - on commit error, the active command instance remains for user correction
+      - history edits handled through `Update::EditHistory` callbacks from `history_edits.rs`
+        - callbacks mutate chat history directly and return results with optional prompt text
+        - result flags can abort in-flight requests or reset session token counters
   - dismissable error box above the input with an X button displays request errors
   - Esc exits the application
   - 1-line status area

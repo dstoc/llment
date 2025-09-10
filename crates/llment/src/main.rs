@@ -27,6 +27,7 @@ mod commands;
 mod component;
 mod components;
 mod conversation;
+mod history_edits;
 mod markdown;
 mod modes;
 mod prompts;

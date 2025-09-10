@@ -3,6 +3,7 @@ use tokio::sync::{mpsc::UnboundedSender, watch};
 use crate::{
     app::Update,
     components::completion::{Command, CommandInstance, CompletionResult},
+    history_edits,
 };
 
 pub struct ClearCommand {
@@ -38,7 +39,9 @@ impl CommandInstance for ClearCommandInstance {
         }
     }
     fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let _ = self.update_tx.send(Update::Clear);
+        let _ = self
+            .update_tx
+            .send(Update::EditHistory(history_edits::clear()));
         let _ = self.needs_update.send(true);
         Ok(())
     }
