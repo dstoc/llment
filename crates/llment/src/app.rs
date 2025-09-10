@@ -7,9 +7,9 @@ use crate::{
     Args, Component,
     builtins::setup_builtin_tools,
     commands::{
-        AgentModeCommand, ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PromptCommand,
-        ProviderCommand, QuitCommand, RedoCommand, ResponseCommand, RoleCommand, SaveCommand,
-        ThoughtCommand,
+        AgentModeCommand, ClearCommand, ContinueCommand, LoadCommand, ModelCommand, PopCommand,
+        PromptCommand, ProviderCommand, QuitCommand, RedoCommand, ResponseCommand, RoleCommand,
+        SaveCommand, ThoughtCommand,
     },
     components::{ErrorPopup, Prompt, input::PromptModel},
     conversation::{Conversation, ToolStep},
@@ -87,6 +87,7 @@ pub(crate) enum Update {
     SetPrompt(String),
     SetRole(Option<String>),
     Redo,
+    Pop,
     Clear,
     Continue,
     Save(String),
@@ -143,6 +144,10 @@ impl App {
                         update_tx: update_tx.clone(),
                     }),
                     Box::new(RedoCommand {
+                        needs_update: model.needs_update.clone(),
+                        update_tx: update_tx.clone(),
+                    }),
+                    Box::new(PopCommand {
                         needs_update: model.needs_update.clone(),
                         update_tx: update_tx.clone(),
                     }),
@@ -505,6 +510,25 @@ impl Component for App {
                 }
                 Ok(Update::Clear) => {
                     self.clear();
+                    let _ = self.model.needs_redraw.send(true);
+                }
+                Ok(Update::Pop) => {
+                    let mut history = self.chat_history.lock().unwrap();
+                    let mut removed = false;
+                    if let Some(ChatMessage::Assistant(a)) = history.last_mut() {
+                        if a.content.pop().is_some() {
+                            removed = true;
+                            if a.content.is_empty() {
+                                history.pop();
+                            }
+                        }
+                    }
+                    if !removed {
+                        history.pop();
+                    }
+                    let history_clone = history.clone();
+                    drop(history);
+                    self.conversation.set_history(&history_clone);
                     let _ = self.model.needs_redraw.send(true);
                 }
                 Ok(Update::Redo) => {
