@@ -20,6 +20,7 @@ MCP server offering file system editing utilities.
   - uses `tracing-subscriber` for output formatting
 
 ## Features
+- MCP initialize response includes tools capability
 - workspace root via CLI
   - paths may be absolute or relative to this directory
 - mount point hides actual workspace path in responses

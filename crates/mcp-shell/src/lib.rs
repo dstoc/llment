@@ -8,7 +8,7 @@ use nix::unistd::Pid;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
-    model::{CallToolResult, Content},
+    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
 };
 use schemars::JsonSchema;
@@ -72,7 +72,14 @@ impl ShellServer {
 }
 
 #[tool_handler]
-impl ServerHandler for ShellServer {}
+impl ServerHandler for ShellServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            ..Default::default()
+        }
+    }
+}
 
 struct CommandState {
     stdout_rx: mpsc::Receiver<String>,
@@ -576,6 +583,19 @@ mod tests {
         assert!(names.contains(&"terminate".into()));
         client.cancel().await.unwrap();
         server_task.await.unwrap();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_info_enables_tools() -> Result<()> {
+        let dir = tempdir().unwrap();
+        let server = ShellServer::new_local(dir.path().to_string_lossy().to_string()).await?;
+        assert!(
+            ServerHandler::get_info(&server)
+                .capabilities
+                .tools
+                .is_some()
+        );
         Ok(())
     }
 }

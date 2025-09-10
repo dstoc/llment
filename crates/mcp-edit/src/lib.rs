@@ -8,7 +8,7 @@ use ignore::WalkBuilder;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::{Parameters, ToolRouter},
-    model::{CallToolResult, Content},
+    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
 };
 use std::{
@@ -806,7 +806,14 @@ impl FsServer {
 }
 
 #[tool_handler]
-impl ServerHandler for FsServer {}
+impl ServerHandler for FsServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            ..Default::default()
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1393,5 +1400,17 @@ mod tests {
         server.disable_modification_tools();
         assert!(!server.tool_router.has_route("replace"));
         assert!(!server.tool_router.has_route("create_file"));
+    }
+
+    #[test]
+    fn get_info_enables_tools() {
+        let dir = tempdir().unwrap();
+        let server = FsServer::new(dir.path());
+        assert!(
+            ServerHandler::get_info(&server)
+                .capabilities
+                .tools
+                .is_some()
+        );
     }
 }

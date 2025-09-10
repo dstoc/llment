@@ -1,10 +1,9 @@
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::ToolRouter,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
 };
-use std::future::Future;
 
 #[derive(Clone)]
 pub struct HelloServer {
@@ -28,7 +27,14 @@ impl HelloServer {
 }
 
 #[tool_handler]
-impl ServerHandler for HelloServer {}
+impl ServerHandler for HelloServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            ..Default::default()
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -49,5 +55,16 @@ mod tests {
         let tools = server.tool_router.list_all();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name, "hello");
+    }
+
+    #[test]
+    fn get_info_enables_tools() {
+        let server = HelloServer::new();
+        assert!(
+            ServerHandler::get_info(&server)
+                .capabilities
+                .tools
+                .is_some()
+        );
     }
 }

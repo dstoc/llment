@@ -32,7 +32,7 @@ MCP server exposing shell command execution.
 - tool results return a status string: "still running, call wait or terminate" or "finished"
 - tool results omit false flags (`output_truncated`, `additional_output`)
 - tool results omit empty `stdout` and `stderr` fields
-- announces available tools to clients via MCP `list_tools`
+- announces available tools to clients via MCP initialize capabilities and `list_tools`
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
   - optional parameters prefix descriptions with "Optional."
