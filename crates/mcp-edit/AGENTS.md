@@ -45,6 +45,7 @@ MCP server offering file system editing utilities.
   - `search_file_content`
     - uses `grep` crate for regex searches with optional include filters
     - respects git ignore
+  - read-only tools annotate with `readOnlyHint`: `list_directory`, `read_file`, `read_many_files`, `glob`, `search_file_content`
 - parameter metadata
   - tool parameters include descriptions and default values via rmcp
   - optional parameters prefix descriptions with "Optional."

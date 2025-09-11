@@ -18,7 +18,10 @@ impl HelloServer {
         }
     }
 
-    #[tool(description = "Return a friendly greeting")]
+    #[tool(
+        description = "Return a friendly greeting",
+        annotations(read_only_hint = true)
+    )]
     pub async fn hello(&self) -> Result<CallToolResult, McpError> {
         Ok(CallToolResult::success(vec![Content::text(
             "Hello, world!",

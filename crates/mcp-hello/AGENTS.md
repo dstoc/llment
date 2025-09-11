@@ -14,6 +14,7 @@ Simple MCP server that provides a greeting tool.
 - tools
   - `hello`
     - returns "Hello, world!"
+    - annotated with `readOnlyHint`
 - server
   - runs over stdio
   - includes tools capability in MCP initialize response
