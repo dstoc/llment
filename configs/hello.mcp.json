@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "hello": {
+      "command": "target/debug/mcp-hello"
+    }
+  }
+}
