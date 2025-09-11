@@ -279,7 +279,10 @@ impl FsServer {
         )]))
     }
 
-    #[tool(description = "List the contents of a directory.")]
+    #[tool(
+        description = "List the contents of a directory.",
+        annotations(read_only_hint = true)
+    )]
     pub async fn list_directory(
         &self,
         Parameters(params): Parameters<ListDirectoryParams>,
@@ -354,7 +357,7 @@ impl FsServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "Read a file.")]
+    #[tool(description = "Read a file.", annotations(read_only_hint = true))]
     pub async fn read_file(
         &self,
         Parameters(params): Parameters<ReadFileParams>,
@@ -429,7 +432,10 @@ impl FsServer {
         }
     }
 
-    #[tool(description = "Read multiple files and concatenate their contents.")]
+    #[tool(
+        description = "Read multiple files and concatenate their contents.",
+        annotations(read_only_hint = true)
+    )]
     pub async fn read_many_files(
         &self,
         Parameters(params): Parameters<ReadManyFilesParams>,
@@ -645,7 +651,10 @@ impl FsServer {
         ))]))
     }
 
-    #[tool(description = "Find files matching a glob pattern.")]
+    #[tool(
+        description = "Find files matching a glob pattern.",
+        annotations(read_only_hint = true)
+    )]
     pub async fn glob(
         &self,
         Parameters(params): Parameters<GlobParams>,
@@ -716,7 +725,10 @@ impl FsServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    #[tool(description = "Search for a regex pattern in files within a directory.")]
+    #[tool(
+        description = "Search for a regex pattern in files within a directory.",
+        annotations(read_only_hint = true)
+    )]
     pub async fn search_file_content(
         &self,
         Parameters(params): Parameters<SearchFileContentParams>,
