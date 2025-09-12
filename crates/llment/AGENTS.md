@@ -163,6 +163,12 @@ Basic terminal chat interface scaffold using a bespoke component framework built
   - `ChatMessageRequest` includes MCP `tool_infos` before enabling thinking
 - Built-in tools registered via `setup_builtin_tools`
   - `setup_builtin_tools` returns a running `McpService` inserted into the shared `McpContext`
+  - Tools:
+    - `chat.get_message_count`: returns the number of chat messages
+    - `chat.discard_function_response`:
+      - parameters: `{ id: string }`
+      - finds a `Tool` message by matching `id` and clears its result text
+      - returns `"ok"` on success or a not-found message if no matching entry exists
   - `McpContext` retains running service handles
   - `get_message_count` returns the number of chat messages
 
