@@ -14,7 +14,7 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::{
     AssistantMessage, AssistantPart, ChatMessage, ChatMessageRequest, JsonResult, LlmClient,
-    ResponseChunk, ToolCall,
+    ResponseChunk,
 };
 
 #[async_trait]
@@ -69,100 +69,84 @@ pub async fn run_tool_loop(
         tx.send(ToolEvent::RequestStarted).ok();
         let mut handles: JoinSet<(String, String, Result<String, Box<dyn Error + Send + Sync>>)> =
             JoinSet::new();
-        let mut assistant_content: Option<String> = None;
-        let mut assistant_thinking: Option<String> = None;
+        let mut parts: Vec<AssistantPart> = Vec::new();
+        let mut current_part: Option<AssistantPart> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             let mut done = false;
-            let mut tool_calls: Vec<ToolCall> = Vec::new();
             match &chunk {
                 ResponseChunk::Content(content) => {
-                    if !content.is_empty() {
-                        assistant_content
-                            .get_or_insert_with(String::new)
-                            .push_str(content);
+                    if let Some(AssistantPart::Text { text }) = current_part.as_mut() {
+                        text.push_str(content);
+                    } else {
+                        if let Some(part) = current_part.take() {
+                            parts.push(part);
+                        }
+                        current_part = Some(AssistantPart::Text {
+                            text: content.into(),
+                        });
                     }
                 }
                 ResponseChunk::Thinking(thinking) => {
-                    if !thinking.is_empty() {
-                        assistant_thinking
-                            .get_or_insert_with(String::new)
-                            .push_str(thinking);
+                    if let Some(AssistantPart::Thinking { text }) = current_part.as_mut() {
+                        text.push_str(thinking);
+                    } else {
+                        if let Some(part) = current_part.take() {
+                            parts.push(part);
+                        }
+                        current_part = Some(AssistantPart::Thinking {
+                            text: thinking.into(),
+                        });
                     }
                 }
                 ResponseChunk::ToolCall(tc) => {
-                    tool_calls.push(tc.clone());
+                    if let Some(part) = current_part.take() {
+                        parts.push(part);
+                    }
+                    current_part = Some(AssistantPart::ToolCall(tc.clone()));
+                    tx.send(ToolEvent::ToolStarted {
+                        call_id: tc.id.clone(),
+                        name: tc.name.clone(),
+                        args: tc.arguments.clone(),
+                    })
+                    .ok();
+                    let executor = tool_executor.clone();
+                    let name = tc.name.clone();
+                    let args = tc.arguments.clone();
+                    let call_id = tc.id.clone();
+                    handles.spawn(async move {
+                        match args {
+                            JsonResult::Content { content } => {
+                                let res = executor.call(&name, content).await;
+                                (call_id, name, res)
+                            }
+                            JsonResult::Error { .. } => (
+                                call_id,
+                                name,
+                                Err::<String, Box<dyn Error + Send + Sync>>(Box::new(
+                                    std::io::Error::new(
+                                        std::io::ErrorKind::Other,
+                                        "Could not parse arguments as JSON",
+                                    ),
+                                )),
+                            ),
+                        }
+                    });
                 }
                 ResponseChunk::Usage { .. } => {}
                 ResponseChunk::Done => {
                     done = true;
                 }
             }
-            if !tool_calls.is_empty() {
-                if let Some(content) = assistant_content.take() {
-                    chat_history
-                        .lock()
-                        .unwrap()
-                        .push(ChatMessage::Assistant(AssistantMessage {
-                            content: vec![AssistantPart::Text { text: content }],
-                        }));
-                }
-                let mut parts: Vec<AssistantPart> = tool_calls
-                    .clone()
-                    .into_iter()
-                    .map(AssistantPart::ToolCall)
-                    .collect();
-                if let Some(thinking) = assistant_thinking.take() {
-                    parts.insert(0, AssistantPart::Thinking { text: thinking });
-                }
-                chat_history
-                    .lock()
-                    .unwrap()
-                    .push(ChatMessage::Assistant(AssistantMessage { content: parts }));
-            }
             tx.send(ToolEvent::Chunk(chunk)).ok();
-            for call in tool_calls {
-                tx.send(ToolEvent::ToolStarted {
-                    call_id: call.id.clone(),
-                    name: call.name.clone(),
-                    args: call.arguments.clone(),
-                })
-                .ok();
-                let executor = tool_executor.clone();
-                let name = call.name.clone();
-                let args = call.arguments.clone();
-                let call_id = call.id.clone();
-                handles.spawn(async move {
-                    match args {
-                        JsonResult::Content { content } => {
-                            let res = executor.call(&name, content).await;
-                            (call_id, name, res)
-                        }
-                        JsonResult::Error { .. } => (
-                            call_id,
-                            name,
-                            Err::<String, Box<dyn Error + Send + Sync>>(Box::new(
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    "Could not parse arguments as JSON",
-                                ),
-                            )),
-                        ),
-                    }
-                });
-            }
             if done {
                 break;
             }
         }
-        if assistant_content.is_some() || assistant_thinking.is_some() {
-            let mut parts: Vec<AssistantPart> = Vec::new();
-            if let Some(thinking) = assistant_thinking.take() {
-                parts.push(AssistantPart::Thinking { text: thinking });
-            }
-            if let Some(content) = assistant_content.take() {
-                parts.push(AssistantPart::Text { text: content });
-            }
+        if let Some(part) = current_part.take() {
+            parts.push(part);
+        }
+        if !parts.is_empty() {
             chat_history
                 .lock()
                 .unwrap()
