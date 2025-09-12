@@ -74,7 +74,7 @@ impl LlmClient for GeminiRustClient {
                             }
                             AssistantPart::ToolCall(tc) => {
                                 let args = match tc.arguments {
-                                    JsonResult::Content { content } => content,
+                                    JsonResult::Content { .. } => tc.arguments_content_with_id(),
                                     JsonResult::Error { .. } => Value::Null,
                                 };
                                 parts_vec.push(Part::FunctionCall {

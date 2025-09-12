@@ -92,7 +92,9 @@ impl LlmClient for OpenAiChatClient {
                             .into_iter()
                             .map(|tc| {
                                 let args = match &tc.arguments {
-                                    JsonResult::Content { content } => content.to_string(),
+                                    JsonResult::Content { .. } => {
+                                        tc.arguments_content_with_id().to_string()
+                                    }
                                     JsonResult::Error { error } => error.clone(),
                                 };
                                 ChatCompletionMessageToolCall {

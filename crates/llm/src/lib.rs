@@ -92,6 +92,17 @@ pub struct ToolCall {
     pub arguments: JsonResult,
 }
 
+impl ToolCall {
+    pub fn arguments_content_with_id(&self) -> Value {
+        let mut result = (*self.arguments.as_result().unwrap()).clone();
+        result
+            .as_object_mut()
+            .unwrap()
+            .insert("_id".into(), Value::String(self.id.clone()));
+        result
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AssistantPart {
