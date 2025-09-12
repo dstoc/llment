@@ -1,20 +1,27 @@
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use llm::{ChatMessage, ToolInfo, mcp::McpService};
+use llm::{ChatMessage, JsonResult, ToolInfo, mcp::McpService};
 use rmcp::{
     ServerHandler,
-    handler::server::router::tool::ToolRouter,
+    handler::server::{router::tool::ToolRouter, tool::Parameters},
     model::{ServerCapabilities, ServerInfo},
     service::{RoleClient, RunningService, ServiceExt},
     tool, tool_handler, tool_router,
 };
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::io::duplex;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct GetMessageCountParams {}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct DiscardFunctionResponseParams {
+    /// The id of the ToolCall/Tool response to discard
+    pub id: String,
+}
 
 #[derive(Clone)]
 struct BuiltinTools {
@@ -38,6 +45,30 @@ impl BuiltinTools {
     fn get_message_count(&self) -> String {
         self.chat_history.lock().unwrap().len().to_string()
     }
+
+    #[tool(
+        name = "discard_function_response",
+        description = "Removes the content from a tool response in history by id"
+    )]
+    fn discard_function_response(
+        &self,
+        Parameters(params): Parameters<DiscardFunctionResponseParams>,
+    ) -> String {
+        let mut history = self.chat_history.lock().unwrap();
+        if let Some((idx, _)) = history.iter().enumerate().rev().find(|(_, m)| match m {
+            ChatMessage::Tool(t) => t.id == params.id,
+            _ => false,
+        }) {
+            if let ChatMessage::Tool(t) = &mut history[idx] {
+                t.content = JsonResult::Content {
+                    content: Value::String("<response discarded>".into()),
+                };
+            }
+            "ok".into()
+        } else {
+            format!("Tool response with id '{}' not found", params.id)
+        }
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -59,11 +90,18 @@ pub async fn setup_builtin_tools(
         builtins.clone().serve(server_transport),
         McpService {
             prefix: "chat".into(),
-            tools: ArcSwap::new(Arc::new(vec![ToolInfo {
-                name: "get_message_count".into(),
-                description: "Returns the number of chat messages".into(),
-                parameters: schema_for!(GetMessageCountParams),
-            }])),
+            tools: ArcSwap::new(Arc::new(vec![
+                ToolInfo {
+                    name: "get_message_count".into(),
+                    description: "Returns the number of chat messages".into(),
+                    parameters: schema_for!(GetMessageCountParams),
+                },
+                ToolInfo {
+                    name: "discard_function_response".into(),
+                    description: "Removes the content from a tool response in history by id".into(),
+                    parameters: schema_for!(DiscardFunctionResponseParams),
+                },
+            ])),
         }
         .serve(client_transport)
     );
