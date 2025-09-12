@@ -134,7 +134,9 @@ fn build_prompt(
                         }
                         AssistantPart::ToolCall(tc) => {
                             let args = match &tc.arguments {
-                                JsonResult::Content { content } => content.to_string(),
+                                JsonResult::Content { .. } => {
+                                    tc.arguments_content_with_id().to_string()
+                                }
                                 JsonResult::Error { error } => error.clone(),
                             };
                             convo_msgs.push(
@@ -474,7 +476,7 @@ mod tests {
             ),
         ]);
         assert!(prefill_tokens.is_none());
-        let args = json!({"a": 2, "b": 2}).to_string();
+        let args = json!({"a": 2, "b": 2, "_id": "1"}).to_string();
         let result = json!({"sum": 4}).to_string();
         let expected_tail = format!(
             concat!(
