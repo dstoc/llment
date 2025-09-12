@@ -21,4 +21,7 @@ Generate GBNF grammar ASTs from `schemars::Schema` inputs.
 ## Constraints
 - Generated object rules include all properties
   - required properties appear first
-  - optional properties may follow in any order
+  - optional properties follow in fixed, deterministic order
+    - each optional property appears at most once (`?` semantics)
+    - when requireds exist, each optional is prefixed by a comma if present
+    - when no requireds exist, the first present optional has no leading comma

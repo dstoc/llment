@@ -258,35 +258,61 @@ impl Generator {
             optional_props.sort_by(|a, b| a.0.cmp(b.0));
 
             if !optional_props.is_empty() {
-                let mut choices = Vec::new();
-                for (name, subschema) in optional_props {
+                // Build optional property expressions in fixed order.
+                // When there are required fields already emitted (first == false),
+                // each optional field, if present, must be preceded by a comma.
+                // When no required fields exist (first == true), we construct a
+                // nested optional chain like: opt1 ("," opt2 ("," opt3)?)?
+                // and wrap the whole chain in Optional(...), allowing an empty object.
+
+                // Helper to build a single property expr (without any leading comma)
+                let mut mk_prop = |name: &str, subschema: &Value| {
                     let subschema: Schema = subschema.clone().try_into().unwrap_or_default();
                     let expr = self.expr_from_schema(&subschema, defs, cache, grammar);
                     let expr = self.maybe_rule(expr, grammar);
-                    choices.push(Expr::Seq(vec![
+                    Expr::Seq(vec![
                         Expr::Literal(format!("\"{}\"", name)),
                         Expr::Ref("ws".into()),
                         Expr::Literal(":".into()),
                         Expr::Ref("ws".into()),
                         expr,
-                    ]));
-                }
+                    ])
+                };
 
                 if first {
-                    seq.push(Expr::Optional(Box::new(Expr::Seq(vec![
-                        Expr::Choice(choices.clone()),
-                        Expr::Repeat(Box::new(Expr::Seq(vec![
+                    // No requireds: build nested optional chain
+                    let mut chain: Option<Expr> = None;
+                    for (name, subschema) in optional_props.into_iter().rev() {
+                        let prop = mk_prop(name, subschema);
+                        let seg = if let Some(tail) = chain {
+                            Expr::Seq(vec![
+                                prop,
+                                Expr::Optional(Box::new(Expr::Seq(vec![
+                                    Expr::Ref("ws".into()),
+                                    Expr::Literal(",".into()),
+                                    Expr::Ref("ws".into()),
+                                    tail,
+                                ]))),
+                            ])
+                        } else {
+                            prop
+                        };
+                        chain = Some(seg);
+                    }
+                    if let Some(chain_expr) = chain {
+                        seq.push(Expr::Optional(Box::new(chain_expr)));
+                    }
+                } else {
+                    // Requireds present: add each optional as an independent ("," prop)?
+                    for (name, subschema) in optional_props.into_iter() {
+                        let prop = mk_prop(name, subschema);
+                        seq.push(Expr::Optional(Box::new(Expr::Seq(vec![
+                            Expr::Ref("ws".into()),
                             Expr::Literal(",".into()),
                             Expr::Ref("ws".into()),
-                            Expr::Choice(choices),
-                        ]))),
-                    ]))));
-                } else {
-                    seq.push(Expr::Repeat(Box::new(Expr::Seq(vec![
-                        Expr::Literal(",".into()),
-                        Expr::Ref("ws".into()),
-                        Expr::Choice(choices),
-                    ]))));
+                            prop,
+                        ]))));
+                    }
                 }
             }
         }
@@ -346,7 +372,7 @@ mod tests {
         let generator = Generator::new();
         let grammar = generator.generate("params", &schema);
         insta::assert_snapshot!(grammar.to_string(), @r###"
-params-r0 ::= "{" ws "\"file_path\"" ws ":" ws string "," ws "\"new_string\"" ws ":" ws string "," ws "\"old_string\"" ws ":" ws string ("," ws "\"expected_replacements\"" ws ":" ws number)* ws "}"
+params-r0 ::= "{" ws "\"file_path\"" ws ":" ws string "," ws "\"new_string\"" ws ":" ws string "," ws "\"old_string\"" ws ":" ws string (ws "," ws "\"expected_replacements\"" ws ":" ws number)? ws "}"
 "###);
     }
 
@@ -364,7 +390,7 @@ params-r0 ::= "{" ws "\"file_path\"" ws ":" ws string "," ws "\"new_string\"" ws
         let generator = Generator::new();
         let grammar = generator.generate("params", &schema);
         insta::assert_snapshot!(grammar.to_string(), @r###"
-params-r0 ::= "{" ws "\"path\"" ws ":" ws string ("," ws "\"ignore\"" ws ":" ws r1 | "\"include\"" ws ":" ws r2 | "\"include_hidden\"" ws ":" ws r3)* ws "}"
+params-r0 ::= "{" ws "\"path\"" ws ":" ws string (ws "," ws "\"ignore\"" ws ":" ws r1)? (ws "," ws "\"include\"" ws ":" ws r2)? (ws "," ws "\"include_hidden\"" ws ":" ws r3)? ws "}"
 r1 ::= "[" ws (string ("," ws string)*)? ws "]"
 r2 ::= "[" ws (string ("," ws string)*)? ws "]"
 r3 ::= "true" | "false"
