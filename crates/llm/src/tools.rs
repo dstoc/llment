@@ -264,30 +264,25 @@ mod tests {
             .await
             .unwrap();
         let updated = history.lock().unwrap().clone();
-        // Behavior: assistant preamble content, then separate tool-call message, tool result, and final assistant response
-        assert_eq!(updated.len(), 5);
-        // First assistant message should contain the preamble content with no tool calls
-        let preamble_msg = &updated[1];
-        if let ChatMessage::Assistant(a) = preamble_msg {
-            assert_eq!(a.content.len(), 1);
+        // Behavior: assistant content and tool call are combined in one assistant message,
+        // followed by the tool result message and the final assistant response
+        assert_eq!(updated.len(), 4);
+        // First assistant message should contain the preamble content followed by the tool call
+        let first_assistant = &updated[1];
+        if let ChatMessage::Assistant(a) = first_assistant {
+            assert_eq!(a.content.len(), 2);
             match &a.content[0] {
                 AssistantPart::Text { text } => assert_eq!(text, "first"),
-                _ => panic!("expected text part"),
+                _ => panic!("expected first part to be text"),
             }
-        } else {
-            panic!("expected assistant preamble message");
-        }
-        // Next assistant message should carry the tool call
-        let call_msg = &updated[2];
-        if let ChatMessage::Assistant(a) = call_msg {
-            assert_eq!(a.content.len(), 1);
-            match &a.content[0] {
+            match &a.content[1] {
                 AssistantPart::ToolCall(tc) => assert_eq!(tc.name, "test"),
-                _ => panic!("expected tool call part"),
+                _ => panic!("expected second part to be tool call"),
             }
         } else {
-            panic!("expected assistant message with tool call");
+            panic!("expected combined assistant message");
         }
+        // Final assistant message should be the follow-up content
         let final_msg = updated.last().unwrap();
         if let ChatMessage::Assistant(a) = final_msg {
             assert_eq!(a.content.len(), 1);
