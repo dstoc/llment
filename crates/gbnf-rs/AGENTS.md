@@ -25,3 +25,5 @@ Generate GBNF grammar ASTs from `schemars::Schema` inputs.
     - each optional property appears at most once (`?` semantics)
     - when requireds exist, each optional is prefixed by a comma if present
     - when no requireds exist, the first present optional has no leading comma
+    - when no requireds exist, optional properties can start at any position and may skip middle properties while preserving order and uniqueness
+      - implemented via recursive choices over downstream chains (O(n^2) size)

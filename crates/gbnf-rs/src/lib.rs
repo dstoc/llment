@@ -265,47 +265,71 @@ impl Generator {
                 // nested optional chain like: opt1 ("," opt2 ("," opt3)?)?
                 // and wrap the whole chain in Optional(...), allowing an empty object.
 
+                // Precompute value expressions for each optional prop so we reuse
+                // the same rule/reference across multiple chains and avoid duplicates.
+                let prepared: Vec<(String, Expr)> = optional_props
+                    .iter()
+                    .map(|(name, subschema)| {
+                        let subschema: Schema = (*subschema).clone().try_into().unwrap_or_default();
+                        let expr = self.expr_from_schema(&subschema, defs, cache, grammar);
+                        let expr = self.maybe_rule(expr, grammar);
+                        ((*name).clone(), expr)
+                    })
+                    .collect();
+
                 // Helper to build a single property expr (without any leading comma)
-                let mut mk_prop = |name: &str, subschema: &Value| {
-                    let subschema: Schema = subschema.clone().try_into().unwrap_or_default();
-                    let expr = self.expr_from_schema(&subschema, defs, cache, grammar);
-                    let expr = self.maybe_rule(expr, grammar);
+                let mk_prop_idx = |idx: usize| {
+                    let (ref name, ref expr) = prepared[idx];
                     Expr::Seq(vec![
                         Expr::Literal(format!("\"{}\"", name)),
                         Expr::Ref("ws".into()),
                         Expr::Literal(":".into()),
                         Expr::Ref("ws".into()),
-                        expr,
+                        expr.clone(),
                     ])
                 };
 
                 if first {
-                    // No requireds: build nested optional chain
-                    let mut chain: Option<Expr> = None;
-                    for (name, subschema) in optional_props.into_iter().rev() {
-                        let prop = mk_prop(name, subschema);
-                        let seg = if let Some(tail) = chain {
-                            Expr::Seq(vec![
-                                prop,
-                                Expr::Optional(Box::new(Expr::Seq(vec![
-                                    Expr::Ref("ws".into()),
-                                    Expr::Literal(",".into()),
-                                    Expr::Ref("ws".into()),
-                                    tail,
-                                ]))),
-                            ])
+                    // No requireds: allow starting at any optional and skipping
+                    // middles while preserving order and uniqueness.
+                    // Build chain_i for each i: prop(i) followed by optional
+                    // comma + choice of any chain_j where j > i.
+                    let n = prepared.len();
+                    if n > 0 {
+                        let mut chains: Vec<Expr> = vec![Expr::Literal(String::new()); n];
+                        // Build from the end to the front so later chains exist.
+                        for i in (0..n).rev() {
+                            let prop = mk_prop_idx(i);
+                            let mut choices: Vec<Expr> = Vec::new();
+                            for j in (i + 1)..n {
+                                choices.push(chains[j].clone());
+                            }
+                            let chain_i = if choices.is_empty() {
+                                prop
+                            } else {
+                                Expr::Seq(vec![
+                                    prop,
+                                    Expr::Optional(Box::new(Expr::Seq(vec![
+                                        Expr::Ref("ws".into()),
+                                        Expr::Literal(",".into()),
+                                        Expr::Ref("ws".into()),
+                                        Expr::Choice(choices),
+                                    ]))),
+                                ])
+                            };
+                            chains[i] = chain_i;
+                        }
+                        let top_choice = if n == 1 {
+                            chains.remove(0)
                         } else {
-                            prop
+                            Expr::Choice(chains)
                         };
-                        chain = Some(seg);
-                    }
-                    if let Some(chain_expr) = chain {
-                        seq.push(Expr::Optional(Box::new(chain_expr)));
+                        seq.push(Expr::Optional(Box::new(top_choice)));
                     }
                 } else {
                     // Requireds present: add each optional as an independent ("," prop)?
-                    for (name, subschema) in optional_props.into_iter() {
-                        let prop = mk_prop(name, subschema);
+                    for (idx, _) in prepared.iter().enumerate() {
+                        let prop = mk_prop_idx(idx);
                         seq.push(Expr::Optional(Box::new(Expr::Seq(vec![
                             Expr::Ref("ws".into()),
                             Expr::Literal(",".into()),
@@ -394,6 +418,25 @@ params-r0 ::= "{" ws "\"path\"" ws ":" ws string (ws "," ws "\"ignore\"" ws ":" 
 r1 ::= "[" ws (string ("," ws string)*)? ws "]"
 r2 ::= "[" ws (string ("," ws string)*)? ws "]"
 r3 ::= "true" | "false"
+"###);
+    }
+
+    #[derive(JsonSchema)]
+    struct AllOptional {
+        a: Option<String>,
+        b: Option<bool>,
+        c: Option<Vec<String>>,
+    }
+
+    #[test]
+    fn all_optional_object_grammar() {
+        let schema = schemars::schema_for!(AllOptional);
+        let generator = Generator::new();
+        let grammar = generator.generate("params", &schema);
+        insta::assert_snapshot!(grammar.to_string(), @r###"
+params-r0 ::= "{" ws ("\"a\"" ws ":" ws string (ws "," ws "\"b\"" ws ":" ws r1 (ws "," ws "\"c\"" ws ":" ws r2)? | "\"c\"" ws ":" ws r2)? | "\"b\"" ws ":" ws r1 (ws "," ws "\"c\"" ws ":" ws r2)? | "\"c\"" ws ":" ws r2)? ws "}"
+r1 ::= "true" | "false"
+r2 ::= "[" ws (string ("," ws string)*)? ws "]"
 "###);
     }
 
