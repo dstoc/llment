@@ -1,12 +1,12 @@
 use std::error::Error;
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use gemini_rust::{
     Content, FunctionCallingMode, FunctionDeclaration, FunctionParameters, Gemini, Message, Part,
     Role,
 };
-use reqwest::Client as HttpClient;
+use reqwest::{Client as HttpClient, Url};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -52,8 +52,8 @@ impl LlmClient for GeminiRustClient {
         let gemini = Gemini::with_model_and_base_url(
             self.api_key.clone(),
             format!("models/{}", request.model_name),
-            self.base_url.clone(),
-        );
+            Url::parse(self.base_url.as_str()).unwrap(),
+        )?;
         let mut builder = gemini.generate_content();
 
         let mut system_instruction: Option<String> = None;
@@ -70,6 +70,7 @@ impl LlmClient for GeminiRustClient {
                                 parts_vec.push(Part::Text {
                                     text,
                                     thought: None,
+                                    thought_signature: None,
                                 });
                             }
                             AssistantPart::ToolCall(tc) => {
@@ -79,6 +80,7 @@ impl LlmClient for GeminiRustClient {
                                 };
                                 parts_vec.push(Part::FunctionCall {
                                     function_call: gemini_rust::FunctionCall::new(tc.name, args),
+                                    thought_signature: None,
                                 });
                             }
                             AssistantPart::Thinking { .. } => {}
@@ -143,33 +145,43 @@ impl LlmClient for GeminiRustClient {
         let mut input_tokens = 0u32;
         let mut output_tokens = 0u32;
         let stream = builder.execute_stream().await?;
-        let mapped = stream.flat_map(move |res| match res {
+        let mapped = stream.into_stream().flat_map(move |res| match res {
             Ok(chunk) => {
                 let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
                 if let Some(usage) = chunk.usage_metadata {
-                    let input_delta = usage.prompt_token_count as u32 - input_tokens;
+                    let input_delta =
+                        usage.prompt_token_count.unwrap_or_default() as u32 - input_tokens;
                     input_tokens += input_delta;
-                    let output_delta = usage.total_token_count as u32
-                        - usage.prompt_token_count as u32
+                    let output_delta = usage.total_token_count.unwrap_or_default() as u32
+                        - usage.prompt_token_count.unwrap_or_default() as u32
                         - output_tokens;
                     output_tokens += output_delta;
-                    out.push(Ok(ResponseChunk::Usage {
-                        input_tokens: input_delta,
-                        output_tokens: output_delta,
-                    }));
+                    if input_delta > 0 || output_delta > 0 {
+                        out.push(Ok(ResponseChunk::Usage {
+                            input_tokens: input_delta,
+                            output_tokens: output_delta,
+                        }));
+                    }
                 }
                 if let Some(candidate) = chunk.candidates.first() {
                     if let Some(parts) = &candidate.content.parts {
                         for part in parts {
                             match part {
-                                Part::Text { text, thought } => {
+                                Part::Text {
+                                    text,
+                                    thought,
+                                    thought_signature: _,
+                                } => {
                                     if thought.unwrap_or(false) {
                                         out.push(Ok(ResponseChunk::Thinking(text.clone())));
                                     } else if !text.is_empty() {
                                         out.push(Ok(ResponseChunk::Content(text.clone())));
                                     }
                                 }
-                                Part::FunctionCall { function_call } => {
+                                Part::FunctionCall {
+                                    function_call,
+                                    thought_signature: _,
+                                } => {
                                     out.push(Ok(ResponseChunk::ToolCall(ToolCall {
                                         id: Uuid::new_v4().to_string(),
                                         name: function_call.name.clone(),
