@@ -91,10 +91,10 @@ Trait-based LLM client implementations for multiple providers.
     - implements `ToolExecutor` for MCP calls
       - unrecognized or unprefixed tool names return "{name} is not a valid tool name"
       - tool execution errors with `is_error` set propagate as `Err`
-    - tool call chunks insert assistant messages immediately before execution
-      - accumulated assistant content is flushed as a separate assistant message
-      - the tool-call assistant message carries empty `content` with `tool_calls` populated
-    - accumulated streamed content is appended as an assistant message after the stream completes
+    - tool orchestration message shape
+      - streamed assistant parts (text/thinking) and tool calls from a single response are combined into one assistant message in original order
+      - the tool result is appended as a separate tool-role message with the same call id
+      - follow-up assistant responses are appended after tool execution completes
 - Test utilities
   - `TestProvider` implements `LlmClient`
     - captures `ChatMessageRequest`s for assertions
