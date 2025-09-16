@@ -18,5 +18,5 @@ Do not modify any other files in the workspace, leave that to the team.
 
 When you are finished:
 1. use git to commit your changes, make sure the working directory is clean before continuing
-2. call agent.notify for role `execution-lead`
+2. call agent_notify for role `execution-lead`
 3. stop

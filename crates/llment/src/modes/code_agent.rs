@@ -164,7 +164,7 @@ impl AgentMode for CodeAgentMode {
             AgentModeStep {
                 role: Some(format!("code-agent/{}", self.current_role.as_str())),
                 prompt: Some(
-                    "Please finish your job and then call agent.notify(role, message) as requested.".to_string(),
+                    "Please finish your job and then call agent_notify(role, message) as requested.".to_string(),
                 ),
                 clear_history: false,
                 stop: false,

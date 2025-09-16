@@ -1,4 +1,4 @@
-{% if tool_enabled("shell.run") %}
+{% if tool_enabled("shell_run") %}
 Enabled!
 {% else %}
 Disabled!

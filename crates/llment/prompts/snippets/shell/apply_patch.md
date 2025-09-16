@@ -1,4 +1,4 @@
-{% if tool_enabled("shell.run") %}
+{% if tool_enabled("shell_run") %}
 You have access to the `apply_patch` shell command to edit files. Follow these rules exactly.
 
 **Contract**

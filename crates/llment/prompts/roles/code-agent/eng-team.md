@@ -22,5 +22,5 @@ Begin work on the task.
 When you are completely finished with the task:
 1. ensure the task log is up to date - did you complete all the TODOs?
 2. use git to commit your changes, make sure the working directory is clean before continuing (git status)
-3. call agent.notify for role `reviewer` summarizing any deviations from the task
+3. call agent_notify for role `reviewer` summarizing any deviations from the task
 4. stop
