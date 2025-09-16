@@ -290,17 +290,17 @@ impl Conversation {
                 ChatMessage::Assistant(a) => {
                     for part in &a.content {
                         match part {
-                            AssistantPart::Thinking { text } => {
+                            AssistantPart::Thinking { text, .. } => {
                                 if !text.is_empty() {
                                     self.append_thinking(text);
                                 }
                             }
-                            AssistantPart::Text { text } => {
+                            AssistantPart::Text { text, .. } => {
                                 if !text.is_empty() {
                                     self.append_response(text);
                                 }
                             }
-                            AssistantPart::ToolCall(call) => {
+                            AssistantPart::ToolCall { call, .. } => {
                                 let args = match &call.arguments {
                                     JsonResult::Content { content } => {
                                         to_string(content).unwrap_or_default()

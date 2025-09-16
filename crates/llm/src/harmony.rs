@@ -120,29 +120,29 @@ fn build_prompt(
             ChatMessage::Assistant(a) => {
                 for part in &a.content {
                     match part {
-                        AssistantPart::Thinking { text } => {
+                        AssistantPart::Thinking { text, .. } => {
                             convo_msgs.push(
                                 Message::from_role_and_content(Role::Assistant, text.clone())
                                     .with_channel("analysis"),
                             );
                         }
-                        AssistantPart::Text { text } => {
+                        AssistantPart::Text { text, .. } => {
                             convo_msgs.push(
                                 Message::from_role_and_content(Role::Assistant, text.clone())
                                     .with_channel("final"),
                             );
                         }
-                        AssistantPart::ToolCall(tc) => {
-                            let args = match &tc.arguments {
+                        AssistantPart::ToolCall { call, .. } => {
+                            let args = match &call.arguments {
                                 JsonResult::Content { .. } => {
-                                    tc.arguments_content_with_id().to_string()
+                                    call.arguments_content_with_id().to_string()
                                 }
                                 JsonResult::Error { error } => error.clone(),
                             };
                             convo_msgs.push(
                                 Message::from_role_and_content(Role::Assistant, args)
                                     .with_channel("commentary")
-                                    .with_recipient(format!("functions.{}", tc.name))
+                                    .with_recipient(format!("functions.{}", call.name))
                                     .with_content_type("<|constrain|>json"),
                             );
                         }
@@ -303,9 +303,17 @@ impl LlmClient for HarmonyClient {
                             if !delta.is_empty() && parser.current_recipient().is_none() {
                                 match parser.current_channel().as_deref() {
                                     Some("analysis") => {
-                                        out.push(Ok(ResponseChunk::Thinking(delta)))
+                                        out.push(Ok(ResponseChunk::Part(AssistantPart::Thinking {
+                                            text: delta,
+                                            encrypted_content: None,
+                                        })))
                                     }
-                                    Some("final") => out.push(Ok(ResponseChunk::Content(delta))),
+                                    Some("final") => {
+                                        out.push(Ok(ResponseChunk::Part(AssistantPart::Text {
+                                            text: delta,
+                                            encrypted_content: None,
+                                        })))
+                                    }
                                     _ => {}
                                 }
                             }
@@ -328,10 +336,13 @@ impl LlmClient for HarmonyClient {
                                         error: text.clone(),
                                     },
                                 };
-                                out.push(Ok(ResponseChunk::ToolCall(ToolCall {
-                                    id: Uuid::new_v4().to_string(),
-                                    name: name.to_string(),
-                                    arguments,
+                                out.push(Ok(ResponseChunk::Part(AssistantPart::ToolCall {
+                                    call: ToolCall {
+                                        id: Uuid::new_v4().to_string(),
+                                        name: name.to_string(),
+                                        arguments,
+                                    },
+                                    encrypted_content: None,
                                 })));
                             }
                         }
@@ -393,6 +404,7 @@ mod tests {
             ChatMessage::Assistant(AssistantMessage {
                 content: vec![AssistantPart::Thinking {
                     text: "ponder".into(),
+                    encrypted_content: None,
                 }],
             }),
         ]);
@@ -424,9 +436,11 @@ mod tests {
                 content: vec![
                     AssistantPart::Thinking {
                         text: "ponder".into(),
+                        encrypted_content: None,
                     },
                     AssistantPart::Text {
                         text: "Hello".into(),
+                        encrypted_content: None,
                     },
                 ],
             }),
@@ -435,9 +449,11 @@ mod tests {
                 content: vec![
                     AssistantPart::Thinking {
                         text: "think".into(),
+                        encrypted_content: None,
                     },
                     AssistantPart::Text {
                         text: "I'm good".into(),
+                        encrypted_content: None,
                     },
                 ],
             }),
@@ -459,13 +475,16 @@ mod tests {
         let (_, prompt, prefill_tokens, _) = setup(vec![
             ChatMessage::user("2+2?".into()),
             ChatMessage::Assistant(AssistantMessage {
-                content: vec![AssistantPart::ToolCall(ToolCall {
-                    id: "1".into(),
-                    name: "add".into(),
-                    arguments: JsonResult::Content {
-                        content: json!({"a": 2, "b": 2}),
+                content: vec![AssistantPart::ToolCall {
+                    call: ToolCall {
+                        id: "1".into(),
+                        name: "add".into(),
+                        arguments: JsonResult::Content {
+                            content: json!({"a": 2, "b": 2}),
+                        },
                     },
-                })],
+                    encrypted_content: None,
+                }],
             }),
             ChatMessage::tool(
                 "1".into(),

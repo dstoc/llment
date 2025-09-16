@@ -77,9 +77,9 @@ impl LlmClient for OpenAiChatClient {
                     let mut tool_calls_acc: Vec<ToolCall> = Vec::new();
                     for part in a.content {
                         match part {
-                            AssistantPart::Text { text } => content_acc.push_str(&text),
-                            AssistantPart::Thinking { text } => thinking_acc.push_str(&text),
-                            AssistantPart::ToolCall(tc) => tool_calls_acc.push(tc),
+                            AssistantPart::Text { text, .. } => content_acc.push_str(&text),
+                            AssistantPart::Thinking { text, .. } => thinking_acc.push_str(&text),
+                            AssistantPart::ToolCall { call, .. } => tool_calls_acc.push(call),
                         }
                     }
                     if !content_acc.is_empty() {
@@ -255,13 +255,22 @@ impl LlmClient for OpenAiChatClient {
                         None
                     };
                     if !thinking_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Thinking(thinking_acc)));
+                        out.push(Ok(ResponseChunk::Part(AssistantPart::Thinking {
+                            text: thinking_acc,
+                            encrypted_content: None,
+                        })));
                     }
                     for tc in tool_calls {
-                        out.push(Ok(ResponseChunk::ToolCall(tc)));
+                        out.push(Ok(ResponseChunk::Part(AssistantPart::ToolCall {
+                            call: tc,
+                            encrypted_content: None,
+                        })));
                     }
                     if !content_acc.is_empty() {
-                        out.push(Ok(ResponseChunk::Content(content_acc)));
+                        out.push(Ok(ResponseChunk::Part(AssistantPart::Text {
+                            text: content_acc,
+                            encrypted_content: None,
+                        })));
                     }
                     if let Some((input_tokens, output_tokens)) = usage {
                         out.push(Ok(ResponseChunk::Usage {

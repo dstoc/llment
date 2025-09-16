@@ -18,7 +18,10 @@ pub type HistoryEdit =
 pub fn append_thought(text: String) -> HistoryEdit {
     Box::new(move |history: &mut Vec<ChatMessage>| {
         history.push(ChatMessage::Assistant(llm::AssistantMessage {
-            content: vec![AssistantPart::Thinking { text: text.clone() }],
+            content: vec![AssistantPart::Thinking {
+                text: text.clone(),
+                encrypted_content: None,
+            }],
         }));
         Ok(HistoryEditResult::default())
     })
@@ -26,13 +29,20 @@ pub fn append_thought(text: String) -> HistoryEdit {
 
 pub fn append_response(text: String) -> HistoryEdit {
     Box::new(move |history: &mut Vec<ChatMessage>| {
-        let append = matches!(history.last(), Some(ChatMessage::Assistant(a)) if !a
-            .content
-            .iter()
-            .any(|p| matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall(_))));
+        let append = matches!(
+            history.last(),
+            Some(ChatMessage::Assistant(a))
+                if !a
+                    .content
+                    .iter()
+                    .any(|p| matches!(p, AssistantPart::Text { .. } | AssistantPart::ToolCall { .. }))
+        );
         if append {
             if let Some(ChatMessage::Assistant(a)) = history.last_mut() {
-                a.content.push(AssistantPart::Text { text: text.clone() });
+                a.content.push(AssistantPart::Text {
+                    text: text.clone(),
+                    encrypted_content: None,
+                });
             }
         } else {
             history.push(ChatMessage::assistant(text.clone()));

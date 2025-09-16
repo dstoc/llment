@@ -66,21 +66,27 @@ impl LlmClient for GeminiRustClient {
                     let mut parts_vec: Vec<Part> = Vec::new();
                     for part in a.content {
                         match part {
-                            AssistantPart::Text { text } => {
+                            AssistantPart::Text {
+                                text,
+                                encrypted_content,
+                            } => {
                                 parts_vec.push(Part::Text {
                                     text,
                                     thought: None,
-                                    thought_signature: None,
+                                    thought_signature: encrypted_content,
                                 });
                             }
-                            AssistantPart::ToolCall(tc) => {
-                                let args = match tc.arguments {
-                                    JsonResult::Content { .. } => tc.arguments_content_with_id(),
+                            AssistantPart::ToolCall {
+                                call,
+                                encrypted_content,
+                            } => {
+                                let args = match call.arguments {
+                                    JsonResult::Content { .. } => call.arguments_content_with_id(),
                                     JsonResult::Error { .. } => Value::Null,
                                 };
                                 parts_vec.push(Part::FunctionCall {
-                                    function_call: gemini_rust::FunctionCall::new(tc.name, args),
-                                    thought_signature: None,
+                                    function_call: gemini_rust::FunctionCall::new(call.name, args),
+                                    thought_signature: encrypted_content,
                                 });
                             }
                             AssistantPart::Thinking { .. } => {}
@@ -170,24 +176,36 @@ impl LlmClient for GeminiRustClient {
                                 Part::Text {
                                     text,
                                     thought,
-                                    thought_signature: _,
+                                    thought_signature,
                                 } => {
+                                    let encrypted_content = thought_signature.clone();
                                     if thought.unwrap_or(false) {
-                                        out.push(Ok(ResponseChunk::Thinking(text.clone())));
+                                        out.push(Ok(ResponseChunk::Part(
+                                            AssistantPart::Thinking {
+                                                text: text.clone(),
+                                                encrypted_content,
+                                            },
+                                        )));
                                     } else if !text.is_empty() {
-                                        out.push(Ok(ResponseChunk::Content(text.clone())));
+                                        out.push(Ok(ResponseChunk::Part(AssistantPart::Text {
+                                            text: text.clone(),
+                                            encrypted_content,
+                                        })));
                                     }
                                 }
                                 Part::FunctionCall {
                                     function_call,
-                                    thought_signature: _,
+                                    thought_signature,
                                 } => {
-                                    out.push(Ok(ResponseChunk::ToolCall(ToolCall {
-                                        id: Uuid::new_v4().to_string(),
-                                        name: function_call.name.clone(),
-                                        arguments: JsonResult::Content {
-                                            content: function_call.args.clone(),
+                                    out.push(Ok(ResponseChunk::Part(AssistantPart::ToolCall {
+                                        call: ToolCall {
+                                            id: Uuid::new_v4().to_string(),
+                                            name: function_call.name.clone(),
+                                            arguments: JsonResult::Content {
+                                                content: function_call.args.clone(),
+                                            },
                                         },
+                                        encrypted_content: thought_signature.clone(),
                                     })));
                                 }
                                 _ => {}

@@ -59,15 +59,16 @@ Trait-based LLM client implementations for multiple providers.
   - when converting assistant tool calls into provider requests, the function `arguments` include the original tool-call `id` under the `_id` field
 - chat messages are an enum of `UserMessage`, `AssistantMessage`, `SystemMessage`, and `ToolMessage`, each with only relevant fields
     - `AssistantMessage` holds a `Vec<AssistantPart>` for text, tool calls, and thinking segments
+      - each assistant part carries optional `encrypted_content`; GeminiRust forwards it to and restores it from the Gemini `thought_signature`
     - tool calls include an `id` string, assigned locally when missing
     - tool messages carry the same `id` and store results via `JsonResult` (`content` or `error`)
 - Chat message, request, and response types serialize to and from JSON
   - skips serializing fields that are `None`, empty strings, or empty arrays
 - Responses
-  - `ResponseChunk` is an enum of `Thinking`, `ToolCall`, `Content`, `Usage`, or `Done`
+  - `ResponseChunk` emits `Part(AssistantPart)` items alongside `Usage` and `Done`
   - usage chunks carry `input_tokens` and `output_tokens`
-  - tool call chunks hold a single `ToolCall` and repeat as needed
-  - thinking, tool calls, and content stream first, followed by optional usage then `Done`
+  - streaming text and thinking segments arrive as assistant parts; consecutive parts without `encrypted_content` are merged while segments with encrypted data remain isolated
+  - tool call parts stream as single `AssistantPart::ToolCall` values
   - OpenAiChat client converts assistant history messages with tool calls into request `tool_calls` and stitches streaming tool call deltas into complete tool calls
   - OpenAiChat client parses `reasoning_content` from streamed responses into thinking text
 - Tool orchestration
