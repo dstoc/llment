@@ -63,6 +63,7 @@ Run with defaults (preferred):
 
 For example, the following configuration loads two STDIO based MCP servers.
 The functions from `mcp-edit` will be prefixed with `files_` as in `files_create_file`, similarly with `shell_` for `mcp-shell`.
+MCP server names must not contain underscores because tool identifiers are generated as `<prefix>_<tool>`.
 The server commands are launched with the same working directory that `llment` was.
 
 ```json

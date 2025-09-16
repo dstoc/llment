@@ -202,7 +202,9 @@ impl App {
     pub async fn init(&mut self, mcp_context: McpContext) {
         self.mcp_context = mcp_context;
         let builtin_service = setup_builtin_tools(self.chat_history.clone()).await;
-        self.mcp_context.insert(builtin_service);
+        self.mcp_context
+            .insert(builtin_service)
+            .expect("builtin MCP prefix must not contain '_'");
     }
 
     fn handle_tool_event(&mut self, ev: ToolEvent) {
@@ -494,7 +496,12 @@ impl Component for App {
                     self.abort_requests();
                     self.mode = mode;
                     if let Some(service) = service {
-                        self.mcp_context.insert(service);
+                        if let Err(err) = self.mcp_context.insert(service) {
+                            self.mode = None;
+                            self.error.set(err.to_string());
+                            let _ = self.model.needs_redraw.send(true);
+                            continue;
+                        }
                     }
                     let start = if let Some(mode) = self.mode.as_mut() {
                         Some(mode.start())
