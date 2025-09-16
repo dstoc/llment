@@ -1,4 +1,4 @@
-{% if tool_enabled("shell.run") %}
+{% if tool_enabled("shell_run") %}
 ## Searching and Listing Files
 
 Use `rg` -- ripgrep. Always use `rg` instead of `grep`.

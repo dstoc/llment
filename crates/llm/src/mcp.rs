@@ -70,7 +70,7 @@ impl McpContext {
             let tools = svc.service().tools.load();
             for tool in tools.iter() {
                 infos.push(ToolInfo {
-                    name: format!("{}.{}", prefix, tool.name),
+                    name: format!("{}_{}", prefix, tool.name),
                     description: tool.description.clone(),
                     parameters: tool.parameters.clone(),
                 });
@@ -86,7 +86,7 @@ impl McpContext {
             let prefix = svc.service().prefix.clone();
             let tools = svc.service().tools.load();
             for tool in tools.iter() {
-                names.push(format!("{}.{}", prefix, tool.name));
+                names.push(format!("{}_{}", prefix, tool.name));
             }
         }
         names
@@ -101,7 +101,7 @@ impl ToolExecutor for McpContext {
         args: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let (prefix, tool_name) = name
-            .split_once('.')
+            .split_once('_')
             .ok_or_else(|| format!("{name} is not a valid tool name"))?;
         let peer = {
             let services = self.services.lock().unwrap();

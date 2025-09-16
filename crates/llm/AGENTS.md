@@ -82,7 +82,7 @@ Trait-based LLM client implementations for multiple providers.
   - tool calls with invalid arguments skip executor invocation and return "Could not parse arguments as JSON"
 - `mcp` module
 - `load_mcp_servers` starts configured MCP servers and collects tool schemas
-  - tool names are prefixed with the server name
+  - tool names are prefixed with the server name, joined with an underscore
   - `McpService` implements `ClientHandler`
     - `on_tool_list_changed` refreshes tool metadata from the service
     - tool metadata stored in an `ArcSwap` for lock-free snapshots

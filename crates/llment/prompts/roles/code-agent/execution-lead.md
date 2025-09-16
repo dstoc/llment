@@ -22,5 +22,5 @@ Do not modify any other files in the workspace, leave that to the eng team.
 
 When you are finished:
 1. use git to commit your changes, make sure the working directory is clean (git status) before continuing
-2. call agent.notify for role `eng-team`
+2. call agent_notify for role `eng-team`
 3. stop

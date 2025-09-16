@@ -62,7 +62,7 @@ Run with defaults (preferred):
 `--mcp file.json` loads a claude-code like mcp.json file.
 
 For example, the following configuration loads two STDIO based MCP servers.
-The functions from `mcp-edit` will be prefixed with `files.` as in `files.create_file`, similarly with `shell.` for `mcp-shell`.
+The functions from `mcp-edit` will be prefixed with `files_` as in `files_create_file`, similarly with `shell_` for `mcp-shell`.
 The server commands are launched with the same working directory that `llment` was.
 
 ```json

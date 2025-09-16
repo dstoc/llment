@@ -98,8 +98,8 @@ Basic terminal chat interface scaffold using a bespoke component framework built
         - agent mode `step` can signal `stop` to exit the mode
         - agent modes may adjust or clear the role between steps
         - agent modes may register an MCP service under the `agent` prefix that is added on start and removed when switching modes or when the mode stops
-        - available modes include `code-agent` coordinating director, design-lead, execution-lead, eng-team, and reviewer roles via an `agent.notify` MCP tool
-          - `agent.notify` accepts `role` values of `director`, `design-lead`, `execution-lead`, `eng-team`, or `reviewer`
+        - available modes include `code-agent` coordinating director, design-lead, execution-lead, eng-team, and reviewer roles via an `agent_notify` MCP tool
+          - `agent_notify` accepts `role` values of `director`, `design-lead`, `execution-lead`, `eng-team`, or `reviewer`
         - `/agent-mode off` exits the active agent mode
       - command commit behavior
         - on successful commit, the router clears the active command instance
@@ -164,8 +164,8 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - Built-in tools registered via `setup_builtin_tools`
   - `setup_builtin_tools` returns a running `McpService` inserted into the shared `McpContext`
   - Tools:
-    - `chat.get_message_count`: returns the number of chat messages
-    - `chat.discard_function_response`:
+    - `chat_get_message_count`: returns the number of chat messages
+    - `chat_discard_function_response`:
       - parameters: `{ id: string }`
       - finds a `Tool` message by matching `id` and clears its result text
       - returns `"ok"` on success or a not-found message if no matching entry exists
@@ -179,4 +179,4 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - switching model aborts in-flight requests without clearing history or resetting token counters
 - partial items are clipped when scrolled
 - collapsed content does not contribute to layout height
-- MCP tool names are prefixed with the server name; built-in tools use the `chat` prefix, agent mode tools use the `agent` prefix
+- MCP tool names are prefixed with the server name, joined with an underscore; built-in tools use the `chat` prefix, agent mode tools use the `agent` prefix

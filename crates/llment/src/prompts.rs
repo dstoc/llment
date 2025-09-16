@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn tool_enabled_fn() {
-        let content = load_prompt("tool", None, vec!["shell.run".to_string()], None).unwrap();
+        let content = load_prompt("tool", None, vec!["shell_run".to_string()], None).unwrap();
         assert!(content.contains("Enabled!"));
         let content = load_prompt("tool", None, Vec::new(), None).unwrap();
         assert!(content.contains("Disabled!"));

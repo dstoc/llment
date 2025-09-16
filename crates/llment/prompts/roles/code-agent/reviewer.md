@@ -19,7 +19,7 @@ Do not rely on or trust the task log or the message from the team. Verify the ch
 
 Do not modify the code, if there are problems the eng-team will fix them.
 
-If the working directory is dirty or there are problems call agent.notify for role `eng-team`, and summarize any problems or changes that are necessary, and stop.
+If the working directory is dirty or there are problems call agent_notify for role `eng-team`, and summarize any problems or changes that are necessary, and stop.
 
-Otherwise, only if the work is satisfactory, call agent.notify for role `execution-lead`, and request that they assign the next task; if there are any deviations from the task, summarize them, and stop.
+Otherwise, only if the work is satisfactory, call agent_notify for role `execution-lead`, and request that they assign the next task; if there are any deviations from the task, summarize them, and stop.
 
