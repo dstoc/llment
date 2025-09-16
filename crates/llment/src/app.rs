@@ -19,7 +19,7 @@ use crate::{
 };
 use crossterm::event::Event;
 use llm::{
-    ChatMessage, ChatMessageRequest, JsonResult, Provider, ResponseChunk,
+    AssistantPart, ChatMessage, ChatMessageRequest, JsonResult, Provider, ResponseChunk,
     mcp::{McpContext, McpService},
     tools::{ToolEvent, ToolExecutor, tool_event_stream},
 };
@@ -214,19 +214,19 @@ impl App {
                 let _ = self.model.needs_redraw.send(true);
             }
             ToolEvent::Chunk(chunk) => match chunk {
-                ResponseChunk::Thinking(thinking) => {
+                ResponseChunk::Part(AssistantPart::Thinking { text, .. }) => {
                     self.state = ConversationState::Thinking;
                     let _ = self.model.needs_redraw.send(true);
-                    self.conversation.append_thinking(&thinking);
+                    self.conversation.append_thinking(&text);
                 }
-                ResponseChunk::Content(content) => {
-                    if !content.is_empty() {
+                ResponseChunk::Part(AssistantPart::Text { text, .. }) => {
+                    if !text.is_empty() {
                         self.state = ConversationState::Responding;
                         let _ = self.model.needs_redraw.send(true);
-                        self.conversation.append_response(&content);
+                        self.conversation.append_response(&text);
                     }
                 }
-                ResponseChunk::ToolCall(_) => {}
+                ResponseChunk::Part(AssistantPart::ToolCall { .. }) => {}
                 ResponseChunk::Usage {
                     input_tokens,
                     output_tokens,

@@ -74,71 +74,104 @@ pub async fn run_tool_loop(
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             let mut done = false;
-            match &chunk {
-                ResponseChunk::Content(content) => {
-                    if let Some(AssistantPart::Text { text }) = current_part.as_mut() {
-                        text.push_str(content);
-                    } else {
-                        if let Some(part) = current_part.take() {
-                            parts.push(part);
-                        }
-                        current_part = Some(AssistantPart::Text {
-                            text: content.into(),
-                        });
-                    }
-                }
-                ResponseChunk::Thinking(thinking) => {
-                    if let Some(AssistantPart::Thinking { text }) = current_part.as_mut() {
-                        text.push_str(thinking);
-                    } else {
-                        if let Some(part) = current_part.take() {
-                            parts.push(part);
-                        }
-                        current_part = Some(AssistantPart::Thinking {
-                            text: thinking.into(),
-                        });
-                    }
-                }
-                ResponseChunk::ToolCall(tc) => {
-                    if let Some(part) = current_part.take() {
-                        parts.push(part);
-                    }
-                    current_part = Some(AssistantPart::ToolCall(tc.clone()));
-                    tx.send(ToolEvent::ToolStarted {
-                        call_id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        args: tc.arguments.clone(),
-                    })
-                    .ok();
-                    let executor = tool_executor.clone();
-                    let name = tc.name.clone();
-                    let args = tc.arguments.clone();
-                    let call_id = tc.id.clone();
-                    handles.spawn(async move {
-                        match args {
-                            JsonResult::Content { content } => {
-                                let res = executor.call(&name, content).await;
-                                (call_id, name, res)
+            match chunk.clone() {
+                ResponseChunk::Part(part) => match part {
+                    AssistantPart::Text {
+                        text,
+                        encrypted_content,
+                    } => {
+                        // Merge unless there's encrypted content.
+                        if let (
+                            Some(AssistantPart::Text {
+                                encrypted_content: None,
+                                text: current_text,
+                            }),
+                            None,
+                        ) = (current_part.as_mut(), encrypted_content.as_ref())
+                        {
+                            current_text.push_str(&text);
+                        } else {
+                            if let Some(existing) = current_part.take() {
+                                parts.push(existing);
                             }
-                            JsonResult::Error { .. } => (
-                                call_id,
-                                name,
-                                Err::<String, Box<dyn Error + Send + Sync>>(Box::new(
-                                    std::io::Error::new(
-                                        std::io::ErrorKind::Other,
-                                        "Could not parse arguments as JSON",
-                                    ),
-                                )),
-                            ),
+                            current_part = Some(AssistantPart::Text {
+                                text,
+                                encrypted_content,
+                            });
                         }
-                    });
-                }
+                    }
+                    AssistantPart::Thinking {
+                        text,
+                        encrypted_content,
+                    } => {
+                        // Merge unless there's encrypted content.
+                        if let (
+                            Some(AssistantPart::Thinking {
+                                encrypted_content: None,
+                                text: current_text,
+                            }),
+                            None,
+                        ) = (current_part.as_mut(), encrypted_content.as_ref())
+                        {
+                            current_text.push_str(&text);
+                        } else {
+                            if let Some(existing) = current_part.take() {
+                                parts.push(existing);
+                            }
+                            current_part = Some(AssistantPart::Thinking {
+                                text,
+                                encrypted_content,
+                            });
+                        }
+                    }
+                    AssistantPart::ToolCall {
+                        call,
+                        encrypted_content,
+                    } => {
+                        if let Some(existing) = current_part.take() {
+                            parts.push(existing);
+                        }
+                        let part = AssistantPart::ToolCall {
+                            call: call.clone(),
+                            encrypted_content,
+                        };
+                        tx.send(ToolEvent::ToolStarted {
+                            call_id: call.id.clone(),
+                            name: call.name.clone(),
+                            args: call.arguments.clone(),
+                        })
+                        .ok();
+                        let executor = tool_executor.clone();
+                        let name = call.name.clone();
+                        let args = call.arguments.clone();
+                        let call_id = call.id.clone();
+                        current_part = Some(part);
+                        handles.spawn(async move {
+                            match args {
+                                JsonResult::Content { content } => {
+                                    let res = executor.call(&name, content).await;
+                                    (call_id, name, res)
+                                }
+                                JsonResult::Error { .. } => (
+                                    call_id,
+                                    name,
+                                    Err::<String, Box<dyn Error + Send + Sync>>(Box::new(
+                                        std::io::Error::new(
+                                            std::io::ErrorKind::Other,
+                                            "Could not parse arguments as JSON",
+                                        ),
+                                    )),
+                                ),
+                            }
+                        });
+                    }
+                },
                 ResponseChunk::Usage { .. } => {}
                 ResponseChunk::Done => {
                     done = true;
                 }
             }
-            tx.send(ToolEvent::Chunk(chunk)).ok();
+            tx.send(ToolEvent::Chunk(chunk.clone())).ok();
             if done {
                 break;
             }
@@ -194,7 +227,7 @@ pub async fn run_tool_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::JsonResult;
+    use crate::{AssistantPart, JsonResult};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use tokio_stream::{self};
@@ -213,18 +246,27 @@ mod tests {
             *calls += 1;
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
                 1 => vec![
-                    Ok(ResponseChunk::Content("first".into())),
-                    Ok(ResponseChunk::ToolCall(crate::ToolCall {
-                        id: "call-1".into(),
-                        name: "test".into(),
-                        arguments: JsonResult::Content {
-                            content: Value::Null,
+                    Ok(ResponseChunk::Part(AssistantPart::Text {
+                        text: "first".into(),
+                        encrypted_content: None,
+                    })),
+                    Ok(ResponseChunk::Part(AssistantPart::ToolCall {
+                        call: crate::ToolCall {
+                            id: "call-1".into(),
+                            name: "test".into(),
+                            arguments: JsonResult::Content {
+                                content: Value::Null,
+                            },
                         },
+                        encrypted_content: None,
                     })),
                     Ok(ResponseChunk::Done),
                 ],
                 2 => vec![
-                    Ok(ResponseChunk::Content("final".into())),
+                    Ok(ResponseChunk::Part(AssistantPart::Text {
+                        text: "final".into(),
+                        encrypted_content: None,
+                    })),
                     Ok(ResponseChunk::Done),
                 ],
                 _ => vec![],
@@ -272,11 +314,11 @@ mod tests {
         if let ChatMessage::Assistant(a) = first_assistant {
             assert_eq!(a.content.len(), 2);
             match &a.content[0] {
-                AssistantPart::Text { text } => assert_eq!(text, "first"),
+                AssistantPart::Text { text, .. } => assert_eq!(text, "first"),
                 _ => panic!("expected first part to be text"),
             }
             match &a.content[1] {
-                AssistantPart::ToolCall(tc) => assert_eq!(tc.name, "test"),
+                AssistantPart::ToolCall { call, .. } => assert_eq!(call.name, "test"),
                 _ => panic!("expected second part to be tool call"),
             }
         } else {
@@ -287,7 +329,7 @@ mod tests {
         if let ChatMessage::Assistant(a) = final_msg {
             assert_eq!(a.content.len(), 1);
             match &a.content[0] {
-                AssistantPart::Text { text } => assert_eq!(text, "final"),
+                AssistantPart::Text { text, .. } => assert_eq!(text, "final"),
                 _ => panic!("expected text part"),
             }
         } else {
@@ -300,7 +342,9 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 ToolEvent::ToolResult { .. } => saw_tool = true,
-                ToolEvent::Chunk(ResponseChunk::Content(content)) if content == "final" => {
+                ToolEvent::Chunk(ResponseChunk::Part(AssistantPart::Text { text, .. }))
+                    if text == "final" =>
+                {
                     saw_final = true
                 }
                 ToolEvent::RequestStarted => requests += 1,
@@ -326,17 +370,23 @@ mod tests {
             *calls += 1;
             let stream: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = match *calls {
                 1 => vec![
-                    Ok(ResponseChunk::ToolCall(crate::ToolCall {
-                        id: "call-1".into(),
-                        name: "test".into(),
-                        arguments: JsonResult::Error {
-                            error: "nope".into(),
+                    Ok(ResponseChunk::Part(AssistantPart::ToolCall {
+                        call: crate::ToolCall {
+                            id: "call-1".into(),
+                            name: "test".into(),
+                            arguments: JsonResult::Error {
+                                error: "nope".into(),
+                            },
                         },
+                        encrypted_content: None,
                     })),
                     Ok(ResponseChunk::Done),
                 ],
                 2 => vec![
-                    Ok(ResponseChunk::Content("final".into())),
+                    Ok(ResponseChunk::Part(AssistantPart::Text {
+                        text: "final".into(),
+                        encrypted_content: None,
+                    })),
                     Ok(ResponseChunk::Done),
                 ],
                 _ => vec![],

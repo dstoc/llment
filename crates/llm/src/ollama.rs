@@ -57,24 +57,24 @@ impl LlmClient for OllamaClient {
                             OllamaChatMessage::new(OllamaMessageRole::Assistant, String::new());
                         for part in a.content {
                             match part {
-                                AssistantPart::Text { text } => {
+                                AssistantPart::Text { text, .. } => {
                                     msg.content.push_str(&text);
                                 }
-                                AssistantPart::ToolCall(tc) => {
-                                    let args = match tc.arguments {
+                                AssistantPart::ToolCall { call, .. } => {
+                                    let args = match call.arguments {
                                         JsonResult::Content { .. } => {
-                                            tc.arguments_content_with_id()
+                                            call.arguments_content_with_id()
                                         }
                                         JsonResult::Error { .. } => Value::Null,
                                     };
                                     msg.tool_calls.push(OllamaToolCall {
                                         function: OllamaToolCallFunction {
-                                            name: tc.name,
+                                            name: call.name,
                                             arguments: args,
                                         },
                                     });
                                 }
-                                AssistantPart::Thinking { text } => {
+                                AssistantPart::Thinking { text, .. } => {
                                     let thinking = msg.thinking.get_or_insert_with(String::new);
                                     thinking.push_str(&text);
                                 }
@@ -126,7 +126,10 @@ impl LlmClient for OllamaClient {
                 let mut out: Vec<Result<ResponseChunk, Box<dyn Error + Send + Sync>>> = Vec::new();
                 if !r.message.thinking.clone().unwrap_or_default().is_empty() {
                     if let Some(thinking) = r.message.thinking.clone() {
-                        out.push(Ok(ResponseChunk::Thinking(thinking)));
+                        out.push(Ok(ResponseChunk::Part(AssistantPart::Thinking {
+                            text: thinking,
+                            encrypted_content: None,
+                        })));
                     }
                 }
                 let tool_calls: Vec<ToolCall> = r
@@ -142,10 +145,16 @@ impl LlmClient for OllamaClient {
                     })
                     .collect();
                 for tc in tool_calls {
-                    out.push(Ok(ResponseChunk::ToolCall(tc)));
+                    out.push(Ok(ResponseChunk::Part(AssistantPart::ToolCall {
+                        call: tc,
+                        encrypted_content: None,
+                    })));
                 }
                 if !r.message.content.is_empty() {
-                    out.push(Ok(ResponseChunk::Content(r.message.content)));
+                    out.push(Ok(ResponseChunk::Part(AssistantPart::Text {
+                        text: r.message.content,
+                        encrypted_content: None,
+                    })));
                 }
                 if r.done {
                     if let Some(f) = r.final_data.as_ref() {

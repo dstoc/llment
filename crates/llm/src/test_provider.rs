@@ -52,7 +52,7 @@ impl LlmClient for TestProvider {
 mod tests {
     use super::*;
     use crate::tools::{ToolExecutor, run_tool_loop};
-    use crate::{ChatMessage, JsonResult, ToolCall};
+    use crate::{AssistantPart, ChatMessage, JsonResult, ToolCall};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
 
@@ -73,17 +73,23 @@ mod tests {
     async fn captures_requests_and_iterates() {
         let client = Arc::new(TestProvider::new());
         client.enqueue(vec![
-            ResponseChunk::ToolCall(ToolCall {
-                id: "call-1".into(),
-                name: "test".into(),
-                arguments: JsonResult::Content {
-                    content: Value::Null,
+            ResponseChunk::Part(AssistantPart::ToolCall {
+                call: ToolCall {
+                    id: "call-1".into(),
+                    name: "test".into(),
+                    arguments: JsonResult::Content {
+                        content: Value::Null,
+                    },
                 },
+                encrypted_content: None,
             }),
             ResponseChunk::Done,
         ]);
         client.enqueue(vec![
-            ResponseChunk::Content("final".into()),
+            ResponseChunk::Part(AssistantPart::Text {
+                text: "final".into(),
+                encrypted_content: None,
+            }),
             ResponseChunk::Done,
         ]);
         let exec = Arc::new(DummyExec);
@@ -103,7 +109,7 @@ mod tests {
         if let ChatMessage::Assistant(a) = final_msg {
             assert_eq!(a.content.len(), 1);
             match &a.content[0] {
-                crate::AssistantPart::Text { text } => assert_eq!(text, "final"),
+                crate::AssistantPart::Text { text, .. } => assert_eq!(text, "final"),
                 _ => panic!("expected text part"),
             }
         } else {

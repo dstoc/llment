@@ -25,7 +25,10 @@ impl ChatMessage {
 
     pub fn assistant(content: String) -> Self {
         Self::Assistant(AssistantMessage {
-            content: vec![AssistantPart::Text { text: content }],
+            content: vec![AssistantPart::Text {
+                text: content,
+                encrypted_content: None,
+            }],
         })
     }
 
@@ -106,9 +109,22 @@ impl ToolCall {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AssistantPart {
-    Text { text: String },
-    ToolCall(ToolCall),
-    Thinking { text: String },
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encrypted_content: Option<String>,
+    },
+    ToolCall {
+        #[serde(flatten)]
+        call: ToolCall,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encrypted_content: Option<String>,
+    },
+    Thinking {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        encrypted_content: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -225,9 +241,7 @@ pub fn client_from(
 
 #[derive(Debug, Clone)]
 pub enum ResponseChunk {
-    Thinking(String),
-    ToolCall(ToolCall),
-    Content(String),
+    Part(AssistantPart),
     Usage {
         input_tokens: u32,
         output_tokens: u32,
