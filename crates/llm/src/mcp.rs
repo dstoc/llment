@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{
     collections::HashMap,
+    fmt,
     sync::{Arc, Mutex},
 };
 use tokio::process::Command;
@@ -19,6 +20,39 @@ use crate::{Schema, ToolInfo, tools::ToolExecutor};
 pub struct McpService {
     pub prefix: String,
     pub tools: ArcSwap<Vec<ToolInfo>>,
+}
+
+#[derive(Debug)]
+pub struct InvalidPrefixError {
+    prefix: String,
+}
+
+impl InvalidPrefixError {
+    pub fn new(prefix: impl Into<String>) -> Self {
+        Self {
+            prefix: prefix.into(),
+        }
+    }
+
+    pub fn prefix(&self) -> &str {
+        &self.prefix
+    }
+}
+
+impl fmt::Display for InvalidPrefixError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MCP prefix '{}' must not contain '_'", self.prefix)
+    }
+}
+
+impl std::error::Error for InvalidPrefixError {}
+
+fn validate_prefix(prefix: &str) -> Result<(), InvalidPrefixError> {
+    if prefix.contains('_') {
+        Err(InvalidPrefixError::new(prefix))
+    } else {
+        Ok(())
+    }
 }
 
 impl ClientHandler for McpService {
@@ -53,9 +87,14 @@ pub struct McpContext {
 }
 
 impl McpContext {
-    pub fn insert(&self, service: RunningService<RoleClient, McpService>) {
+    pub fn insert(
+        &self,
+        service: RunningService<RoleClient, McpService>,
+    ) -> Result<(), InvalidPrefixError> {
         let prefix = service.service().prefix.clone();
+        validate_prefix(&prefix)?;
         self.services.lock().unwrap().insert(prefix, service);
+        Ok(())
     }
 
     pub fn remove(&self, prefix: &str) {
@@ -161,6 +200,7 @@ pub async fn load_mcp_servers(
     let config: McpConfig = serde_json::from_str(&data)?;
     let ctx = McpContext::default();
     for (server_name, server) in config.mcp_servers.iter() {
+        validate_prefix(server_name)?;
         let mut cmd = Command::new(&server.command);
         cmd.args(&server.args);
         for (k, v) in &server.env {
@@ -184,7 +224,24 @@ pub async fn load_mcp_servers(
             });
         }
         service.service().tools.store(Arc::new(infos));
-        ctx.insert(service);
+        ctx.insert(service)?;
     }
     Ok(ctx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_prefix;
+
+    #[test]
+    fn accepts_prefix_without_underscore() {
+        assert!(validate_prefix("files").is_ok());
+        assert!(validate_prefix("agent").is_ok());
+    }
+
+    #[test]
+    fn rejects_prefix_with_underscore() {
+        let err = validate_prefix("with_underscore").unwrap_err();
+        assert_eq!(err.prefix(), "with_underscore");
+    }
 }

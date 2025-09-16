@@ -179,4 +179,4 @@ Basic terminal chat interface scaffold using a bespoke component framework built
 - switching model aborts in-flight requests without clearing history or resetting token counters
 - partial items are clipped when scrolled
 - collapsed content does not contribute to layout height
-- MCP tool names are prefixed with the server name, joined with an underscore; built-in tools use the `chat` prefix, agent mode tools use the `agent` prefix
+- MCP tool names are prefixed with the server name, joined with an underscore; prefixes must not contain underscores; built-in tools use the `chat` prefix, agent mode tools use the `agent` prefix
