@@ -155,7 +155,7 @@ impl FsServer {
         normalized
     }
 
-    fn resolve(&self, path: &str) -> Result<PathBuf, String> {
+    async fn resolve(&self, path: &str) -> Result<PathBuf, String> {
         let p = Path::new(path);
         let joined = if p.is_absolute() {
             match p.strip_prefix(&self.mount_point) {
@@ -169,7 +169,8 @@ impl FsServer {
         if !normalized.starts_with(&self.workspace_root) {
             return Err("path must be within the workspace".to_string());
         }
-        let canonical = fs::canonicalize(&normalized)
+        let canonical = tokio::fs::canonicalize(&normalized)
+            .await
             .map_err(|_| format!("path '{}' does not exist", self.display_path(&normalized)))?;
         if !canonical.starts_with(&self.workspace_root) {
             return Err("path must be within the workspace".to_string());
@@ -177,14 +178,14 @@ impl FsServer {
         Ok(canonical)
     }
 
-    fn resolve_for_write(&self, path: &str) -> Result<PathBuf, String> {
+    async fn resolve_for_write(&self, path: &str) -> Result<PathBuf, String> {
         let p = Path::new(path);
         let canonical_parent = match p.parent() {
             Some(parent) if !parent.as_os_str().is_empty() => {
                 let parent_str = parent
                     .to_str()
                     .ok_or_else(|| "parent path must be valid UTF-8".to_string())?;
-                self.resolve(parent_str)?
+                self.resolve(parent_str).await?
             }
             _ => self.workspace_root.clone(),
         };
@@ -250,11 +251,11 @@ impl FsServer {
             new_string,
             expected_replacements,
         } = params;
-        let canonical_path = match self.resolve(&file_path) {
+        let canonical_path = match self.resolve(&file_path).await {
             Ok(p) => p,
             Err(msg) => return Ok(Self::tool_error(msg)),
         };
-        let content = match fs::read_to_string(&canonical_path) {
+        let content = match tokio::fs::read_to_string(&canonical_path).await {
             Ok(c) => c,
             Err(e) => {
                 return Ok(Self::tool_error(format!(
@@ -268,7 +269,7 @@ impl FsServer {
                 Ok(u) => u,
                 Err(e) => return Ok(Self::tool_error(e.to_string())),
             };
-        if let Err(e) = fs::write(&canonical_path, updated) {
+        if let Err(e) = tokio::fs::write(&canonical_path, updated).await {
             return Ok(Self::tool_error(format!(
                 "failed to write file {}: {e}",
                 self.display_path(&canonical_path)
@@ -288,7 +289,7 @@ impl FsServer {
         Parameters(params): Parameters<ListDirectoryParams>,
     ) -> Result<CallToolResult, McpError> {
         let ListDirectoryParams { path, ignore } = params;
-        let canonical_path = match self.resolve(&path) {
+        let canonical_path = match self.resolve(&path).await {
             Ok(p) => p,
             Err(msg) => return Ok(Self::tool_error(msg)),
         };
@@ -309,35 +310,43 @@ impl FsServer {
         let ignore_set = builder
             .build()
             .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
-        let mut entries = Vec::new();
-        let mut walk_builder = WalkBuilder::new(&canonical_path);
-        walk_builder.git_ignore(true);
-        walk_builder.standard_filters(true);
-        walk_builder.max_depth(Some(1));
-        for result in walk_builder.build() {
-            let entry = match result {
-                Ok(e) => e,
-                Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
-            };
-            let path = entry.path();
-            if path == canonical_path {
-                continue;
+        let canonical_path_clone = canonical_path.clone();
+        let mut entries = match tokio::task::spawn_blocking(move || {
+            let mut entries = Vec::new();
+            let mut walk_builder = WalkBuilder::new(&canonical_path_clone);
+            walk_builder.git_ignore(true);
+            walk_builder.standard_filters(true);
+            walk_builder.max_depth(Some(1));
+            for result in walk_builder.build() {
+                let entry = match result {
+                    Ok(e) => e,
+                    Err(e) => return Err(format!("walk error: {e}")),
+                };
+                let path = entry.path();
+                if path == canonical_path_clone {
+                    continue;
+                }
+                let name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                if ignore_set.is_match(name) {
+                    continue;
+                }
+                let is_dir = entry.file_type().map_or(false, |ft| ft.is_dir());
+                entries.push((is_dir, name.to_string()));
             }
-            let name = match path.file_name().and_then(|n| n.to_str()) {
-                Some(n) => n,
-                None => continue,
-            };
-            if ignore_set.is_match(name) {
-                continue;
-            }
-            let is_dir = entry.file_type().map_or(false, |ft| ft.is_dir());
-            entries.push((is_dir, name.to_string()));
-        }
-        entries.sort_by(|a, b| match (a.0, b.0) {
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater,
-            _ => a.1.cmp(&b.1),
-        });
+            entries.sort_by(|a, b| match (a.0, b.0) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => a.1.cmp(&b.1),
+            });
+            Ok(entries)
+        }).await {
+            Ok(Ok(e)) => e,
+            Ok(Err(msg)) => return Ok(Self::tool_error(msg)),
+            Err(e) => return Ok(Self::tool_error(format!("blocking task failed: {e}"))),
+        };
         let listing = entries
             .into_iter()
             .map(|(is_dir, name)| {
@@ -367,11 +376,11 @@ impl FsServer {
             offset,
             limit,
         } = params;
-        let canonical_path = match self.resolve(&path) {
+        let canonical_path = match self.resolve(&path).await {
             Ok(p) => p,
             Err(msg) => return Ok(Self::tool_error(msg)),
         };
-        let data = match fs::read(&canonical_path) {
+        let data = match tokio::fs::read(&canonical_path).await {
             Ok(d) => d,
             Err(e) => {
                 return Ok(Self::tool_error(format!(
@@ -492,71 +501,70 @@ impl FsServer {
             }
         };
 
-        let mut file_paths = Vec::new();
-        for pattern in paths {
-            let pattern_path = if Path::new(&pattern).is_absolute() {
-                PathBuf::from(&pattern)
-            } else {
-                self.workspace_root.join(&pattern)
-            };
-            let glob_iter = match glob::glob(pattern_path.to_string_lossy().as_ref()) {
-                Ok(g) => g,
-                Err(e) => return Ok(Self::tool_error(format!("invalid glob pattern: {e}"))),
-            };
-            for entry in glob_iter {
-                let path = match entry {
-                    Ok(p) => p,
-                    Err(e) => return Ok(Self::tool_error(format!("glob error: {e}"))),
+        let workspace_root = self.workspace_root.clone();
+        let file_paths = match tokio::task::spawn_blocking(move || {
+            let mut file_paths = Vec::new();
+            for pattern in paths {
+                let pattern_path = if Path::new(&pattern).is_absolute() {
+                    PathBuf::from(&pattern)
+                } else {
+                    workspace_root.join(&pattern)
                 };
-                let canonical = match fs::canonicalize(&path) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        return Ok(Self::tool_error(format!(
-                            "failed to canonicalize path: {e}"
-                        )));
-                    }
+                let glob_iter = match glob::glob(pattern_path.to_string_lossy().as_ref()) {
+                    Ok(g) => g,
+                    Err(e) => return Err(format!("invalid glob pattern: {e}")),
                 };
-                if !canonical.starts_with(&self.workspace_root) {
-                    return Ok(Self::tool_error(
-                        "path must be within the workspace".to_string(),
-                    ));
-                }
-                if canonical.is_file() {
-                    file_paths.push(canonical);
-                } else if canonical.is_dir() {
-                    let mut builder = WalkBuilder::new(&canonical);
-                    builder.standard_filters(true);
-                    builder.git_ignore(true);
-                    if !recursive.unwrap_or(true) {
-                        builder.max_depth(Some(1));
+                for entry in glob_iter {
+                    let path = match entry {
+                        Ok(p) => p,
+                        Err(e) => return Err(format!("glob error: {e}")),
+                    };
+                    let canonical = match fs::canonicalize(&path) {
+                        Ok(c) => c,
+                        Err(e) => return Err(format!("failed to canonicalize path {}: {e}", path.display())),
+                    };
+                    if !canonical.starts_with(&workspace_root) {
+                        return Err("path must be within the workspace".to_string());
                     }
-                    for result in builder.build() {
-                        let entry = match result {
-                            Ok(e) => e,
-                            Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
-                        };
-                        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                            continue;
+                    let metadata = match fs::metadata(&canonical) {
+                        Ok(m) => m,
+                        Err(e) => return Err(format!("failed to get metadata for {}: {e}", canonical.display())),
+                    };
+                    if metadata.is_file() {
+                        file_paths.push(canonical);
+                    } else if metadata.is_dir() {
+                        let mut builder = WalkBuilder::new(&canonical);
+                        builder.standard_filters(true);
+                        builder.git_ignore(true);
+                        if !recursive.unwrap_or(true) {
+                            builder.max_depth(Some(1));
                         }
-                        let canon = match fs::canonicalize(entry.path()) {
-                            Ok(c) => c,
-                            Err(e) => {
-                                return Ok(Self::tool_error(format!(
-                                    "failed to canonicalize path: {e}"
-                                )));
+                        for result in builder.build() {
+                            let entry = match result {
+                                Ok(e) => e,
+                                Err(e) => return Err(format!("walk error: {e}")),
+                            };
+                            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                                let canon = match fs::canonicalize(entry.path()) {
+                                    Ok(c) => c,
+                                    Err(e) => return Err(format!("failed to canonicalize path {}: {e}", entry.path().display())),
+                                };
+                                file_paths.push(canon);
                             }
-                        };
-                        file_paths.push(canon);
+                        }
                     }
                 }
             }
-        }
+            file_paths.sort();
+            file_paths.dedup();
+            Ok(file_paths)
+        }).await {
+            Ok(Ok(p)) => p,
+            Ok(Err(msg)) => return Ok(Self::tool_error(msg)),
+            Err(e) => return Ok(Self::tool_error(format!("blocking task failed: {e}"))),
+        };
 
-        file_paths.sort();
-        file_paths.dedup();
-
-        let mut text_output = String::new();
-        let mut contents = Vec::new();
+        let mut read_futures = Vec::new();
         for file in file_paths {
             let rel = file.strip_prefix(&self.workspace_root).unwrap_or(&file);
             if let Some(ref inc) = include_set {
@@ -569,8 +577,22 @@ impl FsServer {
                     continue;
                 }
             }
+            let f = file.clone();
+            read_futures.push(tokio::spawn(async move {
+                let data = tokio::fs::read(&f).await;
+                (f, data)
+            }));
+        }
+
+        let mut text_output = String::new();
+        let mut contents = Vec::new();
+        for handle in read_futures {
+            let (file, data) = match handle.await {
+                Ok(res) => res,
+                Err(e) => return Ok(Self::tool_error(format!("read task failed: {e}"))),
+            };
             let user_path = self.display_path(&file);
-            let data = match fs::read(&file) {
+            let data = match data {
                 Ok(d) => d,
                 Err(e) => {
                     return Ok(Self::tool_error(format!(
@@ -622,24 +644,24 @@ impl FsServer {
             "create_file called when modification tools disabled"
         );
         let CreateFileParams { file_path, content } = params;
-        let canonical_path = match self.resolve_for_write(&file_path) {
+        let canonical_path = match self.resolve_for_write(&file_path).await {
             Ok(p) => p,
             Err(msg) => return Ok(Self::tool_error(msg)),
         };
-        if canonical_path.exists() {
+        if tokio::fs::metadata(&canonical_path).await.is_ok() {
             return Ok(Self::tool_error(format!(
                 "file {} already exists",
                 self.display_path(&canonical_path)
             )));
         }
         if let Some(parent) = canonical_path.parent() {
-            if let Err(e) = fs::create_dir_all(parent) {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
                 return Ok(Self::tool_error(format!(
                     "failed to create parent dirs: {e}"
                 )));
             }
         }
-        if let Err(e) = fs::write(&canonical_path, content) {
+        if let Err(e) = tokio::fs::write(&canonical_path, content).await {
             return Ok(Self::tool_error(format!(
                 "failed to create file {}: {e}",
                 self.display_path(&canonical_path)
@@ -665,7 +687,7 @@ impl FsServer {
             case_sensitive,
         } = params;
         let root = if let Some(p) = path {
-            match self.resolve(&p) {
+            match self.resolve(&p).await {
                 Ok(r) => r,
                 Err(msg) => return Ok(Self::tool_error(msg)),
             }
@@ -683,33 +705,41 @@ impl FsServer {
             Err(e) => return Ok(Self::tool_error(format!("invalid glob pattern: {e}"))),
         }
         .compile_matcher();
-        let mut matches = Vec::new();
-        for result in builder.build() {
-            let entry = match result {
-                Ok(e) => e,
-                Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
-            };
-            if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                continue;
+        let workspace_root = self.workspace_root.clone();
+        let root_clone = root.clone();
+        let matches = match tokio::task::spawn_blocking(move || {
+            let mut matches = Vec::new();
+            for result in builder.build() {
+                let entry = match result {
+                    Ok(e) => e,
+                    Err(e) => return Err(format!("walk error: {e}")),
+                };
+                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+                    continue;
+                }
+                let canonical = match fs::canonicalize(entry.path()) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                if !canonical.starts_with(&workspace_root) {
+                    continue;
+                }
+                let rel = canonical.strip_prefix(&root_clone).unwrap_or(&canonical);
+                if glob.is_match(rel) {
+                    let time = fs::metadata(&canonical)
+                        .and_then(|m| m.modified())
+                        .unwrap_or(SystemTime::UNIX_EPOCH);
+                    matches.push((canonical, time));
+                }
             }
-            let canonical = match fs::canonicalize(entry.path()) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            if !canonical.starts_with(&self.workspace_root) {
-                continue;
-            }
-            let rel = canonical.strip_prefix(&root).unwrap_or(&canonical);
-            if glob.is_match(rel) {
-                matches.push(canonical);
-            }
-        }
-        matches.sort_by_key(|p| {
-            fs::metadata(p)
-                .and_then(|m| m.modified())
-                .unwrap_or(SystemTime::UNIX_EPOCH)
-        });
-        matches.reverse();
+            matches.sort_by_key(|(_, t)| *t);
+            matches.reverse();
+            Ok(matches.into_iter().map(|(p, _)| p).collect::<Vec<_>>())
+        }).await {
+            Ok(Ok(m)) => m,
+            Ok(Err(msg)) => return Ok(Self::tool_error(msg)),
+            Err(e) => return Ok(Self::tool_error(format!("blocking task failed: {e}"))),
+        };
         let paths = matches
             .iter()
             .map(|p| self.display_path(p))
@@ -739,7 +769,7 @@ impl FsServer {
             include,
         } = params;
         let root = if let Some(p) = path {
-            match self.resolve(&p) {
+            match self.resolve(&p).await {
                 Ok(r) => r,
                 Err(msg) => return Ok(Self::tool_error(msg)),
             }
@@ -764,44 +794,64 @@ impl FsServer {
         let mut builder = WalkBuilder::new(&root);
         builder.git_ignore(true);
         builder.standard_filters(true);
-        let mut results = Vec::new();
-        let mut searcher = Searcher::new();
-        for result in builder.build() {
-            let entry = match result {
-                Ok(e) => e,
-                Err(e) => return Ok(Self::tool_error(format!("walk error: {e}"))),
-            };
-            if !entry.file_type().map_or(false, |ft| ft.is_file()) {
-                continue;
-            }
-            let canonical = match fs::canonicalize(entry.path()) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            if !canonical.starts_with(&self.workspace_root) {
-                continue;
-            }
-            let rel = canonical.strip_prefix(&root).unwrap_or(&canonical);
-            if let Some(matcher) = &include_matcher {
-                if !matcher.is_match(rel) {
+        let workspace_root = self.workspace_root.clone();
+        let root_clone = root.clone();
+        let search_results = match tokio::task::spawn_blocking(move || {
+            let mut results = Vec::new();
+            let mut searcher = Searcher::new();
+            for result in builder.build() {
+                let entry = match result {
+                    Ok(e) => e,
+                    Err(e) => return Err(format!("walk error: {e}")),
+                };
+                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
                     continue;
                 }
+                let canonical = match fs::canonicalize(entry.path()) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                if !canonical.starts_with(&workspace_root) {
+                    continue;
+                }
+                let rel = canonical.strip_prefix(&root_clone).unwrap_or(&canonical);
+                if let Some(ref matcher) = include_matcher {
+                    if !matcher.is_match(rel) {
+                        continue;
+                    }
+                }
+                let mut file_matches = Vec::new();
+                if let Err(err) = searcher.search_path(
+                    &matcher,
+                    &canonical,
+                    UTF8(|ln, line| {
+                        file_matches.push((ln, line.to_string()));
+                        Ok(true)
+                    }),
+                ) {
+                    return Err(format!("search error for {}: {err}", canonical.display()));
+                }
+                for (ln, line) in file_matches {
+                    results.push((canonical.clone(), ln, line));
+                }
             }
-            let user_path = self.display_path(&canonical);
-            if let Err(err) = searcher.search_path(
-                &matcher,
-                &canonical,
-                UTF8(|ln, line| {
-                    results.push(format!("File: {}\nL{}: {}", user_path, ln, line));
-                    Ok(true)
-                }),
-            ) {
-                return Ok(Self::tool_error(format!("search error: {err}")));
-            }
-        }
+            Ok(results)
+        }).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(msg)) => return Ok(Self::tool_error(msg)),
+            Err(e) => return Ok(Self::tool_error(format!("blocking task failed: {e}"))),
+        };
+
+        let formatted_results: Vec<String> = search_results
+            .into_iter()
+            .map(|(path, ln, line)| {
+                format!("File: {}\nL{}: {}", self.display_path(&path), ln, line)
+            })
+            .collect();
+
         let mut output = format!(
             "Found {} match(es) for pattern \"{}\" in path \"{}\"{}:",
-            results.len(),
+            formatted_results.len(),
             pattern,
             self.display_path(&root),
             include
@@ -809,9 +859,9 @@ impl FsServer {
                 .map(|s| format!(" (filter: \"{}\")", s))
                 .unwrap_or_default()
         );
-        if !results.is_empty() {
-            output.push_str("\n---\n");
-            output.push_str(&results.join("\n---\n"));
+        if !formatted_results.is_empty() {
+            output.push_str("\n\n");
+            output.push_str(&formatted_results.join("\n\n"));
         }
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
