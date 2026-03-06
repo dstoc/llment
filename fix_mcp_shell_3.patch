@@ -1,0 +1,12 @@
+--- crates/mcp-shell/src/lib.rs
++++ crates/mcp-shell/src/lib.rs
+@@ -7,7 +7,8 @@
+ use nix::unistd::Pid;
+ use rmcp::{
+     ErrorData as McpError, ServerHandler,
+-    handler::server::tool::{ToolRouter, Parameters},
++    handler::server::tool::ToolRouter,
++    handler::server::wrapper::Parameters,
+     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
+     tool, tool_handler, tool_router,
+ };

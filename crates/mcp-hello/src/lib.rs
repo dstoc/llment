@@ -32,10 +32,9 @@ impl HelloServer {
 #[tool_handler]
 impl ServerHandler for HelloServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
+        let mut info = ServerInfo::default();
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info
     }
 }
 
@@ -47,7 +46,7 @@ mod tests {
     async fn hello_returns_greeting() {
         let server = HelloServer::new();
         let result = server.hello().await.unwrap();
-        let content = result.content.unwrap();
+        let content = result.content;
         let text = content[0].as_text().unwrap().text.clone();
         assert_eq!(text, "Hello, world!");
     }

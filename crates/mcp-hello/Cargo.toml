@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies]
-rmcp = { version = "0.4", features = ["transport-io"] }
+rmcp = { version = "1.1.0", features = ["transport-io"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 anyhow = "1"
 tracing = "0.1"
