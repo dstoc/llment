@@ -155,7 +155,7 @@ impl ToolExecutor for McpContext {
                     .with_arguments(args.as_object().cloned().unwrap_or_default()),
             )
             .await?;
-        let text = if true {
+        let text = if !result.content.is_empty() {
             result
                 .content
                 .into_iter()
