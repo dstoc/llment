@@ -140,8 +140,7 @@ impl LlmClient for GeminiRustClient {
                     "name": t.name,
                     "description": t.description,
                     "parameters": params
-                }))
-                .unwrap();
+                }))?;
                 builder = builder.with_function(function);
             }
             builder = builder.with_function_calling_mode(FunctionCallingMode::Auto);
