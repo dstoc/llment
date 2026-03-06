@@ -1,0 +1,71 @@
+--- crates/mcp-shell/src/lib.rs
++++ crates/mcp-shell/src/lib.rs
+@@ -7,7 +7,7 @@
+ use nix::unistd::Pid;
+ use rmcp::{
+     ErrorData as McpError, ServerHandler,
+-    handler::server::tool::ToolRouter,
++    handler::server::tool::{ToolRouter, Parameters},
+     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
+     tool, tool_handler, tool_router,
+ };
+@@ -313,7 +313,7 @@
+     )]
+     pub async fn run(
+         &self,
+-        params: RunParams,
++        Parameters(params): Parameters<RunParams>,
+     ) -> Result<CallToolResult, McpError> {
+         let RunParams {
+             command,
+@@ -368,7 +368,7 @@
+     )]
+     pub async fn wait(
+         &self,
+-        _p: WaitParams,
++        Parameters(_p): Parameters<WaitParams>,
+     ) -> Result<CallToolResult, McpError> {
+         let mut run_slot = self.run.lock().await;
+         let state = match run_slot.as_mut() {
+@@ -411,7 +411,7 @@
+     #[tool(description = "Terminate the running command")]
+     pub async fn terminate(
+         &self,
+-        _p: TerminateParams,
++        Parameters(_p): Parameters<TerminateParams>,
+     ) -> Result<CallToolResult, McpError> {
+         let mut run_slot = self.run.lock().await;
+         let state = match run_slot.take() {
+@@ -508,7 +508,7 @@
+             stdin: None,
+             workdir: None,
+         };
+-        let res: CallToolResult = server.run(params).await.unwrap();
++        let res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+         let value: WaitResult =
+             serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
+         assert_eq!(value.stdout.trim(), "hi");
+@@ -530,7 +530,7 @@
+             stdin: None,
+             workdir: Some(path.join("sub").to_string_lossy().into()),
+         };
+-        let res: CallToolResult = server.run(params).await.unwrap();
++        let res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+         let value: WaitResult =
+             serde_json::from_str(&res.content[0].as_text().unwrap().text).unwrap();
+         assert_eq!(value.stdout.trim(), "ok");
+@@ -552,12 +552,12 @@
+             stdin: None,
+             workdir: None,
+         };
+-        let run_res: CallToolResult = server.run(params).await.unwrap();
++        let run_res: CallToolResult = server.run(Parameters(params)).await.unwrap();
+         let run_value: WaitResult =
+             serde_json::from_str(&run_res.content[0].as_text().unwrap().text).unwrap();
+         assert_eq!(run_value.status, "still running, call wait or terminate");
+         server
+-            .terminate(TerminateParams {})
++            .terminate(Parameters(TerminateParams {}))
+             .await
+             .unwrap();
+         Ok(())

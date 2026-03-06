@@ -2,7 +2,7 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use rmcp::{
     ClientHandler,
-    model::{CallToolRequestParam, RawContent},
+    model::{CallToolRequestParams, RawContent},
     service::{NotificationContext, RoleClient, RunningService, ServiceExt},
     transport::TokioChildProcess,
 };
@@ -150,13 +150,14 @@ impl ToolExecutor for McpContext {
             svc.peer().clone()
         };
         let result = peer
-            .call_tool(CallToolRequestParam {
-                name: tool_name.to_string().into(),
-                arguments: args.as_object().cloned(),
-            })
+            .call_tool(
+                CallToolRequestParams::new(tool_name.to_string())
+                    .with_arguments(args.as_object().cloned().unwrap_or_default()),
+            )
             .await?;
-        let text = if let Some(content) = result.content {
-            content
+        let text = if true {
+            result
+                .content
                 .into_iter()
                 .filter_map(|c| match c.raw {
                     RawContent::Text(t) => Some(t.text),

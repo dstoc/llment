@@ -1,0 +1,25 @@
+--- crates/mcp-edit/src/lib.rs
++++ crates/mcp-edit/src/lib.rs
+@@ -7,7 +7,8 @@
+ use ignore::WalkBuilder;
+ use rmcp::{
+     ErrorData as McpError, ServerHandler,
+-    handler::server::tool::{Parameters, ToolRouter},
++    handler::server::tool::ToolRouter,
++    handler::server::wrapper::Parameters,
+     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
+     tool, tool_handler, tool_router,
+ };
+@@ -820,10 +821,9 @@
+ #[tool_handler]
+ impl ServerHandler for FsServer {
+     fn get_info(&self) -> ServerInfo {
+-        ServerInfo {
+-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+-            ..Default::default()
+-        }
++        let mut info = ServerInfo::default();
++        info.capabilities = ServerCapabilities::builder().enable_tools().build();
++        info
+     }
+ }

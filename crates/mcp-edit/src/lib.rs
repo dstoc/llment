@@ -7,7 +7,8 @@ use grep::{
 use ignore::WalkBuilder;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
-    handler::server::tool::{Parameters, ToolRouter},
+    handler::server::tool::ToolRouter,
+    handler::server::wrapper::Parameters,
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
 };
@@ -229,8 +230,8 @@ impl FsServer {
 
     pub fn disable_modification_tools(&mut self) {
         self.modification_disabled = true;
-        self.tool_router.remove_route::<(), ()>("replace");
-        self.tool_router.remove_route::<(), ()>("create_file");
+        self.tool_router.remove_route("replace");
+        self.tool_router.remove_route("create_file");
     }
 
     #[tool(
@@ -820,10 +821,9 @@ impl FsServer {
 #[tool_handler]
 impl ServerHandler for FsServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
+        let mut info = ServerInfo::default();
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info
     }
 }
 
@@ -868,12 +868,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("[DIR] sub"));
         assert!(text.contains("file.txt"));
     }
@@ -893,12 +888,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("visible.txt"));
         assert!(!text.contains("ignored.txt"));
     }
@@ -919,12 +909,7 @@ mod tests {
                 }))
                 .await
                 .unwrap();
-            let text = result.content.unwrap()[0]
-                .raw
-                .as_text()
-                .unwrap()
-                .text
-                .clone();
+            let text = result.content[0].raw.as_text().unwrap().text.clone();
             assert!(text.contains("[DIR] sub"));
             assert!(text.contains("file.txt"));
         }
@@ -944,12 +929,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("second"));
     }
 
@@ -967,12 +947,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("hello"));
     }
 
@@ -992,12 +967,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("hello"));
         assert!(text.contains("world"));
     }
@@ -1031,7 +1001,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert!(msg.contains("/home/user/workspace/new.txt"));
         let content = fs::read_to_string(file_path).unwrap();
         assert_eq!(content, "hi");
@@ -1051,12 +1021,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("a.rs"));
         assert!(!text.contains("b.txt"));
     }
@@ -1079,12 +1044,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(!text.contains("link.rs"));
     }
 
@@ -1104,12 +1064,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("visible.rs"));
         assert!(!text.contains("ignored.rs"));
     }
@@ -1127,7 +1082,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert!(msg.contains("/home/user/workspace/missing.txt"));
         assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
@@ -1144,7 +1099,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert!(msg.contains("/home/user/workspace/subdir"));
         assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
@@ -1161,7 +1116,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert!(msg.contains("/home/user/workspace/missing"));
         assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
@@ -1179,7 +1134,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert!(msg.contains("/home/user/workspace/dir"));
         assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
@@ -1197,7 +1152,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert!(msg.contains("/home/user/workspace/f"));
         assert!(!msg.contains(dir.path().to_string_lossy().as_ref()));
     }
@@ -1215,7 +1170,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert_eq!(msg, "path must be within the workspace");
     }
 
@@ -1233,7 +1188,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert_eq!(msg, "path must be within the workspace");
     }
 
@@ -1250,7 +1205,7 @@ mod tests {
             .await
             .unwrap();
         assert!(err.is_error.unwrap());
-        let msg = err.content.unwrap()[0].as_text().unwrap().text.clone();
+        let msg = err.content[0].as_text().unwrap().text.clone();
         assert_eq!(msg, "path must be within the workspace");
     }
 
@@ -1267,12 +1222,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("bar"));
     }
 
@@ -1292,12 +1242,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(text.contains("visible.txt"));
         assert!(!text.contains("ignored.txt"));
     }
@@ -1320,12 +1265,7 @@ mod tests {
             }))
             .await
             .unwrap();
-        let text = result.content.unwrap()[0]
-            .raw
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let text = result.content[0].raw.as_text().unwrap().text.clone();
         assert!(!text.contains("link.txt"));
     }
 
@@ -1353,16 +1293,8 @@ mod tests {
             }))
             .await
             .unwrap();
-        let msg_existing = err_existing.content.unwrap()[0]
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
-        let msg_missing = err_missing.content.unwrap()[0]
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let msg_existing = err_existing.content[0].as_text().unwrap().text.clone();
+        let msg_missing = err_missing.content[0].as_text().unwrap().text.clone();
         assert_eq!(msg_existing, msg_missing);
         assert_eq!(msg_existing, "path must be within the workspace");
     }
@@ -1389,16 +1321,8 @@ mod tests {
             }))
             .await
             .unwrap();
-        let msg_existing = err_existing.content.unwrap()[0]
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
-        let msg_missing = err_missing.content.unwrap()[0]
-            .as_text()
-            .unwrap()
-            .text
-            .clone();
+        let msg_existing = err_existing.content[0].as_text().unwrap().text.clone();
+        let msg_missing = err_missing.content[0].as_text().unwrap().text.clone();
         assert_eq!(msg_existing, msg_missing);
         assert_eq!(msg_existing, "path must be within the workspace");
     }

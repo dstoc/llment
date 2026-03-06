@@ -1,0 +1,26 @@
+--- crates/llm/src/mcp.rs
++++ crates/llm/src/mcp.rs
+@@ -2,7 +2,7 @@
+ use async_trait::async_trait;
+ use rmcp::{
+     ClientHandler,
+-    model::{CallToolRequestParam, RawContent},
++    model::{CallToolRequestParams, RawContent},
+     service::{NotificationContext, RoleClient, RunningService, ServiceExt},
+     transport::TokioChildProcess,
+ };
+@@ -148,10 +148,11 @@
+         };
+         let result = peer
+-            .call_tool(CallToolRequestParam {
+-                name: tool_name.to_string().into(),
+-                arguments: args.as_object().cloned(),
+-            })
++            .call_tool(
++                CallToolRequestParams::builder()
++                    .name(tool_name.to_string().into())
++                    .arguments(args.as_object().cloned().unwrap_or_default())
++                    .build()
++            )
+             .await?;
+         let text = if let Some(content) = result.content {

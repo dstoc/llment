@@ -1,0 +1,13 @@
+--- crates/mcp-edit/src/lib.rs
++++ crates/mcp-edit/src/lib.rs
+@@ -230,8 +230,8 @@
+
+     pub fn disable_modification_tools(&mut self) {
+         self.modification_disabled = true;
+-        self.tool_router.remove_route::<(), ()>("replace");
+-        self.tool_router.remove_route::<(), ()>("create_file");
++        self.tool_router.remove_route("replace");
++        self.tool_router.remove_route("create_file");
+     }
+
+     #[tool(

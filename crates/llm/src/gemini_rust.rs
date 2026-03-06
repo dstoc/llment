@@ -2,10 +2,7 @@ use std::error::Error;
 
 use async_trait::async_trait;
 use futures_util::{StreamExt, TryStreamExt};
-use gemini_rust::{
-    Content, FunctionCallingMode, FunctionDeclaration, FunctionParameters, Gemini, Message, Part,
-    Role,
-};
+use gemini_rust::{Content, FunctionCallingMode, FunctionDeclaration, Gemini, Message, Part, Role};
 use reqwest::{Client as HttpClient, Url};
 use serde_json::Value;
 use uuid::Uuid;
@@ -113,16 +110,20 @@ impl LlmClient for GeminiRustClient {
                 }
                 ChatMessage::Tool(t) => match t.content {
                     JsonResult::Content { content } => {
-                        builder = builder.with_function_response(
-                            t.tool_name,
-                            serde_json::json!({ "output": content }),
-                        );
+                        builder = builder
+                            .with_function_response(
+                                t.tool_name,
+                                serde_json::json!({ "output": content }),
+                            )
+                            .unwrap();
                     }
                     JsonResult::Error { error } => {
-                        builder = builder.with_function_response(
-                            t.tool_name,
-                            serde_json::json!({ "error": error }),
-                        );
+                        builder = builder
+                            .with_function_response(
+                                t.tool_name,
+                                serde_json::json!({ "error": error }),
+                            )
+                            .unwrap();
                     }
                 },
             }
@@ -134,8 +135,13 @@ impl LlmClient for GeminiRustClient {
         if !request.tools.is_empty() {
             for t in request.tools {
                 let params_value = to_openapi_schema(&t.parameters);
-                let params: FunctionParameters = serde_json::from_value(params_value)?;
-                let function = FunctionDeclaration::new(t.name, t.description, params);
+                let params: serde_json::Value = serde_json::from_value(params_value)?;
+                let function: FunctionDeclaration = serde_json::from_value(serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": params
+                }))
+                .unwrap();
                 builder = builder.with_function(function);
             }
             builder = builder.with_function_calling_mode(FunctionCallingMode::Auto);
@@ -143,6 +149,7 @@ impl LlmClient for GeminiRustClient {
 
         if request.think.unwrap_or(true) {
             builder = builder.with_thinking_config(gemini_rust::ThinkingConfig {
+                thinking_level: Some(gemini_rust::ThinkingLevel::ThinkingLevelUnspecified),
                 thinking_budget: Some(-1),
                 include_thoughts: Some(true),
             });

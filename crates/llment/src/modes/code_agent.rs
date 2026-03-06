@@ -4,7 +4,7 @@ use arc_swap::ArcSwap;
 use llm::{ChatMessage, ToolInfo, mcp::McpService};
 use rmcp::{
     ServerHandler,
-    handler::server::{router::tool::ToolRouter, tool::Parameters},
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerInfo},
     service::{RoleClient, RunningService, ServiceExt},
     tool, tool_handler, tool_router,
@@ -80,9 +80,10 @@ impl CodeAgentTools {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for CodeAgentTools {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
+        {
+            let mut info = ServerInfo::default();
+            info.capabilities = ServerCapabilities::builder().enable_tools().build();
+            info
         }
     }
 }

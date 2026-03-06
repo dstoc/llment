@@ -1,0 +1,13 @@
+--- crates/mcp-hello/src/lib.rs
++++ crates/mcp-hello/src/lib.rs
+@@ -34,6 +34,6 @@
+     fn get_info(&self) -> ServerInfo {
+-        ServerInfo {
+-            capabilities: ServerCapabilities::builder().enable_tools().build(),
+-            ..Default::default()
+-        }
++        let mut info = ServerInfo::default();
++        info.capabilities = ServerCapabilities::builder().enable_tools().build();
++        info
+     }
+ }
