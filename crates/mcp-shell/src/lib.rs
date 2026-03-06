@@ -75,9 +75,7 @@ impl ShellServer {
 #[tool_handler]
 impl ServerHandler for ShellServer {
     fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
-        info.capabilities = ServerCapabilities::builder().enable_tools().build();
-        info
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
 }
 
