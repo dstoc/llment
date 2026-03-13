@@ -99,7 +99,21 @@ pub fn redo() -> HistoryEdit {
 
 pub fn save(path: String) -> HistoryEdit {
     Box::new(move |history: &mut Vec<ChatMessage>| {
-        let data = serde_json::to_string_pretty(&*history).unwrap();
+        let mut lines = Vec::new();
+        for msg in history.iter() {
+            if let ChatMessage::Assistant(a) = msg {
+                for part in &a.content {
+                    let single_part_msg = ChatMessage::Assistant(llm::AssistantMessage {
+                        content: vec![part.clone()],
+                    });
+                    lines.push(serde_json::to_string(&single_part_msg).unwrap());
+                }
+            } else {
+                lines.push(serde_json::to_string(msg).unwrap());
+            }
+        }
+
+        let data = lines.join("\n") + "\n";
         std::fs::write(&path, data).map_err(|e| format!("failed to save: {}", e))?;
         Ok(HistoryEditResult::default())
     })
@@ -108,8 +122,27 @@ pub fn save(path: String) -> HistoryEdit {
 pub fn load(path: String) -> HistoryEdit {
     Box::new(move |history: &mut Vec<ChatMessage>| {
         let data = std::fs::read_to_string(&path).map_err(|e| format!("failed to load: {}", e))?;
-        let loaded: Vec<ChatMessage> =
-            serde_json::from_str(&data).map_err(|e| format!("failed to parse: {}", e))?;
+
+        let mut loaded: Vec<ChatMessage> = Vec::new();
+        for line in data.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let msg: ChatMessage =
+                serde_json::from_str(line).map_err(|e| format!("failed to parse: {}", e))?;
+
+            if let ChatMessage::Assistant(mut new_a) = msg {
+                if let Some(ChatMessage::Assistant(existing_a)) = loaded.last_mut() {
+                    existing_a.content.append(&mut new_a.content);
+                } else {
+                    loaded.push(ChatMessage::Assistant(new_a));
+                }
+            } else {
+                loaded.push(msg);
+            }
+        }
+
         *history = loaded;
         Ok(HistoryEditResult {
             reset_session: true,
