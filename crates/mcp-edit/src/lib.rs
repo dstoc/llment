@@ -521,14 +521,14 @@ impl FsServer {
                     };
                     let canonical = match fs::canonicalize(&path) {
                         Ok(c) => c,
-                        Err(e) => return Err(format!("failed to canonicalize path {}: {e}", path.display())),
+                        Err(_) => continue,
                     };
                     if !canonical.starts_with(&workspace_root) {
-                        return Err("path must be within the workspace".to_string());
+                        continue;
                     }
                     let metadata = match fs::metadata(&canonical) {
                         Ok(m) => m,
-                        Err(e) => return Err(format!("failed to get metadata for {}: {e}", canonical.display())),
+                        Err(_) => continue,
                     };
                     if metadata.is_file() {
                         file_paths.push(canonical);
