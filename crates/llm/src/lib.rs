@@ -171,6 +171,7 @@ mod llama_server;
 pub mod mcp;
 pub mod ollama;
 pub mod openai_chat;
+pub mod openai_responses;
 pub mod test_provider;
 pub mod tools;
 
@@ -182,6 +183,8 @@ pub enum Provider {
     Ollama,
     #[clap(name = "openai-chat")]
     OpenAiChat,
+    #[clap(name = "openai-responses")]
+    OpenAiResponses,
     Harmony,
     GeminiRust,
 }
@@ -229,6 +232,7 @@ pub fn client_from(
     let inner: Arc<dyn LlmClient> = match provider {
         Provider::Ollama => Arc::new(ollama::OllamaClient::new(host)?),
         Provider::OpenAiChat => Arc::new(openai_chat::OpenAiChatClient::new(host)),
+        Provider::OpenAiResponses => Arc::new(openai_responses::OpenAiResponsesClient::new(host)),
         Provider::Harmony => Arc::new(harmony::HarmonyClient::new(host)),
         Provider::GeminiRust => Arc::new(gemini_rust::GeminiRustClient::new(host)?),
     };
@@ -283,6 +287,13 @@ pub fn to_openapi_schema(schema: &Schema) -> Value {
     }
     let mut value = to_value(schema).unwrap_or(Value::Null);
     sanitize(&mut value);
+    if value.is_object() {
+        value
+            .as_object_mut()
+            .unwrap()
+            .entry("properties")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    }
     value
 }
 
